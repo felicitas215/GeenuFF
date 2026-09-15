@@ -1,0 +1,32 @@
+##gff-version 3
+##sequence-region NC_TEST.1 1 5000
+NC_TEST.1	BestRefSeq	gene	100	1000	.	+	.	ID=gene1;Name=gene1;gene_biotype=protein_coding
+NC_TEST.1	BestRefSeq	mRNA	100	1000	.	+	.	ID=rna1a;Parent=gene1;Name=rna1a
+NC_TEST.1	BestRefSeq	exon	100	220	.	+	.	ID=id1;Parent=rna1a
+NC_TEST.1	BestRefSeq	exon	400	520	.	+	.	ID=id2;Parent=rna1a
+NC_TEST.1	BestRefSeq	exon	800	1000	.	+	.	ID=id3;Parent=rna1a
+NC_TEST.1	BestRefSeq	five_prime_UTR	100	150	.	+	.	ID=utr1a;Parent=rna1a
+NC_TEST.1	BestRefSeq	CDS	151	220	.	+	0	ID=cds1a;Parent=rna1a
+NC_TEST.1	BestRefSeq	CDS	400	520	.	+	2	ID=cds1a;Parent=rna1a
+NC_TEST.1	BestRefSeq	CDS	800	920	.	+	1	ID=cds1a;Parent=rna1a
+NC_TEST.1	BestRefSeq	three_prime_UTR	921	1000	.	+	.	ID=utr1b;Parent=rna1a
+NC_TEST.1	BestRefSeq	gene	2000	2800	.	+	.	ID=gene2;Name=gene2;gene_biotype=protein_coding
+NC_TEST.1	BestRefSeq	mRNA	2000	2800	.	+	.	ID=rna2;Parent=gene2;Name=rna2
+NC_TEST.1	BestRefSeq	exon	2000	2150	.	+	.	ID=id4;Parent=rna2
+NC_TEST.1	BestRefSeq	exon	2400	2600	.	+	.	ID=id5;Parent=rna2
+NC_TEST.1	BestRefSeq	exon	2650	2800	.	+	.	ID=id6;Parent=rna2
+NC_TEST.1	BestRefSeq	five_prime_UTR	2000	2049	.	+	.	ID=utr2a;Parent=rna2
+NC_TEST.1	BestRefSeq	CDS	2050	2150	.	+	0	ID=cds2;Parent=rna2
+NC_TEST.1	BestRefSeq	CDS	2400	2600	.	+	2	ID=cds2;Parent=rna2
+NC_TEST.1	BestRefSeq	CDS	2650	2750	.	+	0	ID=cds2;Parent=rna2
+NC_TEST.1	BestRefSeq	three_prime_UTR	2751	2800	.	+	.	ID=utr2b;Parent=rna2
+NC_TEST.1	BestRefSeq	gene	3900	5000	.	+	.	ID=gene1;Name=gene1;gene_biotype=protein_coding
+NC_TEST.1	BestRefSeq	mRNA	3900	5000	.	+	.	ID=rna1b;Parent=gene1;Name=rna1b
+NC_TEST.1	BestRefSeq	exon	3900	4100	.	+	.	ID=id7;Parent=rna1b
+NC_TEST.1	BestRefSeq	exon	4300	4500	.	+	.	ID=id8;Parent=rna1b
+NC_TEST.1	BestRefSeq	exon	4800	5000	.	+	.	ID=id9;Parent=rna1b
+NC_TEST.1	BestRefSeq	five_prime_UTR	3900	3949	.	+	.	ID=utr1c;Parent=rna1b
+NC_TEST.1	BestRefSeq	CDS	3950	4100	.	+	0	ID=cds1b;Parent=rna1b
+NC_TEST.1	BestRefSeq	CDS	4300	4500	.	+	2	ID=cds1b;Parent=rna1b
+NC_TEST.1	BestRefSeq	CDS	4800	4900	.	+	1	ID=cds1b;Parent=rna1b
+NC_TEST.1	BestRefSeq	three_prime_UTR	4901	5000	.	+	.	ID=utr1d;Parent=rna1b

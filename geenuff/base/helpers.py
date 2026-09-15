@@ -2,6 +2,8 @@ import copy
 import hashlib
 import logging
 import enum
+from types import GeneratorType
+
 
 ##### types related #######
 
@@ -204,7 +206,7 @@ def strand_as_bool(strand):
 def get_strand_direction(gffentry):
     return strand_as_bool(gffentry.strand)
 
-
+# todo: could this be simpler?
 def get_geenuff_start_end(gff_start, gff_end, is_plus_strand):
     gff_start, gff_end = to_count_from_0(gff_start), to_count_from_0(gff_end)
 

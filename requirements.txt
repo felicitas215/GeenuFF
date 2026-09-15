@@ -1,5 +1,5 @@
 intervaltree
-sqlalchemy
+SQLAlchemy==1.3.22
 numpy
 git+https://github.com/janinamass/dustdas@master
 # for testing only

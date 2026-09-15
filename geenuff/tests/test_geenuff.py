@@ -828,6 +828,32 @@ def test_gff_grouper():
             assert group[0].type == 'gene'
 
 
+def test_gff_grouper_keeps_discontinuous_gene_as_separate_loci():
+    """A GFF3 'gene' ID split across two non-adjacent lines (a discontinuous feature) must
+    stay as two separately-spanned super locus groups instead of being merged into one
+    locus spanning both segments: merging would make the unrelated gene sitting in between
+    them look nested/overlapping to GFFErrorHandling purely as an artifact of the merge."""
+    gff_organizer = OrganizedGFFEntries('testdata/discontinuous_gene.gff3')
+    gff_organizer.load_organized_entries()
+    groups = gff_organizer.organized_entries['NC_TEST.1']
+    assert len(groups) == 3
+
+    given_names = [group[0].get_ID() for group in groups]
+    assert given_names == ['gene1', 'gene2', 'gene1']
+
+    gene1a, gene2, gene1b = (group[0] for group in groups)
+    # each occurrence keeps its own, real span; not merged into 100-5000
+    assert (gene1a.start, gene1a.end) == (100, 1000)
+    assert (gene2.start, gene2.end) == (2000, 2800)
+    assert (gene1b.start, gene1b.end) == (3900, 5000)
+
+    # each group's own transcript (and only its own) is attached to it
+    rna_ids_by_group = [
+        {e.get_ID() for e in group if e.type == 'mRNA'} for group in groups
+    ]
+    assert rna_ids_by_group == [{'rna1a'}, {'rna2'}, {'rna1b'}]
+
+
 # section: types
 def test_enum_non_inheritance():
     allknowngff = [x.name for x in list(types.AllKnownGFFFeatures)]

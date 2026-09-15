@@ -72,7 +72,7 @@ class OrganizedGeenuffImporterGroup(object):
                 'transcript_feature': transcript_importer,
                 'protein': protein_importer,
                 'cds': cds_importer,
-                'introns': [intron_importer1, intron_importer2, ..],
+                'introns': [intron_importer1, intron_importer2, ...],
                 'errors': []  # errors are filled in later
             },
             ...
@@ -94,7 +94,6 @@ class OrganizedGeenuffImporterGroup(object):
     def _parse_gff_entries(self, entries):
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
         sl = entries['super_locus']
-
         sl_is_plus_strand = get_strand_direction(sl)
 
         sl_start, sl_end = get_geenuff_start_end(sl.start, sl.end, sl_is_plus_strand)
@@ -415,9 +414,22 @@ class OrganizedGFFEntries(object):
         if first is not None:
             seqid = first.seqid
             gene_group = [first]
+            # GFF3 allows one ID to be split across several 'gene' lines (a discontinuous
+            # feature); these are kept as separate super locus records below rather than
+            # merged into one, since merging would make any real gene lying between the two
+            # occurrences falsely look nested/overlapping in _sl_neighbor_status
+            seen_gene_ids = {first.get_ID()} - {None}
             self.organized_entries[seqid] = []
+
             for entry in reader:
                 if entry.type in gene_level:
+                    entry_id = entry.get_ID()
+                    if entry_id is not None:
+                        if entry_id in seen_gene_ids:
+                            logging.warning(f"'gene' ID '{entry_id}' reused at "
+                                            f"{entry.seqid}:{entry.start}-{entry.end}; kept "
+                                            f"as a separate super locus record")
+                        seen_gene_ids.add(entry_id)
                     self.organized_entries[seqid].append(gene_group)
                     gene_group = [entry]
                     if entry.seqid != seqid:
@@ -463,7 +475,7 @@ class OrganizedGFFEntries(object):
         assert entry.phase in [None, 0, 1, 2]
 
         # clean up strand
-        if entry.strand == '.':
+        if entry.strand == '.' or entry.strand == '?':  # new ? for test purposes
             entry.strand = None
         else:
             assert entry.strand in ['+', '-']
@@ -951,7 +963,7 @@ class ImportController(object):
             # insert importers
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)
-            if is_final_coord or self.insertion_queues.total_size() > 10000:
+            if is_final_coord or self.insertion_queues.total_size() > 10000:  # todo: change to 1000, RAM issue fix maybe
                 self.insertion_queues.execute_so_far()
 
         assert self.latest_fasta_importer is not None, 'No recent genome found'
@@ -1008,11 +1020,14 @@ class FastaImporter(object):
 
     def mk_mapper(self, gff_file=None):
         fa_ids = [e.seqid for e in self.genome.coordinates]
+        #print(self.genome.coordinates)
         if gff_file is not None:  # allow setup without ado when we know IDs match exactly
             self._gff_seq_ids = helpers.get_seqids_from_gff(gff_file)
         else:
             self._gff_seq_ids = fa_ids
+        #print(self._gff_seq_ids, fa_ids)
         mapper, is_forward = helpers.two_way_key_match(fa_ids, self._gff_seq_ids)
+        #print(mapper.keys, is_forward)
         self.mapper = mapper
 
         if not is_forward:
