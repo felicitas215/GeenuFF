@@ -1,0 +1,14 @@
+##gff-version 3
+##sequence-region NC_TEST.2 1 3000
+NC_TEST.2	BestRefSeq	gene	100	400	.	?	.	ID=transspliced1;Name=transspliced1;gene_biotype=trans_spliced
+NC_TEST.2	BestRefSeq	mRNA	100	400	.	?	.	ID=rna_ts1;Parent=transspliced1;Name=rna_ts1
+NC_TEST.2	BestRefSeq	exon	100	200	.	+	.	ID=id_ts1a;Parent=rna_ts1
+NC_TEST.2	BestRefSeq	CDS	100	200	.	+	0	ID=cds_ts1;Parent=rna_ts1
+NC_TEST.2	BestRefSeq	exon	300	400	.	-	.	ID=id_ts1b;Parent=rna_ts1
+NC_TEST.2	BestRefSeq	CDS	300	400	.	-	0	ID=cds_ts1;Parent=rna_ts1
+NC_TEST.2	BestRefSeq	gene	1000	1200	.	+	.	ID=gene2;Name=gene2;gene_biotype=protein_coding
+NC_TEST.2	BestRefSeq	mRNA	1000	1200	.	+	.	ID=rna2;Parent=gene2;Name=rna2
+NC_TEST.2	BestRefSeq	exon	1000	1200	.	+	.	ID=id2;Parent=rna2
+NC_TEST.2	BestRefSeq	five_prime_UTR	1000	1029	.	+	.	ID=utr2a;Parent=rna2
+NC_TEST.2	BestRefSeq	CDS	1030	1128	.	+	0	ID=cds2;Parent=rna2
+NC_TEST.2	BestRefSeq	three_prime_UTR	1129	1200	.	+	.	ID=utr2b;Parent=rna2

@@ -13,6 +13,7 @@ from ..base.orm import (Genome, Feature, Coordinate, Transcript, TranscriptPiece
                         Protein)
 from ..base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from ..applications.importer import ImportController, InsertCounterHolder, OrganizedGFFEntries
+from ..applications.exporter import GeenuffExportController
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -800,6 +801,37 @@ def test_non_coding_intron():
     assert (transcript.start, transcript.end) == (3459, 334)
     assert (cds.start, cds.end) == (2194, 478)
     assert (intron.start, intron.end) == (3310, 2195)
+
+
+def test_trans_spliced_gene_strand_not_crashing_and_excluded_from_export():
+    """A '?' strand (NCBI's convention for trans-spliced genes) must not crash the importer:
+    the gene is still saved as its own super locus, but with no transcripts under it, so
+    'transcript.longest' never becomes True for it and it is excluded from the export query
+    that both h5 export and masking rely on (see GeenuffExportController._genome_query)."""
+    db_path = 'testdata/trans_spliced.sqlite3'
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    try:
+        controller = ImportController(database_path=db_path)
+        controller.add_genome('testdata/trans_spliced.fa', 'testdata/trans_spliced.gff3',
+                              clean_gff=True)
+
+        # the trans-spliced gene is still saved as its own super locus record...
+        sl_names = {sl.given_name for sl in controller.session.query(SuperLocus).all()}
+        assert sl_names == {'transspliced1', 'gene2'}
+        # ...but with no transcripts under it
+        ts_sl = controller.session.query(SuperLocus).filter_by(given_name='transspliced1').one()
+        assert ts_sl.transcripts == []
+
+        exporter = GeenuffExportController(db_path, longest=True)
+        coord_features = exporter.genome_query(longest_only=True)
+        given_names = {f.given_name for fs in coord_features.values() for f in fs}
+        assert 'rna_ts1' not in given_names
+        assert 'cds_ts1' not in given_names
+        assert 'rna2' in given_names
+    finally:
+        if os.path.exists(db_path):
+            os.remove(db_path)
 
 
 def test_gff_gen():

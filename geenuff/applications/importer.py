@@ -94,7 +94,26 @@ class OrganizedGeenuffImporterGroup(object):
     def _parse_gff_entries(self, entries):
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
         sl = entries['super_locus']
-        sl_is_plus_strand = get_strand_direction(sl)
+        try:
+            sl_is_plus_strand = get_strand_direction(sl)
+        except ValueError:
+            # e.g. NCBI marks trans-spliced genes with strand '?': this pipeline has no way
+            # to represent a gene that isn't on a single +/- strand, so the super locus is
+            # saved on its own, with no transcripts/features under it. 'transcript.longest'
+            # therefore stays False for everything here, which keeps it out of every
+            # longest-only-filtered export query (see GeenuffExportController._genome_query)
+            # without needing a dedicated error/mask type, i.e. left alone entirely
+            logging.warning(f"super locus '{sl.get_ID()}' has strand '{sl.strand}' (not '+' "
+                            f"or '-'), most likely a trans-spliced gene; saving it without "
+                            f"any transcripts so it is never exported or masked")
+            self.importers['super_locus'] = SuperLocusImporter(entry_type=sl.type,
+                                                                given_name=sl.get_ID(),
+                                                                coord=self.coord,
+                                                                is_plus_strand=None,
+                                                                start=sl.start,
+                                                                end=sl.end,
+                                                                controller=self.controller)
+            return
 
         sl_start, sl_end = get_geenuff_start_end(sl.start, sl.end, sl_is_plus_strand)
         sl_i = self.importers['super_locus'] = SuperLocusImporter(entry_type=sl.type,
