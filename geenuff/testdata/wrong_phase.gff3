@@ -1,0 +1,8 @@
+##gff-version 3
+##sequence-region NC_TEST.3 1 2000
+NC_TEST.3	BestRefSeq	gene	1000	1100	.	+	.	ID=gene1;Name=gene1;gene_biotype=protein_coding
+NC_TEST.3	BestRefSeq	mRNA	1000	1100	.	+	.	ID=rna1;Parent=gene1;Name=rna1
+NC_TEST.3	BestRefSeq	exon	1000	1100	.	+	.	ID=id1;Parent=rna1
+NC_TEST.3	BestRefSeq	five_prime_UTR	1000	1029	.	+	.	ID=utr1a;Parent=rna1
+NC_TEST.3	BestRefSeq	CDS	1030	1065	.	+	1	ID=cds1;Parent=rna1
+NC_TEST.3	BestRefSeq	three_prime_UTR	1066	1100	.	+	.	ID=utr1b;Parent=rna1

@@ -15,7 +15,8 @@ from .. import orm
 from .. import types
 from .. import helpers
 from ..base.helpers import (get_strand_direction, get_geenuff_start_end, has_start_codon,
-                            has_stop_codon, in_enum_values)
+                            has_stop_codon, has_inframe_stop_codon, spliced_cds_sequence,
+                            in_enum_values)
 
 
 class GFFValidityError(Exception):
@@ -172,11 +173,22 @@ class OrganizedGeenuffImporterGroup(object):
                 else:
                     phase_5p = t_entries['cds'][-1].phase
                     phase_3p = t_entries['cds'][0].phase
+                # spliced once here, from the raw per-piece CDS list we already have on hand,
+                # to check for a truncated (non-codon-multiple) length or a premature stop
+                # codon -- neither of which the file's own annotation is trusted to rule out
+                cds_seq = spliced_cds_sequence(self.coord.sequence, t_entries['cds'], t_is_plus_strand)
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
                                         types.GEENUFF_CDS,
                                         phase_5p=phase_5p,
                                         phase_3p=phase_3p,
+                                        # the file's starting phase isn't trusted; the first
+                                        # CDS piece always starts a fresh codon, i.e. phase 0
+                                        # -> same value in both phase conventions, Helixer later
+                                        # computes the phases from the starting phase
+                                        phase=0,
+                                        is_truncated=len(cds_seq) % 3 != 0,
+                                        has_inframe_stop=has_inframe_stop_codon(cds_seq),
                                         score=t.score,
                                         source=t.source,
                                         controller=self.controller)
@@ -642,6 +654,15 @@ class GFFErrorHandling(object):
                         self._add_overlapping_error(i, transcript, cds, '5p', types.MISSING_START_CODON)
                     if not has_stop_codon(cds.coord.sequence, cds.end, self.is_plus_strand):
                         self._add_overlapping_error(i, transcript, cds, '3p', types.MISSING_STOP_CODON)
+
+                    # the case of a truncated (not a multiple of 3) or a premature-stop-codon
+                    # containing CDS; both were already computed once in _parse_gff_entries
+                    if cds.is_truncated:
+                        self._add_error(i, transcript, cds.start, cds.end, self.is_plus_strand,
+                                        types.TRUNCATED_CDS)
+                    if cds.has_inframe_stop:
+                        self._add_error(i, transcript, cds.start, cds.end, self.is_plus_strand,
+                                        types.INFRAME_STOP_CODON)
 
                     # the case of wrong 5p phase
                     if cds.phase_5p != 0:
@@ -1112,6 +1133,9 @@ class FeatureImporter(Insertable):
                  given_name=None,
                  phase_5p=0,
                  phase_3p=0,
+                 phase=None,
+                 is_truncated=False,
+                 has_inframe_stop=False,
                  score=None,
                  source=None):
         self.id = InsertCounterHolder.feature()
@@ -1122,8 +1146,14 @@ class FeatureImporter(Insertable):
         # start/end may have to be adapted to geenuff
         self.start = start
         self.end = end
-        self.phase_5p = phase_5p
+        self.phase_5p = phase_5p  # the file's own value, only used for the WRONG_PHASE_5P check
         self.phase_3p = phase_3p  # only used for error checking
+        # the phase actually saved to the db; defaults to phase_5p for every non-CDS feature
+        # type (where phase is irrelevant and stays 0), but a CDS passes its own recomputed
+        # value here instead of trusting the file's phase_5p (see _parse_gff_entries)
+        self.phase = phase if phase is not None else phase_5p
+        self.is_truncated = is_truncated  # only used for the TRUNCATED_CDS check
+        self.has_inframe_stop = has_inframe_stop  # only used for the INFRAME_STOP_CODON check
         self.score = score
         self.source = source
         self.start_is_biological_start = True
@@ -1139,7 +1169,7 @@ class FeatureImporter(Insertable):
             'is_plus_strand': self.is_plus_strand,
             'score': self.score,
             'source': self.source,
-            'phase': self.phase_5p,
+            'phase': self.phase,
             'start': self.start,
             'end': self.end,
             'start_is_biological_start': self.start_is_biological_start,

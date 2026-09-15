@@ -7,7 +7,7 @@ from . import types
 # setup classes for data holding
 Base = declarative_base()
 
-
+# todo , give option to report/provide this as a yaml or json?
 class Genome(Base):
     __tablename__ = 'genome'
 

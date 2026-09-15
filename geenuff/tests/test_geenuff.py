@@ -451,6 +451,34 @@ def test_dummyloci_errors():
         'type': types.MISSING_START_CODON
     }
     assert error_in_list(error, errors)
+    # y1's spliced CDS (11-21, 111-120, 201-301) is 122bp (not a multiple of 3) and contains
+    # a premature stop codon; neither was designed on purpose, this is just what falls out of
+    # the arbitrary dummy CDS boundaries chosen to test the other errors above
+    error = {
+        'coord_id': coords[0].id,
+        'is_plus_strand': True,
+        'start': 10,
+        'end': 301,
+        'type': types.TRUNCATED_CDS
+    }
+    assert error_in_list(error, errors)
+    error = {
+        'coord_id': coords[0].id,
+        'is_plus_strand': True,
+        'start': 10,
+        'end': 301,
+        'type': types.INFRAME_STOP_CODON
+    }
+    assert error_in_list(error, errors)
+    # z1's single 10bp CDS piece (111-120) is likewise not a multiple of 3
+    error = {
+        'coord_id': coords[0].id,
+        'is_plus_strand': True,
+        'start': 110,
+        'end': 120,
+        'type': types.TRUNCATED_CDS
+    }
+    assert error_in_list(error, errors)
 
     # test case 2
     # we don't currently test for that in order to have all errors attached to a transcript
@@ -475,6 +503,16 @@ def test_dummyloci_errors():
 
     #### Coordinate 1 ####
 
+    # test case 5: x5's spliced CDS (40-151, 152-182) is 143bp, not a multiple of 3
+    error = {
+        'coord_id': coords[1].id,
+        'is_plus_strand': True,
+        'start': 39,
+        'end': 182,
+        'type': types.TRUNCATED_CDS
+    }
+    assert error_in_list(error, errors)
+
     # test case 6
     error = {
         'coord_id': coords[1].id,
@@ -490,6 +528,15 @@ def test_dummyloci_errors():
         'start': 575,
         'end': 579,
         'type': types.TOO_SHORT_INTRON
+    }
+    assert error_in_list(error, errors)
+    # y6's spliced CDS (525-575, 580-600, 700-725) is 98bp, not a multiple of 3
+    error = {
+        'coord_id': coords[1].id,
+        'is_plus_strand': True,
+        'start': 524,
+        'end': 725,
+        'type': types.TRUNCATED_CDS
     }
     assert error_in_list(error, errors)
 
@@ -832,6 +879,24 @@ def test_trans_spliced_gene_strand_not_crashing_and_excluded_from_export():
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
+
+
+def test_cds_starting_phase_is_reset_not_trusted():
+    """The file's own CDS starting phase is not trusted: a complete CDS always starts a
+    fresh codon (phase 0) by definition, so the persisted phase is always resets as 0
+    regardless of what the file says. The file's value is still used to flag a
+    WRONG_PHASE_5P diagnostic error when it disagrees, it just no longer corrupts the
+    stored phase."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/wrong_phase.fa', 'testdata/wrong_phase.gff3', clean_gff=True)
+
+    cds = controller.session.query(Feature).filter(
+        Feature.type == types.GeenuffFeature.geenuff_cds).one()
+    assert cds.phase == 0  # not the file's (wrong) phase of 1
+
+    wrong_phase_errors = controller.session.query(Feature).filter(
+        Feature.type == types.GeenuffFeature.wrong_starting_phase).all()
+    assert len(wrong_phase_errors) == 1
 
 
 def test_gff_gen():

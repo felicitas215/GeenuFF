@@ -269,7 +269,7 @@ class GeenuffExportController(object):
                       dummy_handler._one_range_one_group(minus_subtracted)
         return groups
 
-    def prep_ranges(self, range_function):
+    def prep_ranges(self, range_function: object) -> None:
         for arange in self.gen_ranges(range_function):
             self.export_ranges.append(arange)
 

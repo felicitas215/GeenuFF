@@ -285,6 +285,26 @@ def has_stop_codon(seq, end, is_plus_strand):
     else:
         return substr_seq(seq, end + 3, end, is_plus_strand) in STOP_CODONS_COMP
 
+
+def spliced_cds_sequence(seq, cds_pieces, is_plus_strand):
+    """joins raw GFF CDS pieces (each with a 1-based, inclusive .start/.end, sorted by
+    ascending genomic start) into one continuous, 5' to 3' oriented sequence"""
+    ordered = cds_pieces if is_plus_strand else reversed(cds_pieces)
+    parts = []
+    for piece in ordered:
+        start, end = get_geenuff_start_end(piece.start, piece.end, is_plus_strand)
+        part = substr_seq(seq, start, end, is_plus_strand)
+        parts.append(part if is_plus_strand else ''.join(reverse_complement(part)))
+    return ''.join(parts)
+
+
+def has_inframe_stop_codon(cds_seq):
+    """checks a fully spliced, 5' to 3' oriented CDS sequence for a stop codon before the
+    final codon; a truncated (not a multiple of 3) trailing partial codon is ignored"""
+    last_full_codon_start = len(cds_seq) - len(cds_seq) % 3 - 3
+    codons = (cds_seq[i:i + 3] for i in range(0, last_full_codon_start, 3))
+    return any(codon in STOP_CODONS for codon in codons)
+
 ##### SQL alchemy core queue control #####
 
 class Counter(object):
