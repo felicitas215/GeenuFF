@@ -2,10 +2,9 @@ import os
 import math
 import logging
 import shutil
-import sys
+from collections import defaultdict
 
 import intervaltree
-from pprint import pprint  # for debugging
 from abc import ABC, abstractmethod
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -18,9 +17,44 @@ from ..base.helpers import (get_strand_direction, get_geenuff_start_end, has_sta
                             has_stop_codon, has_inframe_stop_codon, spliced_cds_sequence,
                             in_enum_values)
 
+logger = logging.getLogger(__name__)
+
 
 class GFFValidityError(Exception):
     pass
+
+
+class ImportStatistics(object):
+    """Aggregate counts for one add_genome() call. A single summary logged at the end of
+    the import gives a full picture of what was found (see log_summary), instead of one
+    log line per locus/transcript/error, which floods the log without being any easier to
+    get an overview from."""
+
+    def __init__(self):
+        self.total_super_loci = 0
+        self.total_transcripts = 0
+        self.total_coding_transcripts = 0
+        self.empty_super_loci = 0  # a gene with no transcripts at all
+        self.unstranded_super_loci = 0  # e.g. NCBI's '?' strand for trans-spliced genes
+        self.discontinuous_gene_ids_reused = 0
+        self.backwards_errors_removed = 0  # from overlapping super loci, see _remove_backwards_errors
+        self.errors = defaultdict(int)  # keyed by types.Errors value
+
+    def log_summary(self, species):
+        lines = [
+            f"import summary for '{species}':",
+            f'  super loci: {self.total_super_loci} ({self.empty_super_loci} without any '
+            f'transcript, {self.unstranded_super_loci} unstranded/trans-spliced, '
+            f'{self.discontinuous_gene_ids_reused} discontinuous gene IDs reused)',
+            f'  transcripts: {self.total_transcripts} ({self.total_coding_transcripts} coding)',
+            f'  backwards errors removed (from overlapping loci): {self.backwards_errors_removed}',
+        ]
+        if self.errors:
+            lines.append('  errors:')
+            lines += [f'    {error_type}: {count}' for error_type, count in sorted(self.errors.items())]
+        else:
+            lines.append('  errors: none')
+        logger.info('\n'.join(lines))
 
 
 # core queue prep
@@ -88,13 +122,15 @@ class OrganizedGeenuffImporterGroup(object):
         try:
             self._parse_gff_entries(organized_gff_entries)
         except Exception as e:
-            print('Error originally raised while parsing the following entries\n', organized_gff_entries,
-                  file=sys.stderr)
+            logger.error(f'Error originally raised while parsing the following entries: '
+                         f'{organized_gff_entries}')
             raise e
 
     def _parse_gff_entries(self, entries):
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
         sl = entries['super_locus']
+        stats = self.controller.stats
+        stats.total_super_loci += 1
         try:
             sl_is_plus_strand = get_strand_direction(sl)
         except ValueError:
@@ -104,16 +140,17 @@ class OrganizedGeenuffImporterGroup(object):
             # therefore stays False for everything here, which keeps it out of every
             # longest-only-filtered export query (see GeenuffExportController._genome_query)
             # without needing a dedicated error/mask type, i.e. left alone entirely
-            logging.warning(f"super locus '{sl.get_ID()}' has strand '{sl.strand}' (not '+' "
-                            f"or '-'), most likely a trans-spliced gene; saving it without "
-                            f"any transcripts so it is never exported or masked")
+            stats.unstranded_super_loci += 1
+            logger.debug(f"super locus '{sl.get_ID()}' has strand '{sl.strand}' (not '+' "
+                         f"or '-'), most likely a trans-spliced gene; saving it without "
+                         f"any transcripts so it is never exported or masked")
             self.importers['super_locus'] = SuperLocusImporter(entry_type=sl.type,
-                                                                given_name=sl.get_ID(),
-                                                                coord=self.coord,
-                                                                is_plus_strand=None,
-                                                                start=sl.start,
-                                                                end=sl.end,
-                                                                controller=self.controller)
+                                                               given_name=sl.get_ID(),
+                                                               coord=self.coord,
+                                                               is_plus_strand=None,
+                                                               start=sl.start,
+                                                               end=sl.end,
+                                                               controller=self.controller)
             return
 
         sl_start, sl_end = get_geenuff_start_end(sl.start, sl.end, sl_is_plus_strand)
@@ -125,6 +162,7 @@ class OrganizedGeenuffImporterGroup(object):
                                                                   end=sl_end,
                                                                   controller=self.controller)
         for t, t_entries in entries['transcripts'].items():
+            stats.total_transcripts += 1
             t_importers = {'errors': []}
             # check for multi inheritance and throw NotImplementedError if found
             if t.get_Parent() is None:
@@ -160,6 +198,7 @@ class OrganizedGeenuffImporterGroup(object):
 
             # if it is not a non-coding gene or something like that
             if t_entries['cds']:
+                stats.total_coding_transcripts += 1
                 assert all([t_is_plus_strand == get_strand_direction(x) for x in t_entries['cds']])
                 # create protein handler
                 protein_id = self._get_protein_id_from_cds_list(t_entries['cds'])
@@ -175,7 +214,7 @@ class OrganizedGeenuffImporterGroup(object):
                     phase_3p = t_entries['cds'][0].phase
                 # spliced once here, from the raw per-piece CDS list we already have on hand,
                 # to check for a truncated (non-codon-multiple) length or a premature stop
-                # codon -- neither of which the file's own annotation is trusted to rule out
+                # codon, neither of which the file's own annotation is trusted to rule out
                 cds_seq = spliced_cds_sequence(self.coord.sequence, t_entries['cds'], t_is_plus_strand)
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
@@ -240,14 +279,14 @@ class OrganizedGeenuffImporterGroup(object):
                         overlapper_begin = min([o.begin for o in overlapping])
                         overlapper_end = max([o.end for o in overlapping])
                         if len(overlapping) != 1:
-                            logging.warning('handling overlaps of >1 exon... (masking as if unioned), but this is a '
-                                            'weird enough sort of error that you should really check what is going on '
-                                            'if you read this (around {} {}-{})'.format(self.coord, overlapper_begin,
-                                                                                        overlapper_end))
+                            logger.warning('handling overlaps of >1 exon... (masking as if unioned), but this is a '
+                                           'weird enough sort of error that you should really check what is going on '
+                                           'if you read this (around {} {}-{})'.format(self.coord, overlapper_begin,
+                                                                                       overlapper_end))
 
                         ovlp_end = max(overlapper_begin, inv_e_start)
                         ovlp_start = min(overlapper_end, inv_e_end)
-                        print('found an overlap {}-{}'.format(ovlp_end, ovlp_start))
+                        logger.debug('found an overlap {}-{}'.format(ovlp_end, ovlp_start))
                         if not e_is_plus_strand:
                             ovlp_start, ovlp_end = ovlp_end, ovlp_start
                         # insert a dummy 'backwards' intron, which will later be turned into an overlap error
@@ -361,12 +400,12 @@ class OrganizedGFFEntryGroup(object):
         'super_locus' = super_locus_entry,
         'transcripts' = {
             transcript_entry1: {
-                'exons': [ordered_exon_entry1, ordered_exon_entry2, ..],
-                'cds': [ordered_cds_entry1, ordered_cds_entry2, ..]
+                'exons': [ordered_exon_entry1, ordered_exon_entry2, ...],
+                'cds': [ordered_cds_entry1, ordered_cds_entry2, ...]
             },
             transcript_entry2: {
-                'exons': [ordered_exon_entry1, ordered_exon_entry2, ..],
-                'cds': [ordered_cds_entry1, ordered_cds_entry2, ..]
+                'exons': [ordered_exon_entry1, ordered_exon_entry2, ...],
+                'cds': [ordered_cds_entry1, ordered_cds_entry2, ...]
             },
             ...
         }
@@ -395,9 +434,10 @@ class OrganizedGFFEntryGroup(object):
                 elif in_enum_values(entry.type, types.CDSLevel):
                     self.entries['transcripts'][latest_transcript]['cds'].append(entry)
                 else:
-                    logging.warning(f'Found unexpected entry type: {entry.type}')
+                    logger.warning(f'Found unexpected entry type: {entry.type}')
             else:
-                logging.warning(f'Ignoring {entry.type} without transcript found in {entry.seqid}: {entries[0].attribute}')
+                logger.warning(f'Ignoring {entry.type} without transcript found in {entry.seqid}: '
+                               f'{entries[0].attribute}')
 
         # set the coordinate
         self.coord = self.fasta_importer.gffid_to_coords[self.entries['super_locus'].seqid]
@@ -420,20 +460,23 @@ class OrganizedGFFEntries(object):
 
     organized_entries = {
         'seqid1': [
-            [gff_entry1_gene1, gff_entry2_gene1, ..],
-            [gff_entry1_gene2, gff_entry2_gene2, ..],
+            [gff_entry1_gene1, gff_entry2_gene1, ...],
+            [gff_entry1_gene2, gff_entry2_gene2, ...],
         ],
         'seqid2': [
-            [gff_entry1_gene1, gff_entry2_gene1, ..],
-            [gff_entry1_gene2, gff_entry2_gene2, ..],
+            [gff_entry1_gene1, gff_entry2_gene1, ...],
+            [gff_entry1_gene2, gff_entry2_gene2, ...],
         ],
         ...
     }
     """
 
-    def __init__(self, gff_file):
+    def __init__(self, gff_file, stats=None):
         self.gff_file = gff_file
         self.organized_entries = {}
+        # only present when constructed as part of a full ImportController.add_gff() run;
+        # standalone/test use (no controller) gets its own throwaway counter
+        self.stats = stats if stats is not None else ImportStatistics()
 
     def load_organized_entries(self):
         self.organized_entries = {}
@@ -457,9 +500,10 @@ class OrganizedGFFEntries(object):
                     entry_id = entry.get_ID()
                     if entry_id is not None:
                         if entry_id in seen_gene_ids:
-                            logging.warning(f"'gene' ID '{entry_id}' reused at "
-                                            f"{entry.seqid}:{entry.start}-{entry.end}; kept "
-                                            f"as a separate super locus record")
+                            self.stats.discontinuous_gene_ids_reused += 1
+                            logger.debug(f"'gene' ID '{entry_id}' reused at "
+                                         f"{entry.seqid}:{entry.start}-{entry.end}; kept "
+                                         f"as a separate super locus record")
                         seen_gene_ids.add(entry_id)
                     self.organized_entries[seqid].append(gene_group)
                     gene_group = [entry]
@@ -536,12 +580,12 @@ class GFFErrorHandling(object):
 
         'normal': no overlap in any way
         'overlap': the sl overlap but without errors on both sides
-        'overlap_error_3p': the sl 3p of the overlap has an 5p utr error
-        'overlap_error_5p': the sl 5p of the overlap has an 3p utr error
+        'overlap_error_3p': the sl 3p of the overlap has a 5p utr error
+        'overlap_error_5p': the sl 5p of the overlap has a 3p utr error
         'overlap_error_both': both sl have an utr error at the overlap
         'nested': sl is a fully nested gene inside sl_prev
-        'nested_error_3p': the nested gene has an 3p utr error
-        'nested_error_5p': the nested gene has an 5p utr error
+        'nested_error_3p': the nested gene has a 3p utr error
+        'nested_error_5p': the nested gene has a 5p utr error
         'nested_error_both': the nested gene has utr errors on both ends
         """
         def _overlap_error_status(slg_prev, slg):
@@ -615,8 +659,9 @@ class GFFErrorHandling(object):
         elif status.startswith('nested'):
             msg = 'nested super loci: {} inside {}, type: {}'
         else:
-            logging.error('overlapping status is not a known error')
-        logging.info(msg.format(sl_prev.given_name, sl.given_name, status))
+            logger.error('overlapping status is not a known error')
+            return
+        logger.debug(msg.format(sl_prev.given_name, sl.given_name, status))
 
     def resolve_errors(self):
         for i, group in enumerate(self.groups):
@@ -630,8 +675,9 @@ class GFFErrorHandling(object):
 
             # the case of no transcript for a super locus
             if not group['transcripts']:
-                logging.error('{} is a gene without any transcripts. This will not be masked.'.format(
-                                  group['super_locus'].given_name))
+                self.controller.stats.empty_super_loci += 1
+                logger.debug('{} is a gene without any transcripts; it has no features and will '
+                             'never be exported or masked'.format(group['super_locus'].given_name))
             # other cases
             for transcript in group['transcripts']:
                 # if coding transcript
@@ -750,11 +796,12 @@ class GFFErrorHandling(object):
                 transcript['errors'] = [e for e in transcript['errors'] if not is_backwards(e)]
                 n_removed += full_len - len(transcript['errors'])
             if n_removed > 0:
+                self.controller.stats.backwards_errors_removed += n_removed
                 msg = ('removed {count} backwards error(s) from overlapping super loci: '
                        'seqid: {seqid}, {geneid}').format(count=n_removed,
                                                           seqid=self.coord.seqid,
                                                           geneid=group['super_locus'].given_name)
-                logging.info(msg)
+                logger.debug(msg)
 
     def _add_error(self, i, transcript_g, start, end, is_plus_strand, error_type):
         error_i = FeatureImporter(self.coord,
@@ -764,24 +811,23 @@ class GFFErrorHandling(object):
                                   end=end,
                                   controller=self.controller)
         transcript_g['errors'].append(error_i)
-        # error msg
-        if is_plus_strand:
-            strand_str = 'plus'
-        else:
-            strand_str = 'minus'
-        msg = ('marked as erroneous: seqid: {seqid}, {start}--{end}:{geneid}, on {strand} strand, '
-               'with type: {type}').format(seqid=self.coord.seqid,
-                                           start=start,
-                                           end=end,
-                                           geneid=self.groups[i]['super_locus'].given_name,
-                                           strand=strand_str,
-                                           type=error_type)
-        logging.warning(msg)
+        # counted for the one-line-per-import summary (see ImportStatistics.log_summary)
+        # instead of logging one line per error here, which just floods the log without
+        # giving any picture of what was imported
+        self.controller.stats.errors[error_type] += 1
+        strand_str = 'plus' if is_plus_strand else 'minus'
+        logger.debug(('marked as erroneous: seqid: {seqid}, {start}--{end}:{geneid}, on {strand} '
+                     'strand, with type: {type}').format(seqid=self.coord.seqid,
+                                                         start=start,
+                                                         end=end,
+                                                         geneid=self.groups[i]['super_locus'].given_name,
+                                                         strand=strand_str,
+                                                         type=error_type))
 
     def _add_overlapping_error(self, i, transcript_g, handler, direction, error_type,
                                find_next_non_overlapping=False, mark_other_handlers=None):
         """Constructs an error features that overlaps halfway to the next super locus
-        in the given direction from the given handler if possible. Otherwise mark until the end.
+        in the given direction from the given handler if possible. Otherwise, mark until the end.
         If the direction is 'whole', the handler parameter is ignored.
 
         Also sets handler.start_is_biological_start=False (or the end) if necessary
@@ -797,7 +843,7 @@ class GFFErrorHandling(object):
         if direction in ['5p', 'whole']:
             if find_next_non_overlapping:
                 while (j > 0
-                          and self._sl_neighbor_status(self.groups[j - 1], self.groups[j]) != 'normal'):
+                       and self._sl_neighbor_status(self.groups[j - 1], self.groups[j]) != 'normal'):
                     j -= 1
             # perform marking
             if j > 0:
@@ -813,7 +859,7 @@ class GFFErrorHandling(object):
         if direction in ['3p', 'whole']:
             if find_next_non_overlapping:
                 while (j < len(self.groups) - 1
-                          and self._sl_neighbor_status(self.groups[j], self.groups[j + 1]) != 'normal'):
+                       and self._sl_neighbor_status(self.groups[j], self.groups[j + 1]) != 'normal'):
                     j += 1
             if j < len(self.groups) - 1:
                 anchor_3p = self._error_border_mark(self.groups[j]['super_locus'],
@@ -888,6 +934,7 @@ class ImportController(object):
     def __init__(self, database_path, config={}, replace_db=False):
         self.database_path = database_path
         self.latest_genome = None
+        self.stats = ImportStatistics()
         self._mk_session(replace_db)
         # queues for adding to db
         self.insertion_queues = InsertionQueue(session=self.session, engine=self.engine)
@@ -897,10 +944,11 @@ class ImportController(object):
     def _mk_session(self, replace_db):
         if os.path.exists(self.database_path):
             if replace_db:
-                print('removed existing database at {}'.format(self.database_path))
                 os.remove(self.database_path)
+                logger.info('removed existing database at {}'.format(self.database_path))
             else:
-                print('database already existing at {} and --replace-db not set'.format(self.database_path))
+                logger.error('database already existing at {} and --replace-db not set'.format(
+                    self.database_path))
                 exit()
         self.engine = create_engine(helpers.full_db_path(self.database_path), echo=False)
         orm.Base.metadata.create_all(self.engine)
@@ -916,21 +964,20 @@ class ImportController(object):
 
     def run_analyze(self):
         # run ANALYZE; on the db for hopefully more performant queries
-        logging.info('Running ANALYZE on the database')
+        logger.info('Running ANALYZE on the database')
         with self.engine.connect() as con:
             con.execute('ANALYZE;')
 
     def add_genome(self, fasta_path, gff_path, genome_args=None, clean_gff=True):
         if genome_args is None:
             genome_args = {}
-        if 'species' in genome_args:
-            logging.info(f'Starting to add genome: {genome_args["species"]}')
-        else:
-            logging.info(f'Starting to add an unnamed genome.')
-        logging.info(f'FASTA path: {fasta_path}')
-        logging.info(f'GFF path: {gff_path}')
+        species = genome_args.get('species', 'unnamed genome')
+        logger.info(f'Starting to add genome: {species}')
+        logger.info(f'FASTA path: {fasta_path}')
+        logger.info(f'GFF path: {gff_path}')
 
         self.clean_tmp_data()
+        self.stats = ImportStatistics()
         self.add_sequences(fasta_path, genome_args)
         try:
             self.add_gff(gff_path, clean=clean_gff)
@@ -939,9 +986,10 @@ class ImportController(object):
             self.session.close()
             part_path = f'{self.database_path}.partial'
             shutil.move(self.database_path, part_path)
-            print(f'Aborting due to error, attempt so far saved at {part_path} '
-                  f'for debugging purposes', file=sys.stderr)
+            logger.error(f'Aborting due to error, attempt so far saved at {part_path} '
+                         f'for debugging purposes')
             raise e
+        self.stats.log_summary(species)
 
     def add_sequences(self, seq_path, genome_args=None):
         if genome_args is None:
@@ -949,8 +997,10 @@ class ImportController(object):
         if self.latest_genome is None:
             self.make_genome(genome_args)
 
+        logger.info('Starting to add sequences from the FASTA file')
         self.latest_fasta_importer.add_sequences(seq_path)
         self.session.commit()
+        logger.info(f'Added {len(self.latest_fasta_importer.genome.coordinates)} sequences')
 
     def clean_tmp_data(self):
         self.latest_genome = None
@@ -1007,9 +1057,9 @@ class ImportController(object):
                 self.insertion_queues.execute_so_far()
 
         assert self.latest_fasta_importer is not None, 'No recent genome found'
-        logging.info('Starting to parse the GFF file')
+        logger.info('Starting to parse the GFF file')
         self.latest_fasta_importer.mk_mapper(gff_file)
-        gff_organizer = OrganizedGFFEntries(gff_file)
+        gff_organizer = OrganizedGFFEntries(gff_file, self.stats)
         gff_organizer.load_organized_entries()
 
         organized_gff_entries = gff_organizer.organized_entries
@@ -1023,8 +1073,8 @@ class ImportController(object):
             # never do error checking across fasta sequence borders
             is_final_coord = (i == (n_organized_gff_entries - 1))
             clean_and_insert(self, geenuff_importer_groups, clean, is_final_coord)
-            logging.info(f'Finished importing features from {len(geenuff_importer_groups)} super loci '
-                         f'from coordinate with seqid {seqid} ({i + 1}/{n_organized_gff_entries})')
+            logger.info(f'Finished importing features from {len(geenuff_importer_groups)} super loci '
+                        f'from coordinate with seqid {seqid} ({i + 1}/{n_organized_gff_entries})')
             geenuff_importer_groups = []
 
 
@@ -1060,14 +1110,11 @@ class FastaImporter(object):
 
     def mk_mapper(self, gff_file=None):
         fa_ids = [e.seqid for e in self.genome.coordinates]
-        #print(self.genome.coordinates)
         if gff_file is not None:  # allow setup without ado when we know IDs match exactly
             self._gff_seq_ids = helpers.get_seqids_from_gff(gff_file)
         else:
             self._gff_seq_ids = fa_ids
-        #print(self._gff_seq_ids, fa_ids)
         mapper, is_forward = helpers.two_way_key_match(fa_ids, self._gff_seq_ids)
-        #print(mapper.keys, is_forward)
         self.mapper = mapper
 
         if not is_forward:
@@ -1082,7 +1129,7 @@ class FastaImporter(object):
                                    seqid=seqid,
                                    sha1=helpers.sequence_hash(seq),
                                    genome=self.genome)
-            logging.info(f'Added coordinate object for FASTA sequence with seqid {seqid} to the queue')
+            logger.info(f'Added coordinate object for FASTA sequence with seqid {seqid} to the queue')
 
     def parse_fasta(self, seq_file, id_delim=' '):
         fp = fastahelper.FastaParser()

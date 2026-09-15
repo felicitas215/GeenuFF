@@ -4,6 +4,10 @@ import logging
 import enum
 from types import GeneratorType
 
+import dustdas.fastahelper
+
+logger = logging.getLogger(__name__)
+
 
 ##### types related #######
 
@@ -41,9 +45,6 @@ def make_enum(name, *args):
 
 
 ##### General #####
-import dustdas.fastahelper
-
-
 def sequence_hash(sequence):
     sha1 = hashlib.sha1(sequence.encode())
     return sha1.hexdigest()
@@ -80,7 +81,7 @@ def full_db_path(path):
 
 def db_attr_as_dict(orm_obj):
     """removes known, shared non-db entry attributes from a copy of orm_obj.__dict__
-    can be used, e.g. to setup new db entry matching the here-by filtered one
+    can be used, e.g. to set up new db entry matching the here-by filtered one
     """
     exclude = ["_sa_instance_state", "handler"]
     out = copy.copy(orm_obj.__dict__)
@@ -92,21 +93,22 @@ def db_attr_as_dict(orm_obj):
 
 def chunk_str(string, length):
     for i in range(0, len(string), length):
-        yield string[i:(i+length)]
+        yield string[i:(i + length)]
 
 
 def get_repr(class_name, params, addition=''):
     param_str = ', '.join('{}:{}'.format(k, v) for k, v in params.items())
     if addition:
-        return class_name + '[' +  param_str + ', ' + addition + ']'
+        return class_name + '[' + param_str + ', ' + addition + ']'
     else:
-        return class_name + '[' +  param_str + ']'
+        return class_name + '[' + param_str + ']'
 
 
 ##### Mapper #####
 
 class NonMatchableIDs(Exception):
     pass
+
 
 class LikelyReveresedIDs(Exception):
     pass
@@ -147,7 +149,7 @@ def make_key_mapper(known_keys, other_keys):
     elif to_match_keys.issubset(other_keys):
         raise LikelyReveresedIDs('known is a subset of other keys')
 
-    logging.info("attempting to match up, non-identical IDs")
+    logger.info("attempting to match up, non-identical IDs")
     oth2known = {}
     # for each tree key, does it have exactly one match?
     for key in other_keys:
@@ -157,7 +159,7 @@ def make_key_mapper(known_keys, other_keys):
             oth2known[key] = matches[0]
         elif len(matches) == 0:
             # pretending no match is ok, (a warning will be logged by are_keys_compatible) but seriously NCBI?
-            logging.debug('no matches found for {} in known keys, e.g. {}'.format(
+            logger.debug('no matches found for {} in known keys, e.g. {}'.format(
                 key, list(known_keys)[:min(4, len(known_keys))]
             ))
         else:
@@ -205,6 +207,7 @@ def strand_as_bool(strand):
 
 def get_strand_direction(gffentry):
     return strand_as_bool(gffentry.strand)
+
 
 # todo: could this be simpler?
 def get_geenuff_start_end(gff_start, gff_end, is_plus_strand):
@@ -269,7 +272,7 @@ def substr_seq(seq, start, end, is_plus_strand):
     if is_plus_strand:
         return seq[start:end]
     else:
-        return seq[end+1:start+1]
+        return seq[end + 1:start + 1]
 
 
 def has_start_codon(seq, start, is_plus_strand):
@@ -305,6 +308,7 @@ def has_inframe_stop_codon(cds_seq):
     codons = (cds_seq[i:i + 3] for i in range(0, last_full_codon_start, 3))
     return any(codon in STOP_CODONS for codon in codons)
 
+
 ##### SQL alchemy core queue control #####
 
 class Counter(object):
@@ -334,7 +338,7 @@ class QueueController(object):
                 conn.execute(queue.action, queue.queue)
                 del queue.queue[:]
         self.session.commit()
-        logging.info(f'All core queues executed ({n_elements} elements)')
+        logger.info(f'All core queues executed ({n_elements} elements)')
 
 
 class CoreQueue(object):

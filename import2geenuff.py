@@ -7,6 +7,8 @@ import argparse
 
 from geenuff.applications.importer import ImportController
 
+logger = logging.getLogger(__name__)
+
 
 class PathFinder(object):
     INPUT = 'input'
@@ -68,7 +70,7 @@ def main(args):
     date_fmt_str = '%d-%b-%y %H:%M:%S'
     logging.basicConfig(filename=paths.problems_out,
                         filemode='w',
-                        level=logging.INFO,
+                        level=logging.DEBUG if args.verbose else logging.INFO,
                         format=msg_fmt_str,
                         datefmt=date_fmt_str)
     # log to file and stderr simultaneously
@@ -82,11 +84,11 @@ def main(args):
             try:
                 config = yaml.safe_load(f)
             except yaml.YAMLError as e:
-                print(f'An error occured during parsing of the YAML config file: {e}')
+                logger.error(f'An error occured during parsing of the YAML config file: {e}')
                 exit()
     else:
         config = {}
-        print(f'No config file found, using default values')
+        logger.info('No config file found, using default values')
 
     controller = ImportController(database_path=paths.db_out, config=config, replace_db=args.replace_db)
     genome_args = {}
@@ -110,6 +112,9 @@ if __name__ == '__main__':
     parser.add_argument('--replace-db', action='store_true',
                         help=('whether to override a GeenuFF database found at '
                               'the default location or at the location of --db_path'))
+    parser.add_argument('--verbose', action='store_true',
+                        help=('log every individual error as it is found (DEBUG level), '
+                              'instead of just the aggregate summary at the end'))
 
     genome_attr = parser.add_argument_group('Possible genome attributes:')
     genome_attr.add_argument('--species', required=True, help='name of the species')

@@ -1,6 +1,7 @@
 import sys
 import copy
 import time
+import logging
 import intervaltree
 import argparse
 from collections import defaultdict
@@ -13,6 +14,13 @@ from geenuff.base.orm import (Coordinate, Genome, Feature, Transcript, Transcrip
 from geenuff.base.handlers import TranscriptHandlerBase, SuperLocusHandlerBase
 from geenuff.base.helpers import full_db_path, Counter, in_enum_values
 from geenuff.base import types
+
+# this module is called from inside Helixer's export pipeline (helixer/export/exporter.py),
+# which configures a logger named exactly 'HelixerLogger' (see helixer/core/helpers.py's
+# get_log_dict()) with its own handler/formatter; matching that name here means these
+# messages show up through that same configured handler instead of being silently dropped
+# by the otherwise-unconfigured root logger
+logger = logging.getLogger('HelixerLogger')
 
 
 class ExportArgParser(object):
@@ -62,11 +70,11 @@ class GeenuffExportController(object):
         return self.session.query(Coordinate).filter(Coordinate.id == coord_id).one()
 
     def genome_query(self, longest_only=True, return_super_loci=False, include_non_coding=False):
-        """Returns either a tuple of (super_loci, coordinate_seqid) or a dict of coord_ids for everything in the database
-        that each link to a list of features. If all_transcripts is False, only the
+        """Returns either a tuple of (super_loci, coordinate_seqid) or a dict of coord_ids for everything in
+        the database that each link to a list of features. If all_transcripts is False, only the
         features of the longest transcript are queried."""
 
-        print(f'Querying for {self.session.query(Genome.species).all()[0]}', file=sys.stderr)
+        logger.info(f'Querying for {self.session.query(Genome.species).all()[0]}')
         if return_super_loci:
             return self._super_loci_query()
         else:
@@ -143,12 +151,12 @@ class GeenuffExportController(object):
         rows = self.engine.execute(query).fetchall()
 
         end_q_time = time.time()
-        print(f'Query took {end_q_time - start:.2f}s')
+        logger.debug(f'Query took {end_q_time - start:.2f}s')
 
         # for many purposes we
         if not include_non_coding:
             rows = self._filter_to_coding(rows)
-            print(f'filter to coding only took {time.time() - end_q_time:.2f}s')
+            logger.debug(f'filter to coding only took {time.time() - end_q_time:.2f}s')
 
         coord_features = defaultdict(list)
         for row in rows:
@@ -181,22 +189,24 @@ class GeenuffExportController(object):
             resorted[coord] = features
         coord_features = resorted
 
+        n_features = sum(len(features) for features in coord_features.values())
+        logger.info(f'Found {n_features} features across {len(coord_features)} coordinates')
         return coord_features
 
     def _super_loci_query(self):
         # returns a list of results like [(SuperLocus obj, sequence_name str), ...]
         query = (self.session.query(SuperLocus, Coordinate.seqid).distinct()
-                    .join(Transcript, Transcript.super_locus_id == SuperLocus.id)
-                    .join(TranscriptPiece, TranscriptPiece.transcript_id == Transcript.id)
-                    .join(asso_tp_2_f, asso_tp_2_f.c.transcript_piece_id == TranscriptPiece.id)
-                    .join(Feature, asso_tp_2_f.c.feature_id == Feature.id)
-                    .join(Coordinate, Feature.coordinate_id == Coordinate.id)
-                    .filter(Transcript.type.in_([types.TranscriptLevel.mRNA, types.TranscriptLevel.transcript]))
-                    .filter(SuperLocus.type == types.SuperLocusAll.gene)
-                    .order_by(Genome.species)
-                    .order_by(Coordinate.length.desc())
-                    .order_by(Feature.is_plus_strand)
-                    .order_by(Feature.start))
+                     .join(Transcript, Transcript.super_locus_id == SuperLocus.id)
+                     .join(TranscriptPiece, TranscriptPiece.transcript_id == Transcript.id)
+                     .join(asso_tp_2_f, asso_tp_2_f.c.transcript_piece_id == TranscriptPiece.id)
+                     .join(Feature, asso_tp_2_f.c.feature_id == Feature.id)
+                     .join(Coordinate, Feature.coordinate_id == Coordinate.id)
+                     .filter(Transcript.type.in_([types.TranscriptLevel.mRNA, types.TranscriptLevel.transcript]))
+                     .filter(SuperLocus.type == types.SuperLocusAll.gene)
+                     .order_by(Genome.species)
+                     .order_by(Coordinate.length.desc())
+                     .order_by(Feature.is_plus_strand)
+                     .order_by(Feature.start))
 
         return query.all()
 
@@ -221,6 +231,7 @@ class GeenuffExportController(object):
 
     def intergenic_ranges(self):
         # todo gen
+        logger.info('Computing intergenic ranges')
         coords = self.session.query(Coordinate.id, Coordinate.length)
         super_loci = self.genome_query(return_super_loci=True)
         groups = []
@@ -267,11 +278,15 @@ class GeenuffExportController(object):
             minus_subtracted = dummy_handler._subtract_ranges(minus_ranges, minus_transcripts)
             groups += dummy_handler._one_range_one_group(plus_subtracted) + \
                       dummy_handler._one_range_one_group(minus_subtracted)
+        logger.info(f'Computed {len(groups)} intergenic ranges')
         return groups
 
     def prep_ranges(self, range_function: object) -> None:
+        mode = getattr(range_function, '__name__', range_function)
+        logger.info(f'Preparing export ranges (mode: {mode})')
         for arange in self.gen_ranges(range_function):
             self.export_ranges.append(arange)
+        logger.info(f'Prepared {len(self.export_ranges)} export ranges')
 
 
 def positional_match(feature, previous):
