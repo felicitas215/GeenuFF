@@ -13,9 +13,9 @@ from dustdas import gffhelper, fastahelper
 from .. import orm
 from .. import types
 from .. import helpers
-from ..base.helpers import (get_strand_direction, get_geenuff_start_end, has_start_codon,
-                            has_stop_codon, has_inframe_stop_codon, spliced_cds_sequence,
-                            in_enum_values)
+from ..base.helpers import (get_strand_direction, get_geenuff_start_end,
+                            has_inframe_stop_codon, spliced_cds_sequence, START_CODON,
+                            STOP_CODONS, in_enum_values)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,8 @@ class ImportStatistics(object):
             f'{self.gene_parented_ambiguous_dropped} ambiguous and dropped',
         ]
         if self.errors:
-            lines.append('  errors:')
+            lines.append('  errors (transcripts with at least one occurrence, not total '
+                         'occurrences):')
             lines += [f'    {error_type}: {count}' for error_type, count in sorted(self.errors.items())]
         else:
             lines.append('  errors: none')
@@ -228,8 +229,13 @@ class OrganizedGeenuffImporterGroup(object):
                     phase_5p = t_entries['cds'][-1].phase
                     phase_3p = t_entries['cds'][0].phase
                 # spliced once here, from the raw per-piece CDS list we already have on hand,
-                # to check for a truncated (non-codon-multiple) length or a premature stop
-                # codon, neither of which the file's own annotation is trusted to rule out
+                # to check for a truncated (non-codon-multiple) length, a premature stop codon,
+                # or a missing start/stop codon, none of which the file's own annotation is
+                # trusted to rule out. This also makes the start/stop codon check safe when the
+                # terminal CDS piece is shorter than 3bp (the codon is split across a splice
+                # junction right at the transcript's edge): reading 3 contiguous genomic bases
+                # from the boundary, as the old per-feature check did, would read into the
+                # intron and report a false MISSING_START/STOP_CODON in that case.
                 cds_seq = spliced_cds_sequence(self.coord.sequence, t_entries['cds'], t_is_plus_strand)
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
@@ -243,6 +249,8 @@ class OrganizedGeenuffImporterGroup(object):
                                         phase=0,
                                         is_truncated=len(cds_seq) % 3 != 0,
                                         has_inframe_stop=has_inframe_stop_codon(cds_seq),
+                                        has_start_codon=cds_seq[:3] == START_CODON,
+                                        has_stop_codon=cds_seq[-3:] in STOP_CODONS,
                                         score=t.score,
                                         source=t.source,
                                         controller=self.controller)
@@ -771,10 +779,11 @@ class GFFErrorHandling(object):
                         self._add_overlapping_error(i, transcript, cds, '3p', types.MISSING_UTR_3P,
                                                     mark_other_handlers=[tf])
 
-                    # the case of missing start/stop codon
-                    if not has_start_codon(cds.coord.sequence, cds.start, self.is_plus_strand):
+                    # the case of missing start/stop codon; already computed once in
+                    # _parse_gff_entries, from the spliced CDS sequence (see there for why)
+                    if not cds.has_start_codon:
                         self._add_overlapping_error(i, transcript, cds, '5p', types.MISSING_START_CODON)
-                    if not has_stop_codon(cds.coord.sequence, cds.end, self.is_plus_strand):
+                    if not cds.has_stop_codon:
                         self._add_overlapping_error(i, transcript, cds, '3p', types.MISSING_STOP_CODON)
 
                     # the case of a truncated (not a multiple of 3) or a premature-stop-codon
@@ -887,10 +896,8 @@ class GFFErrorHandling(object):
                                   end=end,
                                   controller=self.controller)
         transcript_g['errors'].append(error_i)
-        # counted for the one-line-per-import summary (see ImportStatistics.log_summary)
-        # instead of logging one line per error here, which just floods the log without
-        # giving any picture of what was imported
-        self.controller.stats.errors[error_type] += 1
+        # tallied per transcript afterward, not here (see clean_and_insert), so a transcript
+        # hit twice by the same error type is still only counted once
         strand_str = 'plus' if is_plus_strand else 'minus'
         logger.debug(f'marked as erroneous: seqid: {self.coord.seqid}, {start}--{end}:'
                      f'{self.groups[i]["super_locus"].given_name}, on {strand_str} strand, '
@@ -1130,6 +1137,10 @@ class ImportController(object):
                         self.stats.longest_transcripts += 1
                         if not transcript['errors']:
                             self.stats.longest_error_free_transcripts += 1
+                    # each error type is counted once per transcript it occurs in, no matter
+                    # how many times it occurs within that one transcript
+                    for error_type in {e.feature_type for e in transcript['errors']}:
+                        self.stats.errors[error_type] += 1
             # insert importers
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)
@@ -1263,6 +1274,8 @@ class FeatureImporter(Insertable):
                  phase=None,
                  is_truncated=False,
                  has_inframe_stop=False,
+                 has_start_codon=True,
+                 has_stop_codon=True,
                  score=None,
                  source=None):
         self.id = InsertCounterHolder.feature()
@@ -1281,6 +1294,8 @@ class FeatureImporter(Insertable):
         self.phase = phase if phase is not None else phase_5p
         self.is_truncated = is_truncated  # only used for the TRUNCATED_CDS check
         self.has_inframe_stop = has_inframe_stop  # only used for the INFRAME_STOP_CODON check
+        self.has_start_codon = has_start_codon  # only used for the MISSING_START_CODON check
+        self.has_stop_codon = has_stop_codon  # only used for the MISSING_STOP_CODON check
         self.score = score
         self.source = source
         self.start_is_biological_start = True

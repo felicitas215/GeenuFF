@@ -279,9 +279,7 @@ def reverse_complement(seq):
 ##### Start/Stop codon detection #####
 
 START_CODON = 'ATG'
-START_CODON_COMP = ''.join(reverse_complement(START_CODON))
 STOP_CODONS = ['TAG', 'TGA', 'TAA']
-STOP_CODONS_COMP = [''.join(reverse_complement(c)) for c in STOP_CODONS]
 
 
 def substr_seq(seq, start, end, is_plus_strand):
@@ -290,20 +288,6 @@ def substr_seq(seq, start, end, is_plus_strand):
         return seq[start:end]
     else:
         return seq[end + 1:start + 1]
-
-
-def has_start_codon(seq, start, is_plus_strand):
-    if is_plus_strand:
-        return substr_seq(seq, start, start + 3, is_plus_strand) == START_CODON
-    else:
-        return substr_seq(seq, start, start - 3, is_plus_strand) == START_CODON_COMP
-
-
-def has_stop_codon(seq, end, is_plus_strand):
-    if is_plus_strand:
-        return substr_seq(seq, end - 3, end, is_plus_strand) in STOP_CODONS
-    else:
-        return substr_seq(seq, end + 3, end, is_plus_strand) in STOP_CODONS_COMP
 
 
 def spliced_cds_sequence(seq: str, cds_pieces: Sequence[GFFObject], is_plus_strand: bool) -> str:
