@@ -34,9 +34,14 @@ class ImportStatistics(object):
         self.total_super_loci: int = 0
         self.total_transcripts: int = 0
         self.total_coding_transcripts: int = 0
+        self.longest_transcripts: int = 0  # final, transcript.longest == True, one per coding locus
+        self.longest_error_free_transcripts: int = 0  # of the above, the ones with no error at all
         self.empty_super_loci: int = 0  # a gene with no transcripts at all
         self.unstranded_super_loci: int = 0  # e.g. NCBI's '?' strand for trans-spliced genes
         self.discontinuous_gene_ids_reused: int = 0
+        self.gene_parented_duplicates_dropped: int = 0  # see OrganizedGFFEntryGroup._is_parented_to_super_locus
+        self.gene_parented_features_reparented: int = 0  # same, but attached to the sole transcript instead
+        self.gene_parented_ambiguous_dropped: int = 0  # same, but position matched no transcript
         self.backwards_errors_removed: int = 0  # from overlapping super loci, see _remove_backwards_errors
         self.errors: defaultdict[str, int] = defaultdict(int)  # keyed by types.Errors value
         self.unrecognized_feature_types: defaultdict[str, int] = defaultdict(int)  # keyed by the raw, unknown GFF type
@@ -47,8 +52,13 @@ class ImportStatistics(object):
             f'  super loci: {self.total_super_loci} ({self.empty_super_loci} without any '
             f'transcript, {self.unstranded_super_loci} unstranded/trans-spliced, '
             f'{self.discontinuous_gene_ids_reused} discontinuous gene IDs reused)',
-            f'  transcripts: {self.total_transcripts} ({self.total_coding_transcripts} coding)',
+            f'  transcripts: {self.total_transcripts} ({self.total_coding_transcripts} coding, '
+            f'{self.longest_transcripts} final/longest, {self.longest_error_free_transcripts} '
+            f'of those error-free)',
             f'  backwards errors removed (from overlapping loci): {self.backwards_errors_removed}',
+            f'  gene-parented exon/CDS lines: {self.gene_parented_duplicates_dropped} duplicates '
+            f'dropped, {self.gene_parented_features_reparented} reparented to a sole transcript, '
+            f'{self.gene_parented_ambiguous_dropped} ambiguous and dropped',
         ]
         if self.errors:
             lines.append('  errors:')
@@ -58,7 +68,7 @@ class ImportStatistics(object):
         if self.unrecognized_feature_types:
             lines.append('  lines skipped for an unrecognized feature type:')
             lines += [f'    {feature_type}: {count}'
-                     for feature_type, count in sorted(self.unrecognized_feature_types.items())]
+                      for feature_type, count in sorted(self.unrecognized_feature_types.items())]
         logger.info('\n'.join(lines))
 
 
@@ -434,9 +444,48 @@ class OrganizedGFFEntryGroup(object):
                 self.entries['transcripts'][entry] = {'exons': [], 'cds': []}
                 latest_transcript = entry
             elif latest_transcript is not None:
-                if in_enum_values(entry.type, types.ExonLevel):
+                is_exon = in_enum_values(entry.type, types.ExonLevel)
+                is_cds = in_enum_values(entry.type, types.CDSLevel)
+                key = 'exons' if is_exon else 'cds'
+                if (is_exon or is_cds) and self._is_parented_to_super_locus(entry):
+                    # some GFF3 sources (e.g. NCBI/EMBL) redundantly echo a transcript's
+                    # already-nested exon/CDS a second time as a standalone feature parented
+                    # directly to the gene; grouping is otherwise positional (not Parent-id
+                    # aware), so without this check such a line would get glued onto whatever
+                    # transcript happens to be "latest", corrupting it with a bogus overlap
+                    if self._matches_existing_transcript_feature(entry, key):
+                        # a duplicate echo of something already attached: drop it, keeping
+                        # the copy that's already correctly attached
+                        self.controller.stats.gene_parented_duplicates_dropped += 1
+                        logger.debug(f"skipping {entry.type} parented directly to the gene "
+                                     f"'{self.entries['super_locus'].get_ID()}' instead of a "
+                                     f"transcript (a redundant echo of an already-nested "
+                                     f"feature)")
+                    elif len(self.entries['transcripts']) == 1:
+                        # not a duplicate, but this gene has exactly one transcript declared
+                        # so far, so Parent=gene can only mean this one transcript; unlike
+                        # the ambiguous case below, there is no other candidate to confuse it
+                        # with, so it's safe to attach directly (mirrors how positional
+                        # grouping already handles this correctly for a single-transcript
+                        # gene when the line isn't gene-parented at all)
+                        self.controller.stats.gene_parented_features_reparented += 1
+                        logger.debug(f"reparenting {entry.type} from gene "
+                                     f"'{self.entries['super_locus'].get_ID()}' to its sole "
+                                     f"transcript '{latest_transcript.get_ID()}'")
+                        self.entries['transcripts'][latest_transcript][key].append(entry)
+                    else:
+                        # neither a known duplicate nor safely attributable to a sole
+                        # transcript: genuinely ambiguous (which of several transcripts, if
+                        # any, does it belong to?), so it's dropped, but flagged louder
+                        self.controller.stats.gene_parented_ambiguous_dropped += 1
+                        logger.warning(f"skipping {entry.type} parented directly to the gene "
+                                       f"'{self.entries['super_locus'].get_ID()}' instead of a "
+                                       f"transcript, and its position matches no transcript "
+                                       f"already collected for this gene; check this gene by "
+                                       f"hand")
+                elif is_exon:
                     self.entries['transcripts'][latest_transcript]['exons'].append(entry)
-                elif in_enum_values(entry.type, types.CDSLevel):
+                elif is_cds:
                     self.entries['transcripts'][latest_transcript]['cds'].append(entry)
                 else:
                     logger.warning(f'Found unexpected entry type: {entry.type}')
@@ -451,6 +500,22 @@ class OrganizedGFFEntryGroup(object):
         for _, value_dict in self.entries['transcripts'].items():
             for key in ['exons', 'cds']:
                 value_dict[key].sort(key=lambda e: e.start)
+
+    def _is_parented_to_super_locus(self, entry):
+        """True if entry's Parent= names the gene itself rather than any specific
+        transcript"""
+        parent_ids = entry.get_Parent()
+        return bool(parent_ids) and self.entries['super_locus'].get_ID() in parent_ids
+
+    def _matches_existing_transcript_feature(self, entry, key):
+        """True if (entry.start, entry.end) already belongs to some transcript of this
+        gene collected so far, under 'exons' or 'cds' (whichever key is given). Order
+        dependent: a gene-parented duplicate seen before the transcript it echoes has been
+        fully collected will not match yet."""
+        position = (entry.start, entry.end)
+        return any(position == (existing.start, existing.end)
+                   for t_entries in self.entries['transcripts'].values()
+                   for existing in t_entries[key])
 
     def get_geenuff_importers(self):
         geenuff_importer_group = OrganizedGeenuffImporterGroup(self.entries, self.coord,
@@ -827,13 +892,9 @@ class GFFErrorHandling(object):
         # giving any picture of what was imported
         self.controller.stats.errors[error_type] += 1
         strand_str = 'plus' if is_plus_strand else 'minus'
-        logger.debug(('marked as erroneous: seqid: {seqid}, {start}--{end}:{geneid}, on {strand} '
-                     'strand, with type: {type}').format(seqid=self.coord.seqid,
-                                                         start=start,
-                                                         end=end,
-                                                         geneid=self.groups[i]['super_locus'].given_name,
-                                                         strand=strand_str,
-                                                         type=error_type))
+        logger.debug(f'marked as erroneous: seqid: {self.coord.seqid}, {start}--{end}:'
+                     f'{self.groups[i]["super_locus"].given_name}, on {strand_str} strand, '
+                     f'with type: {error_type}')
 
     def _add_overlapping_error(self, i, transcript_g, handler, direction, error_type,
                                find_next_non_overlapping=False, mark_other_handlers=None):
@@ -1061,6 +1122,14 @@ class ImportController(object):
                 GFFErrorHandling(plus, self).resolve_errors()
                 # reverse order on minus strand
                 GFFErrorHandling(minus[::-1], self).resolve_errors()
+            # tally the final, selected transcripts (one per coding locus) now that error
+            # resolution is done, so 'error-free' reflects every check that ran
+            for group in plus + minus:
+                for transcript in group['transcripts']:
+                    if transcript['transcript'].longest:
+                        self.stats.longest_transcripts += 1
+                        if not transcript['errors']:
+                            self.stats.longest_error_free_transcripts += 1
             # insert importers
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)

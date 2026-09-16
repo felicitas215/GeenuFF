@@ -276,8 +276,8 @@ class GeenuffExportController(object):
             # subtract transcripts from intergenic
             plus_subtracted = dummy_handler._subtract_ranges(plus_ranges, plus_transcripts)
             minus_subtracted = dummy_handler._subtract_ranges(minus_ranges, minus_transcripts)
-            groups += dummy_handler._one_range_one_group(plus_subtracted) + \
-                      dummy_handler._one_range_one_group(minus_subtracted)
+            groups += (dummy_handler._one_range_one_group(plus_subtracted) +
+                       dummy_handler._one_range_one_group(minus_subtracted))
         logger.info(f'Computed {len(groups)} intergenic ranges')
         return groups
 
@@ -472,7 +472,7 @@ class RangeMaker(TranscriptHandlerBase):
         return [ExportGroup(seqid=r.given_name, ranges=[r]) for r in ranges]
 
     # common 'interpretations' or extractions of transcript-related data
-    # all of the following methods should return a ready "ExportGroup" that has all the ordered ranges
+    # all the following methods should return a ready "ExportGroup" that has all the ordered ranges
     # that need to be combined to form a sequence, and an id for this sequence
     def transcribed_ranges(self):
         return [ExportGroup(seqid=self.data.given_name,

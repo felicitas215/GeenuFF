@@ -930,6 +930,46 @@ def test_unrecognized_feature_type_is_skipped_not_fatal():
     assert len(sl.transcripts) == 1
 
 
+def test_gene_parented_duplicate_exons_are_dropped_not_glued_onto_wrong_transcript():
+    """Some GFF3 sources (e.g. NCBI/EMBL) redundantly echo a transcript's already-nested
+    exon/CDS a second time as a standalone feature parented directly to the gene. Grouping
+    is otherwise purely positional, not Parent-id aware, so without a check for this, such
+    a line gets glued onto whatever transcript happens to be 'latest', silently corrupting
+    it with a bogus self-overlap. gene1 is a real pattern found in NCBI's TAIR12 Arabidopsis
+    thaliana annotation (gene HEC1/AT5G67060). gene2 has two transcripts and a gene-parented
+    exon matching neither, which is genuinely ambiguous, so it's dropped too, just flagged
+    louder than a known, tidy echo. gene3 has only one transcript, so a non-duplicate
+    gene-parented exon is unambiguous and gets attached to it directly instead of dropped."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/gene_parented_duplicate_exons.fa',
+                          'testdata/gene_parented_duplicate_exons.gff3', clean_gff=True)
+
+    assert controller.stats.gene_parented_duplicates_dropped == 3
+    assert controller.stats.gene_parented_ambiguous_dropped == 1
+    assert controller.stats.gene_parented_features_reparented == 2
+    error_types = {e.type.value for e in controller.session.query(Feature).filter(
+        Feature.type.in_([types.GeenuffFeature(t) for t in types.geenuff_error_type_values]))}
+    assert types.OVERLAPPING_EXONS not in error_types
+
+    # rna2's own two real exons are untouched by the dropped gene-parented duplicates
+    rna2 = controller.session.query(Transcript).filter_by(given_name='rna2').one()
+    introns = [(f.start, f.end) for f in rna2.transcript_pieces[0].features
+               if f.type.value == types.GEENUFF_INTRON]
+    assert introns == [(108, 129)]  # the one real intron between rna2's two exons
+
+    # rna3's own single real exon is untouched by the dropped, unmatched ambiguous one
+    rna3 = controller.session.query(Transcript).filter_by(given_name='rna3').one()
+    features = [(f.start, f.end) for p in rna3.transcript_pieces for f in p.features]
+    assert features == [(299, 350)]
+
+    # rna5 is gene3's sole transcript: the gene-parented exon/CDS pair got attached to it,
+    # producing a real intron between its own exon and the reparented one
+    rna5 = controller.session.query(Transcript).filter_by(given_name='rna5').one()
+    introns5 = [(f.start, f.end) for f in rna5.transcript_pieces[0].features
+                if f.type.value == types.GEENUFF_INTRON]
+    assert introns5 == [(520, 539)]
+
+
 def test_cds_starting_phase_is_reset_not_trusted():
     """The file's own CDS starting phase is not trusted: a complete CDS always starts a
     fresh codon (phase 0) by definition, so the persisted phase is always resets as 0
@@ -951,7 +991,7 @@ def test_cds_starting_phase_is_reset_not_trusted():
 def test_gff_gen():
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     x = list(gff_organizer._gff_gen())
-    assert len(x) == 103
+    assert len(x) == 102  # started at 103, one 'lnc_RNA' line is not a known feature type
     assert x[0].type == 'region'
     assert x[-1].type == 'CDS'
 
@@ -959,7 +999,7 @@ def test_gff_gen():
 def test_gff_useful_gen():
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     x = list(gff_organizer._useful_gff_entries())
-    assert len(x) == 100  # started at 103, should drop the 3 region entries
+    assert len(x) == 99  # started at 102, should drop the 3 region entries
     assert x[0].type == 'gene'
     assert x[-1].type == 'CDS'
 

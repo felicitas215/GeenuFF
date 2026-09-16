@@ -1,0 +1,26 @@
+##gff-version 3
+##sequence-region CHR 1 2000
+CHR	EMBL	gene	100	138	.	+	.	ID=gene1;Name=HEC1-like
+CHR	EMBL	mRNA	100	138	.	+	.	ID=rna1;Parent=gene1
+CHR	EMBL	exon	100	138	.	+	.	ID=exon-rna1-1;Parent=rna1
+CHR	EMBL	CDS	100	138	.	+	0	ID=cds-rna1;Parent=rna1
+CHR	EMBL	mRNA	100	138	.	+	.	ID=rna2;Parent=gene1
+CHR	EMBL	exon	100	108	.	+	.	ID=exon-rna2-1;Parent=rna2
+CHR	EMBL	exon	130	138	.	+	.	ID=exon-rna2-2;Parent=rna2
+CHR	EMBL	CDS	100	108	.	+	0	ID=cds-rna2;Parent=rna2
+CHR	EMBL	CDS	130	138	.	+	0	ID=cds-rna2;Parent=rna2
+CHR	EMBL	exon	100	138	.	+	.	ID=id-gene1-1;Parent=gene1
+CHR	EMBL	exon	100	108	.	+	.	ID=id-gene1-2;Parent=gene1
+CHR	EMBL	exon	130	138	.	+	.	ID=id-gene1-3;Parent=gene1
+CHR	EMBL	gene	300	450	.	+	.	ID=gene2;Name=ambiguous-echo-like
+CHR	EMBL	mRNA	300	350	.	+	.	ID=rna3;Parent=gene2
+CHR	EMBL	exon	300	350	.	+	.	ID=exon-rna3-1;Parent=rna3
+CHR	EMBL	mRNA	380	430	.	+	.	ID=rna4;Parent=gene2
+CHR	EMBL	exon	380	430	.	+	.	ID=exon-rna4-1;Parent=rna4
+CHR	EMBL	exon	400	450	.	+	.	ID=id-gene2-ambiguous;Parent=gene2
+CHR	EMBL	gene	500	560	.	+	.	ID=gene3;Name=sole-transcript-reparented
+CHR	EMBL	mRNA	500	560	.	+	.	ID=rna5;Parent=gene3
+CHR	EMBL	exon	500	520	.	+	.	ID=exon-rna5-1;Parent=rna5
+CHR	EMBL	CDS	500	520	.	+	0	ID=cds-rna5;Parent=rna5;protein_id=rna5.p
+CHR	EMBL	exon	540	560	.	+	.	ID=id-gene3-extra;Parent=gene3
+CHR	EMBL	CDS	540	560	.	+	0	ID=id-gene3-extra-cds;Parent=gene3;protein_id=rna5.p
