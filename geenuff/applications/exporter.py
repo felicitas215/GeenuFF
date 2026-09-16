@@ -405,7 +405,10 @@ class RangeMaker(TranscriptHandlerBase):
 
     def _subtract_ranges(self, subtract_from, to_subtract):
         """makes new ranges that are the difference between subtract_from and to_subtract"""
-        # todo, this may break if more than one transcript piece is present
+        # todo, this may break if more than one transcript piece is present. Not urgent:
+        # nothing in the importer creates multi-piece transcripts today (TranscriptPieceImporter
+        # is always position=0), so this is dormant. Revisit carefully if that ever changes,
+        # e.g. if multi-piece/trans-spliced transcript import is added.
         if not to_subtract:
             return self._resort_subtracted(subtract_from)
 

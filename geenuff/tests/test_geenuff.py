@@ -14,6 +14,7 @@ from ..base.orm import (Genome, Feature, Coordinate, Transcript, TranscriptPiece
 from ..base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from ..applications.importer import ImportController, InsertCounterHolder, OrganizedGFFEntries
 from ..applications.exporter import GeenuffExportController
+from ..applications.exporters.gff3 import FilteredGff3ExportController
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -879,6 +880,54 @@ def test_trans_spliced_gene_strand_not_crashing_and_excluded_from_export():
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)
+
+
+def test_filtered_gff3_export_writes_only_longest_error_free_transcripts(tmp_path):
+    """FilteredGff3ExportController.write_filtered_gff3 must reproduce exactly the gene
+    models old Helixer's h5 export draws from (longest transcript per locus), further
+    restricted to ones with zero error features at all. The coordinates/phases it
+    writes back out must exactly round-trip the original GFF3 input."""
+    db_path = str(tmp_path / 'filtered_gff3.sqlite3')
+    out_path = str(tmp_path / 'filtered.gff3')
+    controller = ImportController(database_path=db_path)
+    controller.add_genome('testdata/trans_spliced.fa', 'testdata/trans_spliced.gff3',
+                          clean_gff=True)
+
+    exporter = FilteredGff3ExportController(db_path)
+    exporter.write_filtered_gff3(out_path)
+
+    with open(out_path) as f:
+        lines = [line.rstrip('\n') for line in f if not line.startswith('#')]
+
+    # only gene2's transcript is both coding and error-free; the trans-spliced locus has
+    # no transcript at all and is absent entirely
+    feature_types = [line.split('\t')[2] for line in lines]
+    assert feature_types == ['gene', 'mRNA', 'exon', 'CDS']
+    for line in lines:
+        assert 'gene2' in line or 'rna2' in line
+
+    cds_line = [line for line in lines if line.split('\t')[2] == 'CDS'][0]
+    cols = cds_line.split('\t')
+    # exactly the original input coordinates and phase (1030-1128, phase 0)
+    assert (cols[0], cols[3], cols[4], cols[6], cols[7]) == ('NC_TEST.2', '1030', '1128', '+', '0')
+
+    gene_line = [line for line in lines if line.split('\t')[2] == 'gene'][0]
+    cols = gene_line.split('\t')
+    assert (cols[3], cols[4]) == ('1000', '1200')
+
+
+def test_unrecognized_feature_type_is_skipped_not_fatal():
+    """A GFF3 line whose feature type isn't a Sequence Ontology term GeenuFF knows (e.g. a
+    stray GenBank-style 'misc_feature') must not crash the whole import: that one line is
+    skipped and counted, while the rest of the file still imports normally."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/trans_spliced.fa', 'testdata/unrecognized_feature_type.gff3',
+                          clean_gff=True)
+
+    assert controller.stats.unrecognized_feature_types == {'misc_feature': 1}
+    # the rest of the file (a normal, valid gene) still imported fine
+    sl = controller.session.query(SuperLocus).filter_by(given_name='gene2').one()
+    assert len(sl.transcripts) == 1
 
 
 def test_cds_starting_phase_is_reset_not_trusted():

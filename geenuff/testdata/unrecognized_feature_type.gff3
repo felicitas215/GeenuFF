@@ -1,0 +1,9 @@
+##gff-version 3
+##sequence-region NC_TEST.2 1 3000
+NC_TEST.2	BestRefSeq	gene	1000	1200	.	+	.	ID=gene2;Name=gene2;gene_biotype=protein_coding
+NC_TEST.2	BestRefSeq	mRNA	1000	1200	.	+	.	ID=rna2;Parent=gene2;Name=rna2
+NC_TEST.2	BestRefSeq	exon	1000	1200	.	+	.	ID=id2;Parent=rna2
+NC_TEST.2	BestRefSeq	five_prime_UTR	1000	1029	.	+	.	ID=utr2a;Parent=rna2
+NC_TEST.2	BestRefSeq	CDS	1030	1128	.	+	0	ID=cds2;Parent=rna2
+NC_TEST.2	BestRefSeq	three_prime_UTR	1129	1200	.	+	.	ID=utr2b;Parent=rna2
+NC_TEST.2	GenBank	misc_feature	2900	2950	.	+	.	ID=weird1;Note=not a Sequence Ontology term

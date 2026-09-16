@@ -104,7 +104,7 @@ claim to support them all). But we aren't there yet.
 ## sequence output
 look at `geenuff.applications.exporter` and `geenuff.applications.exporters.sequence`
 
-For instance you might want to use or extend the class `FastaExportController`
+For instance, you might want to use or extend the class `FastaExportController`
 if you wanted to do something with the sequence breakdowns besides writing to a fasta file.
 
 e.g.
@@ -124,12 +124,27 @@ If you need to go beyond the currently available sequence breakdowns,
 you can look at `RangeMaker` from `geenuff.applications.exporter`.export_group
 
 ## gff3 output
-todo
+look at `geenuff.applications.exporters.gff3` (class `FilteredGff3ExportController`)
+
+Writes back a plain GFF3 file with just the longest, fully error-free, CDS-containing
+(i.e. protein-coding) transcript per super locus, i.e. the same set old Helixer's h5
+export trains on. Super loci with no coding transcript at all are skipped entirely.
+
+```
+python $geenuff_path/scripts/dump_filtered_gff3.py --db-path-in <GENUFF_DB> -o filtered.gff3
+```
+
+```{python}
+from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
+
+controller = FilteredGff3ExportController(PATH_TO_GEENUFF_DB)
+controller.write_filtered_gff3('filtered.gff3')
+```
 
 ## json output
 
 It's about the most naive implementation possible at the moment
-but geenuff can now query an region and return a somewhat flattened
+but geenuff can now query a region and return a somewhat flattened
 json output.
 
 e.g. were PATH_TO_GEENUFF_DB was imported from the test files:
@@ -183,7 +198,7 @@ similar to, I'm sure there's mistakes) the following format:
 }, ...]
 ```
 
-All structure (e.g. many to many relationships) in the database that cannot 
+All structure (e.g. many-to-many relationships) in the database that cannot 
 be captured in the above format will be handled by including the lower in the
 hierarchy elements redundantly. So if you query a super locus which is split
 across two scaffolds, two of the above "coordinate\_pieces" will come back

@@ -2,9 +2,11 @@ import copy
 import hashlib
 import logging
 import enum
+from collections.abc import Sequence
 from types import GeneratorType
 
 import dustdas.fastahelper
+from dustdas.gffhelper import GFFObject
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +235,21 @@ def to_exclusive_end(end, is_plus_strand):
         return end - 1
 
 
+def geenuff_to_gff_start_end(start: int, end: int, is_plus_strand: bool) -> tuple[int, int]:
+    """inverse of get_geenuff_start_end: turns a GeenuFF-internal (0-based, direction-aware,
+    half-open) start/end back into a standard GFF3 1-based, inclusive, ascending start/end"""
+    if is_plus_strand:
+        return start + 1, end
+    else:
+        return end + 2, start + 1
+
+
+# maps "normal" (0, 1, 2; cumulative CDS length so far, mod 3) phase counting to GFF3's
+# biological (0, 2, 1) convention. Self-inverse (0<->0, 1<->2, 2<->1), so the same mapping
+# converts a phase in either direction
+GFF_PHASE_FROM_NORMAL: dict[int, int] = {0: 0, 1: 2, 2: 1}
+
+
 ##### Reverse complement #####
 
 def mk_rc_key():
@@ -289,7 +306,7 @@ def has_stop_codon(seq, end, is_plus_strand):
         return substr_seq(seq, end + 3, end, is_plus_strand) in STOP_CODONS_COMP
 
 
-def spliced_cds_sequence(seq, cds_pieces, is_plus_strand):
+def spliced_cds_sequence(seq: str, cds_pieces: Sequence[GFFObject], is_plus_strand: bool) -> str:
     """joins raw GFF CDS pieces (each with a 1-based, inclusive .start/.end, sorted by
     ascending genomic start) into one continuous, 5' to 3' oriented sequence"""
     ordered = cds_pieces if is_plus_strand else reversed(cds_pieces)
@@ -301,7 +318,7 @@ def spliced_cds_sequence(seq, cds_pieces, is_plus_strand):
     return ''.join(parts)
 
 
-def has_inframe_stop_codon(cds_seq):
+def has_inframe_stop_codon(cds_seq: str) -> bool:
     """checks a fully spliced, 5' to 3' oriented CDS sequence for a stop codon before the
     final codon; a truncated (not a multiple of 3) trailing partial codon is ignored"""
     last_full_codon_start = len(cds_seq) - len(cds_seq) % 3 - 3

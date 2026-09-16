@@ -30,19 +30,20 @@ class ImportStatistics(object):
     log line per locus/transcript/error, which floods the log without being any easier to
     get an overview from."""
 
-    def __init__(self):
-        self.total_super_loci = 0
-        self.total_transcripts = 0
-        self.total_coding_transcripts = 0
-        self.empty_super_loci = 0  # a gene with no transcripts at all
-        self.unstranded_super_loci = 0  # e.g. NCBI's '?' strand for trans-spliced genes
-        self.discontinuous_gene_ids_reused = 0
-        self.backwards_errors_removed = 0  # from overlapping super loci, see _remove_backwards_errors
-        self.errors = defaultdict(int)  # keyed by types.Errors value
+    def __init__(self) -> None:
+        self.total_super_loci: int = 0
+        self.total_transcripts: int = 0
+        self.total_coding_transcripts: int = 0
+        self.empty_super_loci: int = 0  # a gene with no transcripts at all
+        self.unstranded_super_loci: int = 0  # e.g. NCBI's '?' strand for trans-spliced genes
+        self.discontinuous_gene_ids_reused: int = 0
+        self.backwards_errors_removed: int = 0  # from overlapping super loci, see _remove_backwards_errors
+        self.errors: defaultdict[str, int] = defaultdict(int)  # keyed by types.Errors value
+        self.unrecognized_feature_types: defaultdict[str, int] = defaultdict(int)  # keyed by the raw, unknown GFF type
 
-    def log_summary(self, species):
+    def log_summary(self, species: str) -> None:
         lines = [
-            f"import summary for '{species}':",
+            f'import summary for "{species}":',
             f'  super loci: {self.total_super_loci} ({self.empty_super_loci} without any '
             f'transcript, {self.unstranded_super_loci} unstranded/trans-spliced, '
             f'{self.discontinuous_gene_ids_reused} discontinuous gene IDs reused)',
@@ -54,6 +55,10 @@ class ImportStatistics(object):
             lines += [f'    {error_type}: {count}' for error_type, count in sorted(self.errors.items())]
         else:
             lines.append('  errors: none')
+        if self.unrecognized_feature_types:
+            lines.append('  lines skipped for an unrecognized feature type:')
+            lines += [f'    {feature_type}: {count}'
+                     for feature_type, count in sorted(self.unrecognized_feature_types.items())]
         logger.info('\n'.join(lines))
 
 
@@ -526,10 +531,16 @@ class OrganizedGFFEntries(object):
         reader = gffhelper.read_gff_file(self.gff_file)
         for entry in reader:
             if entry.type not in known:
-                raise ValueError("unrecognized feature type from gff: {}".format(entry.type))
-            else:
-                self._clean_entry(entry)
-                yield entry
+                # an unrecognized Sequence Ontology term shouldn't take down the whole
+                # import; skip just this line and keep going
+                self.stats.unrecognized_feature_types[entry.type] += 1
+                # debug -> leads to overprinting in some files if set to warning
+                logger.debug(f'skipping line with unrecognized feature type '
+                             f'"{entry.type}" at {entry.seqid}:{entry.start}-{entry.end} '
+                             f'(not a Sequence Ontology term GeenuFF knows how to handle)')
+                continue
+            self._clean_entry(entry)
+            yield entry
 
     @staticmethod
     def _clean_entry(entry):
