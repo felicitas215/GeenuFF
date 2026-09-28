@@ -87,4 +87,10 @@ UNPLACEABLE_STRAND = 'unplaceable_strand'  # not on one definite strand, see doc
 UNPLACEABLE_COORDINATES = 'unplaceable_coordinates'  # a line whose start runs past its end
 OVERLAP_DROPPED = 'overlap_dropped'  # gave way so an overlapping partner could be kept whole
 
+# of those, the reasons a locus cannot be written out at all, whatever it is written for: where
+# its features belong is what is unknown about it. OVERLAP_DROPPED is deliberately not among
+# them, nothing being wrong with such a locus beyond sharing sequence with another, which only a
+# consumer holding one label per base pair cannot take.
+unrepresentable_reasons = (UNPLACEABLE_STRAND, UNPLACEABLE_COORDINATES)
+
 GeenuffFeature = join_to_enum('GeenuffFeature', GeenuffSequenceFeature, Errors)

@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from typing import TextIO
 
 from geenuff.applications.exporter import GeenuffExportController, RangeMaker
@@ -8,37 +9,70 @@ from geenuff.base import types
 
 logger = logging.getLogger(__name__)
 
+# why a gene never reaches this file, phrased for the export's own log
+UNWRITTEN_REASONS = {
+    types.UNPLACEABLE_STRAND: 'their features are not all on one definite strand',
+    types.UNPLACEABLE_COORDINATES: 'a line of theirs runs backwards, its start past its end',
+    types.OVERLAP_DROPPED: 'they gave way to an overlapping gene that was kept instead',
+}
+
 
 class FilteredGff3ExportController(GeenuffExportController):
-    """Writes a plain GFF3 file containing exactly the transcripts Helixer's h5 export
-    would use for training: the longest (transcript.longest) transcript per super locus,
-    and only where that transcript carries no error feature at all. This is a stricter
-    filter than the h5 export itself, which still includes and merely masks erroneous
-    transcripts. Useful for comparing the Helixer predictions to the filtered reference,
-    i.e. structurally sound transcripts."""
+    """Writes a plain GFF3 file of one transcript per gene, the longest coding one, for comparing
+    a Helixer prediction against the reference it was trained on.
 
-    def write_filtered_gff3(self, file_out: str | None) -> None:
+    By default it writes exactly what the h5 export would train on: only genes that reach that
+    export, and of those only the ones carrying no error feature at all. That is stricter than the
+    h5 export itself, which still includes erroneous transcripts and merely masks them.
+
+    With include_erroneous it writes every gene that can be written at all, whatever is wrong with
+    it, which is the set to compare against when the question is what Helixer predicted per gene
+    rather than how it did on sound ones. Only genes that cannot be written are left out then, and
+    a gene dropped for overlapping another is not one of them: nothing is wrong with it beyond
+    sharing sequence, which a GFF3 holds without trouble (see types.unrepresentable_reasons)."""
+
+    def write_filtered_gff3(self, file_out: str | None, include_erroneous: bool = False) -> None:
         handle_out = self._as_file_handle(file_out)
         handle_out.write('##gff-version 3\n')
 
         n_written = 0
+        n_erroneous = 0
         n_skipped_erroneous = 0
-        transcripts = (self.session.query(Transcript)
-                       .join(SuperLocus, Transcript.super_locus_id == SuperLocus.id)
-                       .filter(Transcript.longest.is_(True))
-                       .filter(SuperLocus.excluded_from_export.is_(None))
-                       .order_by(SuperLocus.id))
-        for transcript in transcripts:
-            if not self._is_error_free(transcript):
-                n_skipped_erroneous += 1
+        skipped = defaultdict(int)  # keyed by SuperLocus.excluded_from_export
+        # the super locus is selected alongside so its reason and name come from the same query
+        rows = (self.session.query(Transcript, SuperLocus)
+                .join(SuperLocus, Transcript.super_locus_id == SuperLocus.id)
+                .filter(Transcript.longest.is_(True))
+                .order_by(SuperLocus.id))
+        for transcript, super_locus in rows:
+            reason = super_locus.excluded_from_export
+            if reason is not None and (not include_erroneous
+                                       or reason in types.unrepresentable_reasons):
+                skipped[reason] += 1
                 continue
+            if not self._is_error_free(transcript):
+                if not include_erroneous:
+                    n_skipped_erroneous += 1
+                    continue
+                n_erroneous += 1
             self._write_transcript(handle_out, transcript)
             n_written += 1
 
         if file_out is not None:
             handle_out.close()
-        logger.info(f'Wrote {n_written} error-free transcripts to GFF3 '
-                    f'({n_skipped_erroneous} longest-but-erroneous transcripts skipped)')
+        self._log_summary(n_written, n_erroneous, n_skipped_erroneous, skipped, include_erroneous)
+
+    @staticmethod
+    def _log_summary(n_written: int, n_erroneous: int, n_skipped_erroneous: int,
+                     skipped: dict[str, int], include_erroneous: bool) -> None:
+        if include_erroneous:
+            logger.info(f'Wrote {n_written} transcripts to GFF3, one per gene, '
+                        f'{n_erroneous} of them with something wrong')
+        else:
+            logger.info(f'Wrote {n_written} error-free transcripts to GFF3 '
+                        f'({n_skipped_erroneous} longest-but-erroneous transcripts skipped)')
+        for reason, count in sorted(skipped.items()):
+            logger.info(f'  {count} genes left out, {UNWRITTEN_REASONS[reason]}')
 
     @staticmethod
     def _is_error_free(transcript: Transcript) -> bool:

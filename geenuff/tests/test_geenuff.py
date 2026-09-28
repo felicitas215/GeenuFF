@@ -1,4 +1,5 @@
 import os
+import logging
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy import func
@@ -917,6 +918,39 @@ def test_filtered_gff3_export_writes_only_longest_error_free_transcripts(tmp_pat
     gene_line = [line for line in lines if line.split('\t')[2] == 'gene'][0]
     cols = gene_line.split('\t')
     assert (cols[3], cols[4]) == ('1000', '1200')
+
+
+def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path, caplog):
+    """include_erroneous writes one transcript per gene whatever is wrong with it, so a
+    prediction can be compared gene by gene rather than only against sound ones. The line it
+    draws is representability, not correctness: a gene dropped from the h5 export for
+    overlapping another is written, nothing being wrong with it beyond sharing sequence, which a
+    GFF3 holds without trouble, while a gene whose features cannot be placed on one strand is
+    not. Genes left out are logged with the reason, per types.unrepresentable_reasons."""
+    def genes_written(fasta, gff3, include_erroneous):
+        stem = f'{gff3}_{include_erroneous}'
+        db_path = str(tmp_path / f'{stem}.sqlite3')
+        out_path = str(tmp_path / f'{stem}.gff3')
+        controller = ImportController(database_path=db_path)
+        controller.add_genome(f'testdata/{fasta}.fa', f'testdata/{gff3}.gff3', clean_gff=True)
+        FilteredGff3ExportController(db_path).write_filtered_gff3(
+            out_path, include_erroneous=include_erroneous)
+        with open(out_path) as handle:
+            return {line.split('ID=')[1].strip() for line in handle
+                    if line.split('\t')[2:3] == ['gene']}
+
+    # every gene in this file lacks a start and stop codon, so the default export writes none of
+    # them; with include_erroneous all eight come through, geneCrossGivesWay and geneInner among
+    # them although both were dropped from the h5 export for overlapping a gene that was kept
+    assert genes_written('overlapping_loci_chain', 'overlapping_loci_pairs', False) == set()
+    assert genes_written('overlapping_loci_chain', 'overlapping_loci_pairs', True) == {
+        'geneCrossCoder', 'geneCrossGivesWay', 'geneOuter', 'geneInner', 'geneBothCodeLeft',
+        'geneBothCodeRight', 'geneCleanNoCds', 'geneTruncatedCoder'}
+
+    # a gene that cannot be placed on one strand stays out even so, and is reported as left out
+    caplog.set_level(logging.INFO)
+    assert genes_written('unplaceable_strand', 'unplaceable_strand', True) == {'geneOK'}
+    assert '2 genes left out, their features are not all on one definite strand' in caplog.text
 
 
 def test_unrecognized_feature_type_is_skipped_not_fatal():

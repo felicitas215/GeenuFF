@@ -35,6 +35,7 @@ out. Two pieces of that are worth reading before relying on the output:
   same sequence, which of them is kept, and why
 * [docs/trans_splicing.md](docs/trans_splicing.md): why a gene whose pieces sit on different
   strands is stored but never exported, and why nothing is masked in its place
+* [docs/scripts.md](docs/scripts.md): what each script in `scripts/` reads out of a database
 
 ## Install
 GeenuFF needs python3.10.12 or newer, which `pyproject.toml` enforces via `requires-python`.
