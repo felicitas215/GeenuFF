@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools < 72.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geenuff"
+version = "0.4.0.dev0"
+description = "Schema and API for a relational db that encodes gene models in an explicit, structured, and robust fashion."
+readme = "README.md"
+requires-python = ">=3.10.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+dependencies = [
+    "intervaltree>=3.0.2",
+    # 2.0 dropped Engine.execute and raw string execution, both of which are still used here
+    "SQLAlchemy>=1.3.22,<2.0",
+    "numpy>=1.18.1",
+    "pyyaml",
+    "dustdas @ git+https://github.com/gglyptodon/dustdas@v0.2",
+    "pytest>=5.3.4"
+]
+authors = [
+    {name = "Alisandra K. Denton"},
+    {name = "Felix Holst"},
+    {name= "Janina Mass"},
+    {name = "Felicitas Kindel"},
+]
+
+[project.urls]
+"Homepage" = "https://github.com/weberlab-hhu/GeenuFF"
+"Documentation" = "https://weberlab-hhu.github.io/GeenuFF/"
+
+[project.license]
+text = "GNU General Public License v3 (GPLv3)"
+
+[tool.setuptools]
+packages = [
+    "geenuff",
+    "geenuff.base",
+    "geenuff.applications",
+    "geenuff.applications.exporters",
+    "geenuff.tests"
+]
+package-data = {geenuff = ["testdata/*.fa", "testdata/*.gff3", "testdata/*.gff"]}
+script-files = ["import2geenuff.py"]
+zip-safe = false
