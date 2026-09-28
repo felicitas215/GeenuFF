@@ -55,6 +55,12 @@ class ImportStatistics(object):
         self.longest_transcripts: int = 0
         self.longest_error_free_transcripts: int = 0  # of the above, the ones with no error at all
         self.empty_super_loci: int = 0  # a gene with no transcripts at all
+        # exon/CDS lines the file holds and GeenuFF does not, keyed by GFF type: ones whose gene
+        # has no transcript line anywhere, and ones written above their gene's transcripts while
+        # echoing none of them, which is how an isoform with no transcript line of its own looks
+        # (see _place_deferred_feature)
+        self.feature_lines_without_any_transcript: defaultdict[str, int] = defaultdict(int)
+        self.feature_lines_above_their_transcript: defaultdict[str, int] = defaultdict(int)
         self.unstranded_super_loci: int = 0  # e.g. NCBI's '?' strand for trans-spliced genes
         # kept in full but never exported, counted per reason and keyed by the value stored in
         # orm.SuperLocus.excluded_from_export
@@ -83,6 +89,14 @@ class ImportStatistics(object):
         # range to mask still shows up here (see docs/spec_vs_gff.md)
         self.errors: defaultdict[str, int] = defaultdict(int)
         self.unrecognized_feature_types: defaultdict[str, int] = defaultdict(int)  # keyed by the raw, unknown GFF type
+
+    @staticmethod
+    def _per_type(counts: dict[str, int], text: str) -> tuple[int, str]:
+        """One summary entry for a tally kept per GFF feature type: the total, with the types
+        themselves in brackets, rather than the same sentence once per type."""
+        if counts:
+            text += ' (' + ', '.join(f'{name} {n}' for name, n in sorted(counts.items())) + ')'
+        return sum(counts.values()), text
 
     def log_summary(self, species: str) -> None:
         """Logs one summary of the import, as sections of counted lines with the counts in a
@@ -120,7 +134,13 @@ class ImportStatistics(object):
                                                         'own lines'),
                 (self.gene_parented_features_reparented, 'given to the gene\'s sole transcript'),
                 (self.gene_parented_ambiguous_dropped, 'dropped, matching no transcript'),
-            ]),
+            ] + [self._per_type(self.feature_lines_without_any_transcript,
+                                'lines dropped for belonging to a gene with no transcript line '
+                                'anywhere'),
+                 self._per_type(self.feature_lines_above_their_transcript,
+                                'lines dropped for standing above their gene\'s transcripts and '
+                                'echoing none of them, most likely an isoform given no '
+                                'transcript line of its own')]),
         ]
         if self.errors:
             sections.append(('errors, counted once per transcript they occur in, however often '
@@ -545,7 +565,7 @@ class OrganizedGFFEntryGroup(object):
     in an orderly fashion. Can then return a corresponding OrganizedGeenuffImporterGroup.
     Does not perform error checking, which happens later.
 
-    The entries are organized in the following way:
+    The entries are organised in the following way:
 
     entries = {
         'super_locus' = super_locus_entry,
@@ -572,6 +592,9 @@ class OrganizedGFFEntryGroup(object):
 
     def add_gff_entry_group(self, entries):
         latest_transcript = None
+        # exon/CDS lines standing above this gene's first transcript line, held back until the
+        # whole group has been read (see _place_deferred_feature)
+        deferred = []
         for entry in list(entries):
             if in_enum_values(entry.type, types.SuperLocusAll):
                 assert 'super_locus' not in self.entries
@@ -625,11 +648,19 @@ class OrganizedGFFEntryGroup(object):
                     self.entries['transcripts'][latest_transcript]['cds'].append(entry)
                 else:
                     logger.warning(f'Found unexpected entry type: {entry.type}')
+            elif (in_enum_values(entry.type, types.ExonLevel)
+                  or in_enum_values(entry.type, types.CDSLevel)):
+                # an exon or CDS line above this gene's first transcript line, as NCBI writes
+                # the gene-parented echo of a transcript's own exons. Nothing is collected yet
+                # to attach it to or to recognise it as the duplicate it usually is, so it waits
+                # until the group has been read rather than being dropped for its position
+                deferred.append(entry)
             else:
-                # is overprinting
                 logger.debug(f'Ignoring {entry.type} without transcript found in {entry.seqid}: '
                              f'{entries[0].attribute}')
-                # todo: add counter?
+
+        for entry in deferred:
+            self._place_deferred_feature(entry)
 
         # set the coordinate
         self.coord = self.fasta_importer.gffid_to_coords[self.entries['super_locus'].seqid]
@@ -644,6 +675,35 @@ class OrganizedGFFEntryGroup(object):
         transcript"""
         parent_ids = entry.get_Parent()
         return bool(parent_ids) and self.entries['super_locus'].get_ID() in parent_ids
+
+    def _place_deferred_feature(self, entry):
+        """Decides what becomes of one exon/CDS line that stood above its gene's first transcript
+        line, now that every transcript of the gene has been collected. Waiting lets the echoes
+        among them be recognised as such instead of being dropped unexamined for their position,
+        which is what the overwhelming majority of them are.
+
+        What is left is not attached to anything, not even where the gene has a single
+        transcript. A line written above the transcripts characteristically belongs to a further
+        isoform that the file gives no transcript line of its own (NCBI sometimes writes an isoform's whole
+        CDS this way), so attaching it to the transcript that does exist would merge two proteins
+        into one. It is dropped and counted instead."""
+        key = 'exons' if in_enum_values(entry.type, types.ExonLevel) else 'cds'
+        gene_id = self.entries['super_locus'].get_ID()
+        stats = self.controller.stats
+
+        if not self.entries['transcripts']:
+            stats.feature_lines_without_any_transcript[entry.type] += 1
+            logger.debug(f"dropping {entry.type} of gene '{gene_id}': the gene has no transcript "
+                         f"line anywhere for it to belong to")
+        elif self._matches_existing_transcript_feature(entry, key):
+            stats.gene_parented_duplicates_dropped += 1
+            logger.debug(f"skipping {entry.type} of gene '{gene_id}' listed above its transcript "
+                         f"(a redundant echo of a feature nested below)")
+        else:
+            stats.feature_lines_above_their_transcript[entry.type] += 1
+            logger.debug(f"dropping {entry.type} of gene '{gene_id}' listed above its "
+                         f"transcripts and echoing none of them, most likely an isoform the file "
+                         f"gives no transcript line of its own")
 
     def _matches_existing_transcript_feature(self, entry, key):
         """True if (entry.start, entry.end) already belongs to some transcript of this

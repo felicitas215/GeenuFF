@@ -1,0 +1,34 @@
+##gff-version 3
+##sequence-region CHR 1 7300
+# Four genes whose exon lines stand ABOVE their transcript line, as NCBI writes the
+# gene-parented echo of a transcript's own exons. One case per outcome of
+# OrganizedGFFEntryGroup._place_deferred_feature.
+#
+# 1. the line above is an echo of one nested below, at the same coordinates: dropped
+CHR	EMBL	gene	100	400	.	+	.	ID=geneEchoAbove;Name=echo-of-a-line-nested-below
+CHR	EMBL	exon	100	400	.	+	.	ID=id-geneEchoAbove;Parent=geneEchoAbove
+CHR	EMBL	mRNA	100	400	.	+	.	ID=rnaEchoAbove;Parent=geneEchoAbove
+CHR	EMBL	exon	100	400	.	+	.	ID=exon-rnaEchoAbove;Parent=rnaEchoAbove
+CHR	EMBL	CDS	150	350	.	+	0	ID=cds-rnaEchoAbove;Parent=rnaEchoAbove
+# 2. no echo of it anywhere, and the gene has exactly one transcript. It is still NOT attached
+#    to that transcript: a line above the transcripts characteristically belongs to a further
+#    isoform the file gives no transcript line of its own, so attaching it would merge two
+#    proteins into one (real case: Arabidopsis AT4G21460, whose gene-parented CDS lines are a
+#    second isoform's). Dropped and counted instead
+CHR	EMBL	gene	600	900	.	+	.	ID=geneSoleTranscript;Name=not-attached-even-to-a-sole-transcript
+CHR	EMBL	exon	600	700	.	+	.	ID=id-geneSoleTranscript;Parent=geneSoleTranscript
+CHR	EMBL	mRNA	600	900	.	+	.	ID=rnaSoleTranscript;Parent=geneSoleTranscript
+CHR	EMBL	exon	800	900	.	+	.	ID=exon-rnaSoleTranscript;Parent=rnaSoleTranscript
+CHR	EMBL	CDS	820	882	.	+	0	ID=cds-rnaSoleTranscript;Parent=rnaSoleTranscript
+# 3. no echo, and two transcripts it could belong to: dropped for the same reason
+CHR	EMBL	gene	1200	1600	.	+	.	ID=geneAmbiguous;Name=could-belong-to-either-transcript
+CHR	EMBL	exon	1200	1250	.	+	.	ID=id-geneAmbiguous;Parent=geneAmbiguous
+CHR	EMBL	mRNA	1200	1400	.	+	.	ID=rnaAmbiguous1;Parent=geneAmbiguous
+CHR	EMBL	exon	1300	1400	.	+	.	ID=exon-rnaAmbiguous1;Parent=rnaAmbiguous1
+CHR	EMBL	CDS	1320	1382	.	+	0	ID=cds-rnaAmbiguous1;Parent=rnaAmbiguous1
+CHR	EMBL	mRNA	1450	1600	.	+	.	ID=rnaAmbiguous2;Parent=geneAmbiguous
+CHR	EMBL	exon	1450	1600	.	+	.	ID=exon-rnaAmbiguous2;Parent=rnaAmbiguous2
+CHR	EMBL	CDS	1470	1562	.	+	0	ID=cds-rnaAmbiguous2;Parent=rnaAmbiguous2
+# 4. the gene has no transcript line at all, so there is nothing to attach it to: counted
+CHR	EMBL	gene	2000	2100	.	+	.	ID=geneNoTranscript;Name=no-transcript-line-anywhere
+CHR	EMBL	exon	2000	2100	.	+	.	ID=id-geneNoTranscript;Parent=geneNoTranscript

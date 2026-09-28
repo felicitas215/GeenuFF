@@ -1,6 +1,6 @@
 # Command line scripts
 
-Four scripts in `scripts/` read a GeenuFF database and write something out of it. None of them
+Five scripts in `scripts/` read a GeenuFF database and write something out of it. None of them
 modifies the database. All take `--db-path-in` and write to stdout unless given `-o`.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, which is the
@@ -56,3 +56,22 @@ for indented output.
 Unlike the others this is a reading tool rather than an export: it is the quickest way to see
 every feature GeenuFF built for a locus, error features included, when a summary count says
 something is wrong but not what.
+
+## summarize_geenuff_db.py
+
+Rebuilds the import summary from the database, for when the import log has been lost or the
+database arrived without one. It reads through plain sqlite rather than the ORM, so a database
+written by an older GeenuFF opens as well; sections resting on tables or columns that version did
+not have are simply left out.
+
+Most of the summary is recoverable, and the counts it prints are identical to the log's. Gene and
+transcript totals, the empty and the reused-ID genes, the transcripts selected for export and how
+many of those are error free, the errors per type and the contents of the `super_locus_overlap`
+table are all read straight out. The overlap resolution is not stored as counts, but the outcome
+is: the sweep is run again over the spans in the database, and the pairs split into resolved,
+refused and chained by which genes carry `excluded_from_export = 'overlap_dropped'`.
+
+What the summary counted while reading the GFF3 is gone for good, because the lines it counted
+were never written: genes on no definite strand, transcripts dropped for having no storable range,
+the exon and CDS lines parented to a gene instead of a transcript, and the lines skipped for an
+unused feature type. The script lists these at the end.

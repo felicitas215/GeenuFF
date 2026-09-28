@@ -953,6 +953,37 @@ def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path,
     assert '2 genes left out, their features are not all on one definite strand' in caplog.text
 
 
+def test_exon_lines_above_their_transcript_are_examined_before_being_dropped():
+    """An exon or CDS line standing above its gene's first transcript line used to be dropped for
+    its position alone, before anything was collected that could tell what it was. Such lines now
+    wait until the gene has been read, which lets the echoes among them be recognised as the
+    duplicates they are often rather than counted as lost annotation.
+
+    What is left is still not attached to any transcript, not even where the gene has only one:
+    a line above the transcripts characteristically belongs to a further isoform the file gives
+    no transcript line of its own, so attaching it would merge two proteins into one.
+    See OrganizedGFFEntryGroup._place_deferred_feature; the four cases are in the gff3."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/overlapping_loci_chain.fa',
+                          'testdata/features_above_transcript.gff3', clean_gff=True)
+    stats = controller.stats
+
+    assert stats.gene_parented_duplicates_dropped == 1  # geneEchoAbove, recognised as an echo
+    assert stats.feature_lines_without_any_transcript == {'exon': 1}  # geneNoTranscript
+    # geneSoleTranscript and geneAmbiguous, neither attached to anything
+    assert stats.feature_lines_above_their_transcript == {'exon': 2}
+    assert stats.gene_parented_features_reparented == 0
+
+    # the sole-transcript gene keeps only the exon nested under its transcript (800-900), so its
+    # one intron runs from the transcript's start. Had the line above been attached, the intron
+    # would instead lie between the two exons, at 700-799
+    transcript = controller.session.query(Transcript).filter_by(
+        given_name='rnaSoleTranscript').one()
+    introns = sorted((f.start, f.end) for p in transcript.transcript_pieces for f in p.features
+                     if f.type.value == types.GEENUFF_INTRON)
+    assert introns == [(599, 799)]
+
+
 def test_unrecognized_feature_type_is_skipped_not_fatal():
     """A GFF3 line whose feature type isn't a Sequence Ontology term GeenuFF knows (e.g. a
     stray GenBank-style 'misc_feature') must not crash the whole import: that one line is
