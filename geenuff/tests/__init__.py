@@ -1,1 +1,1 @@
-from . import test_geenuff
+from geenuff.tests import test_geenuff

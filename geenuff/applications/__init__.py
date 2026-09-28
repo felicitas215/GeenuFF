@@ -1,1 +1,1 @@
-from . import importer
+from geenuff.applications import importer

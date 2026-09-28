@@ -1,8 +1,8 @@
 import copy
 
-from . import orm
-from . import types
-from . import helpers
+from geenuff.base import orm
+from geenuff.base import types
+from geenuff.base import helpers
 
 
 class Handler(object):

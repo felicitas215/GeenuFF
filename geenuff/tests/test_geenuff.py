@@ -7,15 +7,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 import sqlalchemy
 
-from .. import orm
-from .. import types
-from .. import helpers
-from ..base.orm import (Genome, Feature, Coordinate, Transcript, TranscriptPiece, SuperLocus,
-                        Protein)
-from ..base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
-from ..applications.importer import ImportController, InsertCounterHolder, OrganizedGFFEntries
-from ..applications.exporter import GeenuffExportController
-from ..applications.exporters.gff3 import FilteredGff3ExportController
+from geenuff.base import orm
+from geenuff.base import types
+from geenuff.base import helpers
+from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, TranscriptPiece, SuperLocus,
+                              Protein)
+from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
+from geenuff.applications.importer import ImportController, InsertCounterHolder, OrganizedGFFEntries
+from geenuff.applications.exporter import GeenuffExportController
+from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
 
 @pytest.fixture(scope="session", autouse=True)

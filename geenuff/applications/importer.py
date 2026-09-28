@@ -10,12 +10,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from dustdas import gffhelper, fastahelper
-from .. import orm
-from .. import types
-from .. import helpers
-from ..base.helpers import (get_strand_direction, strand_or_none, get_geenuff_start_end,
-                            has_inframe_stop_codon, spliced_cds_sequence, START_CODON,
-                            STOP_CODONS, in_enum_values)
+from geenuff.base import orm
+from geenuff.base import types
+from geenuff.base import helpers
+from geenuff.base.helpers import (get_strand_direction, strand_or_none, get_geenuff_start_end,
+                                  has_inframe_stop_codon, spliced_cds_sequence, START_CODON,
+                                  STOP_CODONS, in_enum_values)
 
 logger = logging.getLogger(__name__)
 

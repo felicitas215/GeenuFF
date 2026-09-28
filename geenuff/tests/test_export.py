@@ -1,10 +1,11 @@
 import os
 import pytest
-from ..applications.importer import ImportController
-from ..applications.exporters.sequence import FastaExportController
-from ..applications.exporters.lengths import LengthExportController
-from ..applications.exporters.json import JsonExportController, FeatureJsonable, TranscriptJsonable, SuperLocusJsonable
-from ..applications.exporter import MODES
+from geenuff.applications.importer import ImportController
+from geenuff.applications.exporters.sequence import FastaExportController
+from geenuff.applications.exporters.lengths import LengthExportController
+from geenuff.applications.exporters.json import (JsonExportController, FeatureJsonable,
+                                                 TranscriptJsonable, SuperLocusJsonable)
+from geenuff.applications.exporter import MODES
 from geenuff.base import orm, types
 import json
 from geenuff.applications.exporter import GeenuffExportController

@@ -1,4 +1,4 @@
-from .helpers import make_enum
+from geenuff.base.helpers import make_enum
 
 _so_version = '2.5.3'
 

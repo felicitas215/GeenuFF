@@ -1,1 +1,1 @@
-from . import orm, types, handlers
+from geenuff.base import orm, types, handlers

@@ -1,2 +1,2 @@
-from .base import orm, types, handlers, helpers
-from . import applications
+from geenuff.base import orm, types, handlers, helpers
+from geenuff import applications

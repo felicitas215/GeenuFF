@@ -2,7 +2,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Table, Column, Integer, ForeignKey, String, Enum, CheckConstraint, UniqueConstraint, Boolean, Float
 from sqlalchemy.orm import relationship
 
-from . import types
+from geenuff.base import types
 
 # setup classes for data holding
 Base = declarative_base()

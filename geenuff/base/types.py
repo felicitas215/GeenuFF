@@ -1,14 +1,14 @@
-from .helpers import (join_to_enum,
-                      make_enum,
-                      join_to_enum_strip_redundancy,
-                      subtract_enum)
+from geenuff.base.helpers import (join_to_enum,
+                                  make_enum,
+                                  join_to_enum_strip_redundancy,
+                                  subtract_enum)
 
 
-from .so import (SOSequenceFeatures,
-                 SOSuperLocusFeatures,
-                 SOTranscriptFeatures,
-                 SOCDSFeatures,
-                 SOExonFeatures)
+from geenuff.base.so import (SOSequenceFeatures,
+                             SOSuperLocusFeatures,
+                             SOTranscriptFeatures,
+                             SOCDSFeatures,
+                             SOExonFeatures)
 ########
 # GFF
 ########
