@@ -67,15 +67,13 @@ def main(args):
                        logfile=args.log_file)
 
     msg_fmt_str = '%(asctime)s - %(levelname)s: %(message)s'
-    date_fmt_str = '%d-%b-%y %H:%M:%S'
     logging.basicConfig(filename=paths.problems_out,
                         filemode='w',
                         level=logging.DEBUG if args.verbose else logging.INFO,
-                        format=msg_fmt_str,
-                        datefmt=date_fmt_str)
+                        format=msg_fmt_str)
     # log to file and stderr simultaneously
     stdout_handler = logging.StreamHandler(sys.stdout)
-    stdout_handler.setFormatter(logging.Formatter(fmt=msg_fmt_str, datefmt=date_fmt_str))
+    stdout_handler.setFormatter(logging.Formatter(fmt=msg_fmt_str))
     logging.getLogger().addHandler(stdout_handler)
 
     # try to load config

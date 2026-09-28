@@ -116,10 +116,12 @@ class GeenuffExportController(object):
         # {(coordinate pk, coordinate length):
         #     [Feature 0, Feature 1, ...]
         # }
+        # a locus with no honest way to be exported is left out whatever else is asked for; its
+        # features stay in the database (see orm.SuperLocus.excluded_from_export)
+        conditions = ['super_locus.excluded_from_export IS NULL']
         if longest_only:
-            longest_transcript_filter = 'WHERE transcript.longest = 1'
-        else:
-            longest_transcript_filter = ''
+            conditions.append('transcript.longest = 1')
+        longest_transcript_filter = 'WHERE ' + ' AND '.join(conditions)
 
         query = '''SELECT feature.id AS feature_id,
                           feature.given_name AS feature_given_name,

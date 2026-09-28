@@ -199,6 +199,7 @@ def get_seqids_from_gff(gfffile):
 
 ##### GFF start/end to GeenuFF #####
 def strand_as_bool(strand):
+    # anything but '+' or '-' raises; use strand_or_none below where that is not fatal
     if strand == '+':
         return True
     elif strand == '-':
@@ -209,6 +210,15 @@ def strand_as_bool(strand):
 
 def get_strand_direction(gffentry):
     return strand_as_bool(gffentry.strand)
+
+
+def strand_or_none(gffentry):
+    """The entry's strand, or None where the GFF gives neither '+' nor '-', e.g. NCBI's '?' for
+    a trans-spliced feature."""
+    try:
+        return get_strand_direction(gffentry)
+    except ValueError:
+        return None
 
 
 # todo: could this be simpler?

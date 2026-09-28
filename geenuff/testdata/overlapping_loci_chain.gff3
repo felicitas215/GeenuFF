@@ -1,0 +1,35 @@
+##gff-version 3
+##sequence-region CHR 1 7300
+CHR	EMBL	gene	100	999	.	+	.	ID=geneA;Name=wide-container
+CHR	EMBL	mRNA	100	999	.	+	.	ID=rnaA;Parent=geneA
+CHR	EMBL	exon	100	999	.	+	.	ID=exon-rnaA;Parent=rnaA
+CHR	EMBL	CDS	100	999	.	+	0	ID=cds-rnaA;Parent=rnaA
+CHR	EMBL	gene	200	298	.	+	.	ID=geneB;Name=nested-in-A
+CHR	EMBL	mRNA	200	298	.	+	.	ID=rnaB;Parent=geneB
+CHR	EMBL	exon	200	298	.	+	.	ID=exon-rnaB;Parent=rnaB
+CHR	EMBL	CDS	200	298	.	+	0	ID=cds-rnaB;Parent=rnaB
+CHR	EMBL	gene	900	1100	.	+	.	ID=geneC;Name=overlaps-A-tail-not-B
+CHR	EMBL	mRNA	900	1100	.	+	.	ID=rnaC;Parent=geneC
+CHR	EMBL	exon	900	1100	.	+	.	ID=exon-rnaC;Parent=rnaC
+CHR	EMBL	CDS	900	1100	.	+	0	ID=cds-rnaC;Parent=rnaC
+CHR	EMBL	gene	1150	1300	.	+	.	ID=geneD_te_like;Name=transposable-element-no-transcript
+CHR	EMBL	gene	1180	1250	.	+	.	ID=geneE;Name=real-coding-gene-nested-in-TE-like-record
+CHR	EMBL	mRNA	1180	1250	.	+	.	ID=rnaE;Parent=geneE
+CHR	EMBL	exon	1180	1250	.	+	.	ID=exon-rnaE;Parent=rnaE
+CHR	EMBL	CDS	1180	1250	.	+	0	ID=cds-rnaE;Parent=rnaE
+CHR	EMBL	gene	2400	5000	.	+	.	ID=geneF;Name=wide-overlap-predecessor
+CHR	EMBL	mRNA	2400	5000	.	+	.	ID=rnaF;Parent=geneF
+CHR	EMBL	exon	2400	5000	.	+	.	ID=exon-rnaF;Parent=rnaF
+CHR	EMBL	CDS	2400	5000	.	+	0	ID=cds-rnaF;Parent=rnaF
+CHR	EMBL	gene	3900	7000	.	+	.	ID=geneG;Name=even-wider-overlap-of-F
+CHR	EMBL	mRNA	3900	7000	.	+	.	ID=rnaG;Parent=geneG
+CHR	EMBL	exon	3900	7000	.	+	.	ID=exon-rnaG;Parent=rnaG
+CHR	EMBL	CDS	3900	7000	.	+	0	ID=cds-rnaG;Parent=rnaG
+CHR	EMBL	gene	3950	3960	.	+	.	ID=geneH;Name=tiny-nested-in-G-sorts-last
+CHR	EMBL	mRNA	3950	3960	.	+	.	ID=rnaH;Parent=geneH
+CHR	EMBL	exon	3950	3960	.	+	.	ID=exon-rnaH;Parent=rnaH
+CHR	EMBL	CDS	3950	3960	.	+	0	ID=cds-rnaH;Parent=rnaH
+CHR	EMBL	gene	7010	7100	.	+	.	ID=geneI;Name=closes-the-cluster
+CHR	EMBL	mRNA	7010	7100	.	+	.	ID=rnaI;Parent=geneI
+CHR	EMBL	exon	7010	7100	.	+	.	ID=exon-rnaI;Parent=rnaI
+CHR	EMBL	CDS	7010	7100	.	+	0	ID=cds-rnaI;Parent=rnaI

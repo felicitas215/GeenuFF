@@ -26,6 +26,7 @@ class FilteredGff3ExportController(GeenuffExportController):
         transcripts = (self.session.query(Transcript)
                        .join(SuperLocus, Transcript.super_locus_id == SuperLocus.id)
                        .filter(Transcript.longest.is_(True))
+                       .filter(SuperLocus.excluded_from_export.is_(None))
                        .order_by(SuperLocus.id))
         for transcript in transcripts:
             if not self._is_error_free(transcript):

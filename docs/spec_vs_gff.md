@@ -15,7 +15,7 @@ identical.
 These do not exist in a gff, but are used in geenuff to denote things
 that might be ambiguous or unknown about a gene model. 
 
-Currently errors are assigned when any obvious gene model inconsistency
+Currently, errors are assigned when any obvious gene model inconsistency
 is encountered during gff parsing. Most error types
 are extended from the end of a known feature half way to the next
 gene model, while some internal errors (e.g. too_short_intron) can
@@ -36,6 +36,33 @@ Types are:
 * overlapping_exons
 * too_short_intron
 * super_loci_overlap_error
+
+###### super_loci_overlap_error is positioned differently:
+Unlike the types above, it is not extended half way to the next gene model, and it marks
+sequence two genes both claim rather than anything wrong with one gene. Every shared base
+carries two mutually exclusive true labels (e.g. CDS for one gene and intron or UTR for the
+other), which a one-class-per-base consumer cannot represent.
+
+Where one of two overlapping genes can be kept without mislabelling the other's coding
+sequence, it is exported whole and its partner is left out of exports altogether; the error
+then covers the region that partner used to occupy. Where neither can be kept, both genes are
+exported and the error covers the sequence they share, on each of them. Only genes with a CDS
+take part, so a coding gene annotated inside a transposable-element or other non-coding record
+is not masked for it. Every overlapping pair of coding genes is recorded without masking in the
+`super_locus_overlap` table as well. See `overlap_masking.md` for both records, the rules
+deciding which gene is kept, and how this has changed.
+
+###### zero length error features:
+An error feature whose start equals its end masks nothing (consumers apply an error over
+`[start, end)`), but still records that the error was found. This happens where an error type
+that would normally be extended halfway to the next gene model has no unclaimed sequence to
+extend into, e.g. the missing 5' UTR of a gene nested inside another gene: the neighbouring
+locus already reaches past the boundary the mask would start from, so the range available for
+it is empty. The finding is real and the correct amount to mask is zero, so the feature is
+kept rather than dropped, which also keeps it visible to consumers that treat any error
+feature as disqualifying (e.g. the filtered GFF3 export). The import statistics count error
+types as they are detected, so they agree with these features rather than with the subset
+that masks a non-empty range.
 
 ##### start_is_biological_start and end_is_biological_end:
 When `True`, these attributes mean the start and end attributes
@@ -113,24 +140,24 @@ so reverse to the interpretation when on the - strand.
 
 Plus strand (+)
 
-| Common Name  | GFF | GFF start | GFF end |geenuff type| bearing| position |
-| -------------|:----| ---------:|--------:|:---|:-------|--------:|
-| TSS, Transcription start site      | start 1st exon  |x| |geenuff_transcript |start|x - 1|
-| TTS, Transcription termination site| end last exon   | |x|geenuff_transcript |end  |x    |
-| 1st bp of start codon              | start 1st CDS   |x| |geenuff_cds        |start|x - 1|
-| coding end                         | end last CDS    | |x|geenuff_cds        |end  |x    |
-| donor splice site (5' of intron)   |end non-last exon| |x|geenuff_intron     |start|x    |
-| acceptor splice site (3' of intron)|start 2nd+ exon  |x| |geenuff_intron     |end  |x - 1|
+| Common Name                         | GFF               | GFF start | GFF end | geenuff type       | bearing | position |
+|-------------------------------------|:------------------|----------:|--------:|:-------------------|:--------|---------:|
+| TSS, Transcription start site       | start 1st exon    |         x |         | geenuff_transcript | start   |    x - 1 |
+| TTS, Transcription termination site | end last exon     |           |       x | geenuff_transcript | end     |        x |
+| 1st bp of start codon               | start 1st CDS     |         x |         | geenuff_cds        | start   |    x - 1 |
+| coding end                          | end last CDS      |           |       x | geenuff_cds        | end     |        x |
+| donor splice site (5' of intron)    | end non-last exon |           |       x | geenuff_intron     | start   |        x |
+| acceptor splice site (3' of intron) | start 2nd+ exon   |         x |         | geenuff_intron     | end     |    x - 1 |
 
 
 Minus strand (-)
 
-| Common Name  | GFF | GFF start | GFF end |genuff type| bearing| position|
-| -------------|:----| ---------:|--------:|:---|:-------|--------:|
-| TSS, Transcription start site      | end last exon   | |x|geenuff_transcript |start|x - 1|
-| TTS, Transcription termination site| start 1st exon  |x| |geenuff_transcript |end  |x - 2|
-| 1st bp of start codon              | end last CDS    | |x|geenuff_cds        |start|x - 1|
-| coding end                         | start 1st CDS   |x| |geenuff_cds        |end  |x - 2|
-| donor splice site (5' of intron)   |start 2nd+ exon  |x| |geenuff_intron     |start|x - 2|
-| acceptor splice site (3' of intron)|end non-last exon| |x|geenuff_intron     |end  |x - 1|
+| Common Name                         | GFF               | GFF start | GFF end | genuff type        | bearing | position |
+|-------------------------------------|:------------------|----------:|--------:|:-------------------|:--------|---------:|
+| TSS, Transcription start site       | end last exon     |           |       x | geenuff_transcript | start   |    x - 1 |
+| TTS, Transcription termination site | start 1st exon    |         x |         | geenuff_transcript | end     |    x - 2 |
+| 1st bp of start codon               | end last CDS      |           |       x | geenuff_cds        | start   |    x - 1 |
+| coding end                          | start 1st CDS     |         x |         | geenuff_cds        | end     |    x - 2 |
+| donor splice site (5' of intron)    | start 2nd+ exon   |         x |         | geenuff_intron     | start   |    x - 2 |
+| acceptor splice site (3' of intron) | end non-last exon |           |       x | geenuff_intron     | end     |    x - 1 |
 

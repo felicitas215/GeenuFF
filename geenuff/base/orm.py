@@ -61,6 +61,11 @@ class SuperLocus(Base):
     given_name = Column(String)
     aliases = Column(String)
     type = Column(Enum(types.SuperLocusAll), index=True)
+    # why this locus is left out of exports, NULL where it is exported normally. Its features are
+    # kept either way: the annotation is recorded as given, and only what a consumer is handed
+    # depends on this. Set where there is no honest way to export the locus at all, rather than
+    # where something about it is merely wrong, which is what error features are for.
+    excluded_from_export = Column(String, index=True)
     # things SuperLocus can have a lot of
     transcripts = relationship('Transcript', back_populates='super_locus')
     proteins = relationship('Protein', back_populates='super_locus')
@@ -79,6 +84,26 @@ association_transcript_piece_to_feature = Table('association_transcript_piece_to
 association_protein_to_feature = Table('association_protein_to_feature', Base.metadata,
     Column('protein_id', Integer, ForeignKey('protein.id'), nullable=False, index=True),
     Column('feature_id', Integer, ForeignKey('feature.id'), nullable=False, index=True)
+)
+
+
+# One row per unordered pair of coding super loci sharing genomic range, with the shared range
+# itself. Measured over every coding transcript a locus has, not only the exported one, so it is
+# the wider record of the annotation's geometry and carries no judgement about whether either
+# locus is usable. Loci with no CDS under them take no part, a bare gene line or a non-coding
+# gene not being something this can say anything about.
+# The masking counterpart is the super_loci_overlap_error feature, written only where two
+# exported genes collide (see docs/overlap_masking.md), so consumers that mask from error
+# features never see this table.
+# Both ids are listed, so all overlaps of one locus are
+# `WHERE super_locus_id = X OR partner_id = X`.
+super_locus_overlap = Table('super_locus_overlap', Base.metadata,
+    Column('super_locus_id', Integer, ForeignKey('super_locus.id'), nullable=False, index=True),
+    Column('partner_id', Integer, ForeignKey('super_locus.id'), nullable=False, index=True),
+    Column('start', Integer, nullable=False),
+    Column('end', Integer, nullable=False),
+    Column('is_plus_strand', Boolean, nullable=False),
+    Column('coordinate_id', Integer, ForeignKey('coordinate.id'), nullable=False, index=True)
 )
 
 association_transcript_to_protein = Table('association_transcript_to_protein', Base.metadata,

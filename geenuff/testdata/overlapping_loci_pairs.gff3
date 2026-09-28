@@ -1,0 +1,47 @@
+##gff-version 3
+##sequence-region CHR 1 7300
+# Four isolated overlapping pairs, one per branch of the overlap decision. Every CDS is a
+# multiple of 3 except geneTruncatedCoder's, which is deliberately not.
+#
+# 1. crossing, resolved: geneCrossCoder owns coding sequence in the 350-399 they share,
+#    geneCrossGivesWay's CDS starts past it, so the first is kept and the second dropped
+CHR	EMBL	gene	100	399	.	+	.	ID=geneCrossCoder;Name=crossing-owns-the-shared-range
+CHR	EMBL	mRNA	100	399	.	+	.	ID=rnaCrossCoder;Parent=geneCrossCoder
+CHR	EMBL	exon	100	399	.	+	.	ID=exon-rnaCrossCoder;Parent=rnaCrossCoder
+CHR	EMBL	CDS	100	399	.	+	0	ID=cds-rnaCrossCoder;Parent=rnaCrossCoder
+CHR	EMBL	gene	350	652	.	+	.	ID=geneCrossGivesWay;Name=crossing-no-cds-in-the-shared-range
+CHR	EMBL	mRNA	350	652	.	+	.	ID=rnaCrossGivesWay;Parent=geneCrossGivesWay
+CHR	EMBL	exon	350	652	.	+	.	ID=exon-rnaCrossGivesWay;Parent=rnaCrossGivesWay
+CHR	EMBL	CDS	452	652	.	+	0	ID=cds-rnaCrossGivesWay;Parent=rnaCrossGivesWay
+# 2. nested, resolved: geneInner sits in geneOuter's intron, so masking it away cuts into no
+#    coding sequence and leaves both of the outer's ends visible
+CHR	EMBL	gene	800	1399	.	+	.	ID=geneOuter;Name=outer-with-the-inner-in-its-intron
+CHR	EMBL	mRNA	800	1399	.	+	.	ID=rnaOuter;Parent=geneOuter
+CHR	EMBL	exon	800	900	.	+	.	ID=exon-rnaOuter-1;Parent=rnaOuter
+CHR	EMBL	exon	1300	1399	.	+	.	ID=exon-rnaOuter-2;Parent=rnaOuter
+CHR	EMBL	CDS	800	900	.	+	0	ID=cds-rnaOuter-1;Parent=rnaOuter
+CHR	EMBL	CDS	1300	1399	.	+	0	ID=cds-rnaOuter-2;Parent=rnaOuter
+CHR	EMBL	gene	1000	1200	.	+	.	ID=geneInner;Name=nested-in-the-outer-intron
+CHR	EMBL	mRNA	1000	1200	.	+	.	ID=rnaInner;Parent=geneInner
+CHR	EMBL	exon	1000	1200	.	+	.	ID=exon-rnaInner;Parent=rnaInner
+CHR	EMBL	CDS	1000	1200	.	+	0	ID=cds-rnaInner;Parent=rnaInner
+# 3. refused: both code in the 1850-1899 they share, so whichever were kept would label the
+#    other's coding sequence as something it is not
+CHR	EMBL	gene	1600	1899	.	+	.	ID=geneBothCodeLeft;Name=both-code-in-the-shared-range
+CHR	EMBL	mRNA	1600	1899	.	+	.	ID=rnaBothCodeLeft;Parent=geneBothCodeLeft
+CHR	EMBL	exon	1600	1899	.	+	.	ID=exon-rnaBothCodeLeft;Parent=rnaBothCodeLeft
+CHR	EMBL	CDS	1600	1899	.	+	0	ID=cds-rnaBothCodeLeft;Parent=rnaBothCodeLeft
+CHR	EMBL	gene	1850	2149	.	+	.	ID=geneBothCodeRight;Name=both-code-in-the-shared-range
+CHR	EMBL	mRNA	1850	2149	.	+	.	ID=rnaBothCodeRight;Parent=geneBothCodeRight
+CHR	EMBL	exon	1850	2149	.	+	.	ID=exon-rnaBothCodeRight;Parent=rnaBothCodeRight
+CHR	EMBL	CDS	1850	2149	.	+	0	ID=cds-rnaBothCodeRight;Parent=rnaBothCodeRight
+# 4. refused: geneTruncatedCoder owns the 2650-2699 they share, so only it could be kept, but
+#    its CDS is not a multiple of 3 and is masked outright anyway, so keeping it recovers nothing
+CHR	EMBL	gene	2400	2699	.	+	.	ID=geneCleanNoCds;Name=clean-but-no-cds-in-the-shared-range
+CHR	EMBL	mRNA	2400	2699	.	+	.	ID=rnaCleanNoCds;Parent=geneCleanNoCds
+CHR	EMBL	exon	2400	2699	.	+	.	ID=exon-rnaCleanNoCds;Parent=rnaCleanNoCds
+CHR	EMBL	CDS	2400	2501	.	+	0	ID=cds-rnaCleanNoCds;Parent=rnaCleanNoCds
+CHR	EMBL	gene	2650	2950	.	+	.	ID=geneTruncatedCoder;Name=owns-the-shared-range-but-truncated
+CHR	EMBL	mRNA	2650	2950	.	+	.	ID=rnaTruncatedCoder;Parent=geneTruncatedCoder
+CHR	EMBL	exon	2650	2950	.	+	.	ID=exon-rnaTruncatedCoder;Parent=rnaTruncatedCoder
+CHR	EMBL	CDS	2650	2950	.	+	0	ID=cds-rnaTruncatedCoder;Parent=rnaTruncatedCoder

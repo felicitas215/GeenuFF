@@ -7,8 +7,7 @@ from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
 def main(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format='%(asctime)s - %(levelname)s: %(message)s',
-                        datefmt='%d-%b-%y %H:%M:%S')
+                        format='%(asctime)s - %(levelname)s: %(message)s')
     controller = FilteredGff3ExportController(args.db_path_in)
     controller.write_filtered_gff3(args.out)
 

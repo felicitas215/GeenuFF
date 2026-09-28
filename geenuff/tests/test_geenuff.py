@@ -426,12 +426,14 @@ def test_dummyloci_errors():
     coords = controller.session.query(Coordinate).all()
 
     # test case 1 - see gff file for more documentation
-    # two identical error bars after cds for aligned exon/cds pair
+    # two identical error bars after cds for aligned exon/cds pair. The bar reaches to the border
+    # with gene_no_ATG, the next exported gene: gene_empty and gene_non_coding lie between
+    # the two but are written to nothing, so they do not bound a mask (see _exported_neighbour)
     error = {
         'coord_id': coords[0].id,
         'is_plus_strand': True,
         'start': 120,
-        'end': 499,
+        'end': 740,
         'type': types.MISSING_UTR_3P
     }
     assert error_in_list(error, errors)
@@ -493,10 +495,11 @@ def test_dummyloci_errors():
     # assert error_in_list(error, errors)
 
     # test case 4 (test case 3 is without errors)
+    # the same border as test case 1, approached from the other side
     error = {
         'coord_id': coords[0].id,
         'is_plus_strand': True,
-        'start': 1499,
+        'start': 740,
         'end': 1619,
         'type': types.MISSING_START_CODON
     }
@@ -968,6 +971,203 @@ def test_gene_parented_duplicate_exons_are_dropped_not_glued_onto_wrong_transcri
     introns5 = [(f.start, f.end) for f in rna5.transcript_pieces[0].features
                 if f.type.value == types.GEENUFF_INTRON]
     assert introns5 == [(520, 539)]
+
+
+def test_overlapping_loci_in_a_chain_are_each_masked_whole():
+    """A pair that cannot be settled by keeping one of the two leaves both genes useless: masking
+    only what they share would leave each with a hole through it, teaching no terminus and no
+    continuity, so both are masked over their whole length instead. Every locus here overlaps two
+    others, so every pair is part of a chain and none of them is even attempted
+    (see GFFErrorHandling._compute_overlap_masks). GFF coordinates below are 1-based and
+    inclusive, the masks are the GeenuFF 0-based, half-open equivalent.
+
+    geneA (100-999) is a wide container. geneB (200-298) is fully nested inside it and geneC
+    (900-1100) overlaps geneA's tail, but geneB and geneC do not touch each other. This covers
+    the two ways an overlap can be missed when each locus is only compared to its immediate
+    predecessor in sort order: geneA is never anyone's successor, so it would never be examined
+    at all, and geneC's only predecessor is geneB, where there is nothing to find.
+
+    geneF (2400-5000), geneG (3900-7000) and geneH (3950-3960) add the case of one locus
+    overlapping two partners at once, of a locus nested in two of them, and of a tiny nested
+    locus sorting between two wide ones that overlap each other.
+
+    geneD_te_like is a bare 'gene' line with no mRNA/CDS at all (e.g. a transposable-element
+    annotation), fully containing the real coding geneE. Since geneD_te_like never writes any
+    CDS/exon/intron label of its own, there is no genuine per-base conflict, and geneE must NOT
+    be masked just for sitting inside its span; only a CDS-containing transcript is eligible
+    to create or receive an overlap mask, matching every other error check in this class."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/overlapping_loci_chain.fa',
+                          'testdata/overlapping_loci_chain.gff3', clean_gff=True)
+
+    def overlap_masks_of(given_name):
+        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
+        return sorted((f.start, f.end) for p in transcript.transcript_pieces for f in p.features
+                      if f.type.value == types.SL_OVERLAP_ERROR)
+
+    # each is masked over its own whole span (geneA 99-999, geneB 199-298, geneC 899-1100), not
+    # over what it shares. Every one of them has its CDS flush against its transcript on both
+    # ends, so none of their ends is known and each mask also runs outward as far as the border
+    # with the next exported gene: geneA back to 50, the sequence start being 99 away, and so on.
+    # Where that next gene overlaps instead there is no room and the mask stops at the span.
+    assert overlap_masks_of('rnaA') == [(50, 999)]
+    assert overlap_masks_of('rnaB') == [(199, 538)]
+    assert overlap_masks_of('rnaC') == [(659, 1139)]
+    # geneE sits inside a transcript-less 'gene' record: no genuine conflict, no mask
+    assert overlap_masks_of('rnaE') == []
+    # the same for the second chain; geneG is hemmed in by geneF and geneH on either side
+    assert overlap_masks_of('rnaF') == [(2069, 5000)]
+    assert overlap_masks_of('rnaG') == [(3899, 7000)]
+    assert overlap_masks_of('rnaH') == [(3949, 4510)]
+    # geneI starts after geneG ends; directly adjacent or apart is not an overlap
+    assert overlap_masks_of('rnaI') == []
+
+
+def test_features_on_an_unplaceable_strand_are_kept_but_never_exported(tmp_path):
+    """A GFF3 strand of '?' (NCBI's marker for a trans-spliced feature) used to raise out of the
+    import as soon as it appeared on an mRNA or CDS line, only the gene line being guarded. Such a
+    locus is kept in the database in full, but excluded from every export rather than masked:
+    where its features belong is precisely what is unknown, so a mask would either cover the wrong
+    strand or cover sequence that is perfectly fine."""
+    db_path = str(tmp_path / 'unplaceable_strand.sqlite3')
+    controller = ImportController(database_path=db_path)
+    controller.add_genome('testdata/unplaceable_strand.fa',
+                          'testdata/unplaceable_strand.gff3', clean_gff=True)
+
+    def features_of(given_name):
+        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
+        return [f for p in transcript.transcript_pieces for f in p.features]
+
+    def excluded(given_name):
+        return controller.session.query(SuperLocus).filter_by(given_name=given_name).one() \
+                         .excluded_from_export
+
+    for gene, rna in (('geneTransSpliced', 'rnaTransSpliced'),
+                      ('geneCdsStrandClash', 'rnaCdsStrandClash')):
+        features = features_of(rna)
+        # nothing is dropped: the transcript and its CDS are in the database either way
+        assert {types.GEENUFF_TRANSCRIPT, types.GEENUFF_CDS} <= {f.type.value for f in features}
+        # and nothing is invented for them either, neither a mask nor an intron standing in for
+        # the exons that could not be placed
+        assert not [f for f in features
+                    if f.type.value in types.geenuff_error_type_values + [types.GEENUFF_INTRON]]
+        assert excluded(gene) == types.UNPLACEABLE_STRAND
+
+    # only the ordinary gene is exported: the two above are excluded outright, and the non-coding
+    # one is never selected, no transcript without a CDS being exported to Helixer
+    exported = GeenuffExportController(db_path).genome_query(longest_only=True)
+    exported_names = {f.given_name for features in exported.values() for f in features}
+    assert 'rnaOK' in exported_names
+    assert not {'rnaTransSpliced', 'rnaCdsStrandClash', 'rnaNonCoding'} & exported_names
+
+    # the non-coding transcript is still kept in the database, and is not excluded: it needs no
+    # marking, having nothing an export would have selected in the first place
+    assert types.GEENUFF_TRANSCRIPT in {f.type.value for f in features_of('rnaNonCoding')}
+    assert excluded('geneNonCoding') is None
+    assert excluded('geneOK') is None
+    assert controller.stats.unexported_super_loci == {types.UNPLACEABLE_STRAND: 2}
+
+
+def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
+    """Two loci cannot share a base in an export, one label per base being written. Where one of
+    an isolated pair can be kept without mislabelling the other's coding sequence, it is kept
+    whole and its partner is dropped from exports, leaving one coherent gene rather than two with
+    a hole through them. Where neither can be, both keep the shared range masked as before.
+    See GFFErrorHandling._decide_overlap_pair; the four pairs are documented in the gff3."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/overlapping_loci_chain.fa',
+                          'testdata/overlapping_loci_pairs.gff3', clean_gff=True)
+
+    def excluded(given_name):
+        return controller.session.query(SuperLocus).filter_by(given_name=given_name).one() \
+                         .excluded_from_export
+
+    def overlap_masks_of(given_name):
+        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
+        return sorted((f.start, f.end) for p in transcript.transcript_pieces for f in p.features
+                      if f.type.value == types.SL_OVERLAP_ERROR)
+
+    # crossing: the locus owning coding sequence in the shared range is the one kept, so those
+    # bases stay labelled as the coding sequence they are, and only the partner's overhang is
+    # masked; the kept locus itself carries no mask over the range they share
+    assert excluded('geneCrossCoder') is None
+    assert excluded('geneCrossGivesWay') == types.OVERLAP_DROPPED
+    # the mask runs past geneCrossGivesWay's own end (652) toward the next exported gene: its CDS
+    # ends flush with its transcript, so how much further the gene ran is unknown
+    assert overlap_masks_of('rnaCrossCoder') == [(399, 725)]
+
+    # nested: the inner locus lies in the outer's intron, so masking it away cuts into no coding
+    # sequence and leaves both of the outer's ends visible
+    assert excluded('geneOuter') is None
+    assert excluded('geneInner') == types.OVERLAP_DROPPED
+    assert overlap_masks_of('rnaOuter') == [(999, 1200)]
+
+    # both code in the shared range, so neither can be kept, so both are masked over their whole length.
+    # Their outer ends are unknown too, so each mask runs on past its span away from the other:
+    # geneBothCodeLeft (1599-1899) back to 1499, geneBothCodeRight (1849-2149) out to 2274
+    assert excluded('geneBothCodeLeft') is None and excluded('geneBothCodeRight') is None
+    assert overlap_masks_of('rnaBothCodeLeft') == [(1499, 1899)]
+    assert overlap_masks_of('rnaBothCodeRight') == [(1849, 2274)]
+
+    # only the truncated locus owns the shared range, and it is masked outright for its own
+    # errors, so keeping it recovers nothing and both are masked whole. A truncated CDS leaves
+    # neither end trustworthy, so geneTruncatedCoder (2649-2950) reaches 650 further out
+    assert excluded('geneCleanNoCds') is None and excluded('geneTruncatedCoder') is None
+    assert overlap_masks_of('rnaCleanNoCds') == [(2274, 2699)]
+    assert overlap_masks_of('rnaTruncatedCoder') == [(2649, 3600)]
+
+    assert controller.stats.overlap_pairs_resolved == 2
+    assert controller.stats.overlap_loci_dropped == 2
+    assert controller.stats.overlap_pairs_refused == 2
+    assert controller.stats.overlap_pairs_in_chains == 0
+
+
+def test_overlapping_coding_locus_pairs_are_recorded_without_masking():
+    """The super_locus_overlap table records every pair of coding super loci sharing genomic
+    range, over all of their coding transcripts rather than only the one each exports, and masks
+    nothing. Loci with no CDS anywhere under them take no part: geneD_te_like is a bare gene line
+    fully containing the coding geneE, and neither that pair nor a mask on geneE comes of it."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/overlapping_loci_chain.fa',
+                          'testdata/overlapping_loci_chain.gff3', clean_gff=True)
+
+    names = dict(controller.session.query(SuperLocus.id, SuperLocus.given_name))
+    pairs = {tuple(sorted((names[row.super_locus_id], names[row.partner_id]))): (row.start, row.end)
+             for row in controller.session.execute(orm.super_locus_overlap.select())}
+
+    assert pairs == {('geneA', 'geneB'): (199, 298),
+                     ('geneA', 'geneC'): (899, 999),
+                     ('geneF', 'geneG'): (3899, 5000),
+                     ('geneF', 'geneH'): (3949, 3960),
+                     ('geneG', 'geneH'): (3949, 3960)}
+    # the transcript-less geneD_te_like is in no pair, and leaves geneE unmasked
+    assert not any('geneD_te_like' in pair or 'geneE' in pair for pair in pairs)
+    transcript = controller.session.query(Transcript).filter_by(given_name='rnaE').one()
+    assert not [f for p in transcript.transcript_pieces for f in p.features
+                if f.type.value == types.SL_OVERLAP_ERROR]
+    # geneI overlaps nothing, so it is in no pair either
+    assert not any('geneI' in pair for pair in pairs)
+
+
+def test_missing_utr_errors_of_a_nested_gene_are_still_counted():
+    """A gene nested inside another has no unclaimed sequence to extend a missing-UTR mask
+    into, so _error_border_mark yields a zero-length range there. The finding is still counted
+    in the import statistics, which are tallied from the error types detected rather than from
+    the error features that ended up with a range worth inserting (see clean_and_insert)."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/overlapping_loci_chain.fa',
+                          'testdata/overlapping_loci_chain.gff3', clean_gff=True)
+
+    # every transcript in the file is a single CDS with no UTR on either side
+    n_coding = controller.stats.total_coding_transcripts
+    assert controller.stats.errors[types.MISSING_UTR_5P] == n_coding
+    assert controller.stats.errors[types.MISSING_UTR_3P] == n_coding
+    # every overlapping locus here is in a chain, so none of the pairs can be resolved
+    assert controller.stats.overlap_pairs_recorded == 5
+    assert controller.stats.super_loci_in_overlap_pairs == 6
+    assert controller.stats.overlap_pairs_resolved == 0
+    assert controller.stats.overlap_pairs_refused == 0
+    assert controller.stats.overlap_pairs_in_chains == 5
 
 
 def test_cds_starting_phase_is_reset_not_trusted():

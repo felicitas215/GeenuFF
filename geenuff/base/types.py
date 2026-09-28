@@ -79,4 +79,12 @@ Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, EMPTY_SUPER_LOCUS, 
 # frequently used for lookups
 geenuff_error_type_values = [t.value for t in Errors]
 
+# Reasons a super locus is left out of exports (orm.SuperLocus.excluded_from_export). Kept apart
+# from the error types above and deliberately not in the Errors enum: an error marks a range as
+# unreliable, while these say there is no honest way to export the locus at all. Its features
+# stay in the database either way.
+UNPLACEABLE_STRAND = 'unplaceable_strand'  # not on one definite strand, see docs/trans_splicing.md
+UNPLACEABLE_COORDINATES = 'unplaceable_coordinates'  # a line whose start runs past its end
+OVERLAP_DROPPED = 'overlap_dropped'  # gave way so an overlapping partner could be kept whole
+
 GeenuffFeature = join_to_enum('GeenuffFeature', GeenuffSequenceFeature, Errors)

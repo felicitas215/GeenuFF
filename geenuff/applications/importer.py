@@ -13,7 +13,7 @@ from dustdas import gffhelper, fastahelper
 from .. import orm
 from .. import types
 from .. import helpers
-from ..base.helpers import (get_strand_direction, get_geenuff_start_end,
+from ..base.helpers import (get_strand_direction, strand_or_none, get_geenuff_start_end,
                             has_inframe_stop_codon, spliced_cds_sequence, START_CODON,
                             STOP_CODONS, in_enum_values)
 
@@ -22,6 +22,22 @@ logger = logging.getLogger(__name__)
 
 class GFFValidityError(Exception):
     pass
+
+
+# how much of a locus its own errors take away, lower being better (see
+# GFFErrorHandling._locus_severity); used to rank candidates when an overlap is resolved
+NOT_MASKED = 0       # nothing wrong with it
+FLANK_MASKED = 1     # an edge is unknown, e.g. a missing UTR, but the coding sequence is correct
+MASKED_OUTRIGHT = 2  # the coding sequence itself is masked, so keeping the locus recovers nothing
+
+
+# what each orm.SuperLocus.excluded_from_export value means, for the import summary
+UNEXPORTED_REASONS = {
+    types.UNPLACEABLE_STRAND: 'their transcript or its exon/CDS lines are not all on one '
+                              'definite strand',
+    types.UNPLACEABLE_COORDINATES: 'a line of theirs runs backwards, its start past its end',
+    types.OVERLAP_DROPPED: 'dropped so an overlapping partner could be kept whole (see below)',
+}
 
 
 class ImportStatistics(object):
@@ -34,43 +50,115 @@ class ImportStatistics(object):
         self.total_super_loci: int = 0
         self.total_transcripts: int = 0
         self.total_coding_transcripts: int = 0
-        self.longest_transcripts: int = 0  # final, transcript.longest == True, one per coding locus
+        # transcript.longest == True, one per exported gene; a gene left out of exports is not
+        # counted, nothing about it having been checked either (see clean_and_insert)
+        self.longest_transcripts: int = 0
         self.longest_error_free_transcripts: int = 0  # of the above, the ones with no error at all
         self.empty_super_loci: int = 0  # a gene with no transcripts at all
         self.unstranded_super_loci: int = 0  # e.g. NCBI's '?' strand for trans-spliced genes
+        # kept in full but never exported, counted per reason and keyed by the value stored in
+        # orm.SuperLocus.excluded_from_export
+        self.unexported_super_loci: defaultdict[str, int] = defaultdict(int)
+        # transcripts left out entirely, no line of theirs having a storable range
+        self.unstorable_transcripts_dropped: int = 0
         self.discontinuous_gene_ids_reused: int = 0
         self.gene_parented_duplicates_dropped: int = 0  # see OrganizedGFFEntryGroup._is_parented_to_super_locus
         self.gene_parented_features_reparented: int = 0  # same, but attached to the sole transcript instead
         self.gene_parented_ambiguous_dropped: int = 0  # same, but position matched no transcript
         self.backwards_errors_removed: int = 0  # from overlapping super loci, see _remove_backwards_errors
-        self.errors: defaultdict[str, int] = defaultdict(int)  # keyed by types.Errors value
+        # every pair of super loci sharing genomic range, of whatever kind, as recorded in the
+        # super_locus_overlap table; these mask nothing, see _record_overlap_pairs
+        self.overlap_pairs_recorded: int = 0
+        self.super_loci_in_overlap_pairs: int = 0
+        # loci whose exported transcript overlaps another's, counted once each however many partners it has
+        self.super_loci_overlapping_exported: int = 0
+        # of the pairs where both genes are exported, how each was settled; the three always sum
+        # to that number (see GFFErrorHandling._compute_overlap_masks)
+        self.overlap_pairs_resolved: int = 0  # one locus kept whole, the other dropped
+        self.overlap_pairs_refused: int = 0  # neither could be kept, both masked over the shared range
+        self.overlap_pairs_in_chains: int = 0  # a partner overlaps a third locus, so not decided
+        self.overlap_loci_dropped: int = 0
+        # keyed by types.Errors value, counted per transcript from the error types detected
+        # rather than from the error features inserted, so an error left with a zero-length
+        # range to mask still shows up here (see docs/spec_vs_gff.md)
+        self.errors: defaultdict[str, int] = defaultdict(int)
         self.unrecognized_feature_types: defaultdict[str, int] = defaultdict(int)  # keyed by the raw, unknown GFF type
 
     def log_summary(self, species: str) -> None:
-        lines = [
-            f'import summary for "{species}":',
-            f'  super loci: {self.total_super_loci} ({self.empty_super_loci} without any '
-            f'transcript, {self.unstranded_super_loci} unstranded/trans-spliced, '
-            f'{self.discontinuous_gene_ids_reused} discontinuous gene IDs reused)',
-            f'  transcripts: {self.total_transcripts} ({self.total_coding_transcripts} coding, '
-            f'{self.longest_transcripts} final/longest, {self.longest_error_free_transcripts} '
-            f'of those error-free)',
-            f'  backwards errors removed (from overlapping loci): {self.backwards_errors_removed}',
-            f'  gene-parented exon/CDS lines: {self.gene_parented_duplicates_dropped} duplicates '
-            f'dropped, {self.gene_parented_features_reparented} reparented to a sole transcript, '
-            f'{self.gene_parented_ambiguous_dropped} ambiguous and dropped',
+        """Logs one summary of the import, as sections of counted lines with the counts in a
+        column, so a reader can scan down them rather than through a paragraph."""
+        overlap_pairs = (self.overlap_pairs_resolved + self.overlap_pairs_refused
+                         + self.overlap_pairs_in_chains)
+        sections = [
+            ('loci', [
+                (self.total_super_loci, 'gene lines in the file'),
+                (self.empty_super_loci, 'of them with no transcript under them'),
+                (self.discontinuous_gene_ids_reused, 'gene IDs used by more than one gene line'),
+                (self.unstranded_super_loci, "gene lines on neither strand, e.g. '.' or NCBI's '?'"),
+            ] + [(count, f'genes kept but never exported: {UNEXPORTED_REASONS[reason]}')
+                 for reason, count in sorted(self.unexported_super_loci.items())]),
+            ('transcripts', [
+                (self.total_transcripts, 'transcripts in the file'),
+                (self.total_coding_transcripts, 'of them with a CDS'),
+                (self.longest_transcripts, 'selected for export, one per locus that will be exported'),
+                (self.longest_error_free_transcripts, 'of those selected with no error at all'),
+                (self.unstorable_transcripts_dropped, 'dropped, no line of theirs having a '
+                                                      'storable range'),
+            ]),
+            ('transcripts overlapping another transcript that will be exported on the same strand', [
+                (self.super_loci_overlapping_exported, 'transcripts overlap at least one other'),
+                (overlap_pairs, 'pairs between them, each settled one of three ways:'),
+                (self.overlap_pairs_resolved, 'pairs where one transcript was kept whole and its '
+                                              'partner dropped from the export'),
+                (self.overlap_pairs_refused, 'pairs where neither transcript could be kept, so both '
+                                             'are masked over the sequence they share'),
+                (self.overlap_pairs_in_chains, 'pairs left alone, one of the two overlapping a '
+                                               'further transcript as well'),
+            ]),
+            ('exon/CDS lines naming their gene as the parent instead of a transcript', [
+                (self.gene_parented_duplicates_dropped, 'dropped as duplicates of a transcript\'s '
+                                                        'own lines'),
+                (self.gene_parented_features_reparented, 'given to the gene\'s sole transcript'),
+                (self.gene_parented_ambiguous_dropped, 'dropped, matching no transcript'),
+            ]),
         ]
         if self.errors:
-            lines.append('  errors (transcripts with at least one occurrence, not total '
-                         'occurrences):')
-            lines += [f'    {error_type}: {count}' for error_type, count in sorted(self.errors.items())]
-        else:
-            lines.append('  errors: none')
+            sections.append(('errors, counted once per transcript they occur in, however often '
+                             'they occur in that one',
+                             [(count, error_type)
+                              for error_type, count in sorted(self.errors.items())]))
         if self.unrecognized_feature_types:
-            lines.append('  lines skipped for an unrecognized feature type:')
-            lines += [f'    {feature_type}: {count}'
-                      for feature_type, count in sorted(self.unrecognized_feature_types.items())]
+            sections.append(('lines skipped for a feature type GeenuFF has no use for',
+                             [(count, feature_type) for feature_type, count
+                              in sorted(self.unrecognized_feature_types.items())]))
+
+        width = max(len(str(count)) for _, entries in sections for count, _ in entries)
+        lines = [f'import summary for "{species}":']
+        for heading, entries in sections:
+            lines.append(f'  {heading}:')
+            lines += [f'    {count:>{width}}  {text}' for count, text in entries]
+        for note in self._summary_notes():
+            lines.append(f'  note: {note}')
         logger.info('\n'.join(lines))
+
+    def _summary_notes(self) -> list[str]:
+        """Explanations for the parts of the summary above that a count alone does not convey."""
+        notes = []
+        if types.SL_OVERLAP_ERROR in self.errors:
+            notes.append(f"'{types.SL_OVERLAP_ERROR}' marks sequence claimed by two transcripts at "
+                         f'once: on a transcript that was kept, the region its dropped partner used to '
+                         f'cover; on a pair where neither could be kept, the sequence they share')
+        notes.append(f'errors are counted as found, so one whose masked range came out empty, '
+                     f'such as a missing UTR with no room to mask it in, still counts '
+                     f'(see docs/spec_vs_gff.md)')
+        if self.backwards_errors_removed:
+            notes.append(f'{self.backwards_errors_removed} error masks were discarded for coming '
+                         f'out with their start and end the wrong way round')
+        notes.append(f'the super_locus_overlap table separately records {self.overlap_pairs_recorded} '
+                     f'pairs over {self.super_loci_in_overlap_pairs} coding genes, counting every '
+                     f'coding transcript a gene has rather than only the exported one; it masks '
+                     f'nothing and is there for consumers other than Helixer')
+        return notes
 
 
 # core queue prep
@@ -88,11 +176,13 @@ class InsertionQueue(helpers.QueueController):
             orm.association_protein_to_feature.insert())
         self.association_transcript_to_protein = helpers.CoreQueue(
             orm.association_transcript_to_protein.insert())
+        self.super_locus_overlap = helpers.CoreQueue(orm.super_locus_overlap.insert())
 
+        # super_locus_overlap references super_locus twice, so it follows it here
         self.ordered_queues = [
             self.super_locus, self.transcript, self.transcript_piece, self.protein, self.feature,
             self.association_transcript_piece_to_feature, self.association_protein_to_feature,
-            self.association_transcript_to_protein
+            self.association_transcript_to_protein, self.super_locus_overlap
         ]
 
 
@@ -107,12 +197,12 @@ class InsertCounterHolder(object):
 
 
 class OrganizedGeenuffImporterGroup(object):
-    """Stores the handler objects for a super locus in an organized fashion.
+    """Stores the handler objects for a super locus in an organised fashion.
     The format is similar to the one of OrganizedGFFEntryGroup, but it stores objects
     according to the Geenuff way of saving genomic annotations. This format can then
     be checked for errors and changed accordingly before being inserted into the db.
 
-    The importers are organized in the following way:
+    The importers are organised in the following way:
 
     importers = {
         'super_locus' = super_locus_importer,
@@ -124,7 +214,8 @@ class OrganizedGeenuffImporterGroup(object):
                 'protein': protein_importer,
                 'cds': cds_importer,
                 'introns': [intron_importer1, intron_importer2, ...],
-                'errors': []  # errors are filled in later
+                'errors': [],  # errors are filled in later
+                'detected_error_types': set(),  # every error type found, see _add_error
             },
             ...
         ],
@@ -141,6 +232,17 @@ class OrganizedGeenuffImporterGroup(object):
             logger.error(f'Error originally raised while parsing the following entries: '
                          f'{organized_gff_entries}')
             raise e
+
+    def _drop_unstorable_transcript(self, sl_i, t_id, what, gff_start, gff_end):
+        """Leaves a transcript out entirely because one of its lines has no range it could be
+        stored as, its start running past its end. Trans-spliced organellar genes wrapping a
+        circular molecule's origin are written this way; nothing can be made of them here, and
+        the locus they belong to is kept out of exports."""
+        sl_i.excluded_from_export = types.UNPLACEABLE_COORDINATES
+        self.controller.stats.unstorable_transcripts_dropped += 1
+        logger.warning(f"dropping transcript '{t_id}': its {what} runs from {gff_start} to "
+                       f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
+                       f"'{sl_i.given_name}' will not be exported")
 
     def _parse_gff_entries(self, entries):
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
@@ -179,14 +281,26 @@ class OrganizedGeenuffImporterGroup(object):
                                                                   controller=self.controller)
         for t, t_entries in entries['transcripts'].items():
             stats.total_transcripts += 1
-            t_importers = {'errors': []}
+            t_importers = {'errors': [], 'detected_error_types': set()}
             # check for multi inheritance and throw NotImplementedError if found
             if t.get_Parent() is None:
                 raise GFFValidityError(f"transcript level feature without Parent found {t}, attributes: {t.attributes}")
             if len(t.get_Parent()) > 1:
                 raise NotImplementedError
             t_id = t.get_ID()
-            t_is_plus_strand = get_strand_direction(t)
+            if t.start > t.end:
+                self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end)
+                continue
+            t_is_plus_strand = strand_or_none(t)
+            # a transcript on neither strand cannot be placed, but its features are still kept,
+            # on the gene's strand, rather than dropped; where it codes, the locus is marked
+            # below and left out of exports rather than masked, there being no one range to mask
+            unusable_strand = t_is_plus_strand is None
+            if unusable_strand:
+                t_is_plus_strand = sl_is_plus_strand
+                logger.debug(f"transcript '{t_id}' has strand '{t.strand}' (not '+' or '-'), most "
+                             f"likely trans-spliced; keeping its features on the strand of super "
+                             f"locus '{sl.get_ID()}'")
             # create transcript handler
             t_i = TranscriptImporter(entry_type=t.type,
                                      given_name=t_id,
@@ -215,7 +329,14 @@ class OrganizedGeenuffImporterGroup(object):
             # if it is not a non-coding gene or something like that
             if t_entries['cds']:
                 stats.total_coding_transcripts += 1
-                assert all([t_is_plus_strand == get_strand_direction(x) for x in t_entries['cds']])
+                # a coding transcript that is not on one definite strand, or whose CDS lines
+                # disagree with it, cannot be analysed; the locus is left out of exports while
+                # its features stay in the database (see docs/trans_splicing.md for why nothing
+                # is masked in its place either)
+                if unusable_strand or {strand_or_none(x) for x in t_entries['cds']} != {t_is_plus_strand}:
+                    sl_i.excluded_from_export = types.UNPLACEABLE_STRAND
+                    logger.debug(f"coding transcript '{t_id}' is not on a single definite strand; "
+                                 f"super locus '{sl.get_ID()}' will not be exported")
                 # create protein handler
                 protein_id = self._get_protein_id_from_cds_list(t_entries['cds'])
                 p_i = ProteinImporter(given_name=protein_id,
@@ -271,6 +392,9 @@ class OrganizedGeenuffImporterGroup(object):
                     # hanging intron at end
                     gff_cds_end = t.end
 
+                if gff_cds_start > gff_cds_end:
+                    self._drop_unstorable_transcript(sl_i, t_id, 'CDS', gff_cds_start, gff_cds_end)
+                    continue
                 cds_i.set_start_end_from_gff(gff_cds_start, gff_cds_end)
 
                 # insert everything so far into the dict
@@ -288,10 +412,14 @@ class OrganizedGeenuffImporterGroup(object):
                 itree[inv_t_start:inv_t_end] = t_is_plus_strand
                 exons = t_entries['exons']
                 for exon in exons:
-                    # something really weird is going on here, marking the whole gene as erroneous
-                    e_is_plus_strand = get_strand_direction(exon)
+                    # an exon on another strand than its transcript, or on none at all, cannot be
+                    # chopped out of the span below; without its exons that span is not intronic
+                    # either, so the whole locus is given up on rather than left with what would
+                    # look like one intron covering the entire transcript
+                    e_is_plus_strand = strand_or_none(exon)
                     if e_is_plus_strand != t_is_plus_strand:
-                        sl_i.fully_erroneous = True
+                        sl_i.excluded_from_export = types.UNPLACEABLE_STRAND
+                        itree.clear()
                         break
                     e_start, e_end = get_geenuff_start_end(exon.start, exon.end, e_is_plus_strand)
                     inv_e_start, inv_e_end = sorted([e_start, e_end])
@@ -498,8 +626,10 @@ class OrganizedGFFEntryGroup(object):
                 else:
                     logger.warning(f'Found unexpected entry type: {entry.type}')
             else:
-                logger.warning(f'Ignoring {entry.type} without transcript found in {entry.seqid}: '
-                               f'{entries[0].attribute}')
+                # is overprinting
+                logger.debug(f'Ignoring {entry.type} without transcript found in {entry.seqid}: '
+                             f'{entries[0].attribute}')
+                # todo: add counter?
 
         # set the coordinate
         self.coord = self.fasta_importer.gffid_to_coords[self.entries['super_locus'].seqid]
@@ -569,7 +699,7 @@ class OrganizedGFFEntries(object):
             # GFF3 allows one ID to be split across several 'gene' lines (a discontinuous
             # feature); these are kept as separate super locus records below rather than
             # merged into one, since merging would make any real gene lying between the two
-            # occurrences falsely look nested/overlapping in _sl_neighbor_status
+            # occurrences falsely look nested/overlapping in _compute_overlap_masks
             seen_gene_ids = {first.get_ID()} - {None}
             self.organized_entries[seqid] = []
 
@@ -651,70 +781,322 @@ class GFFErrorHandling(object):
 
     def __init__(self, geenuff_importer_groups, controller):
         self.groups = geenuff_importer_groups
+        self.controller = controller
+        self._overlap_masks = []
         if self.groups:
             self.is_plus_strand = self.groups[0]['super_locus'].is_plus_strand
             self.coord = self.groups[0]['super_locus'].coord
             # make sure self.groups is sorted correctly
             self.groups.sort(key=lambda g: g['super_locus'].start, reverse=not self.is_plus_strand)
-        self.controller = controller
+            self._compute_overlap_masks()
 
-    def _sl_neighbor_status(self, slg_prev, slg):
-        """checks whether two neighboring super loci overlap and if yes under which conditions.
-        Returns one of the following values depending on the relationship:
+    def _compute_overlap_masks(self):
+        """Settles what happens to every pair of super loci on this strand that share genomic
+        range, in two records serving two different consumers.
 
-        'normal': no overlap in any way
-        'overlap': the sl overlap but without errors on both sides
-        'overlap_error_3p': the sl 3p of the overlap has a 5p utr error
-        'overlap_error_5p': the sl 5p of the overlap has a 3p utr error
-        'overlap_error_both': both sl have an utr error at the overlap
-        'nested': sl is a fully nested gene inside sl_prev
-        'nested_error_3p': the nested gene has a 3p utr error
-        'nested_error_5p': the nested gene has a 5p utr error
-        'nested_error_both': the nested gene has utr errors on both ends
+        The unfiltered record goes to the super_locus_overlap table: one row per pair, for every
+        kind of locus, including ones with no transcript at all. It is the annotation's geometry
+        as given, it masks nothing, and no consumer that reads error features sees it.
+
+        The second record decides what an export is handed. Two loci cannot share a base: one
+        label per base is written, so whichever is written last silently wins. Where one of the
+        two can be kept without mislabelling the other's coding sequence, it is kept whole and
+        its partner is dropped from the export, leaving one coherent gene rather than two with a
+        hole through them (see _decide_overlap_pair). Where neither can be kept, both genes are
+        masked over their whole length.
         """
-        def _overlap_error_status(slg_prev, slg):
-            status = 'overlap'
-            for error in self._get_all_errors_of_slg(slg_prev):
-                if error.feature_type == types.MISSING_UTR_3P:
-                    # a 3p utr error of the previous sl is 5p of the overlap
-                    status = 'overlap_error_5p'
-                    break
-            for error in self._get_all_errors_of_slg(slg):
-                if error.feature_type == types.MISSING_UTR_5P:
-                    if status == 'overlap':
-                        status = 'overlap_error_3p'
-                    else:
-                        status = 'overlap_error_both'
-                    break
-            return status
+        # multiplying by sign turns both strands into ascending coordinates running 5p to 3p, so
+        # everything below can compare and sort without asking which strand it is on
+        sign = 1 if self.is_plus_strand else -1
+        self._record_overlap_pairs(sign)
 
-        def _nested_error_status(slg):
-            error_types = [e.feature_type for e in self._get_all_errors_of_slg(slg)]
-            if types.MISSING_UTR_3P in error_types and types.MISSING_UTR_5P in error_types:
-                return 'nested_error_both'
-            if types.MISSING_UTR_3P in error_types:
-                return 'nested_error_3p'
-            if types.MISSING_UTR_5P in error_types:
-                return 'nested_error_5p'
-            return 'nested'
+        # the span each locus would occupy in an export, keyed by its index in self.groups. A
+        # locus with nothing to export, non-coding or already excluded, is simply left out, which
+        # is what keeps it from being anyone's overlap partner further down
+        extents = {}
+        for i, group in enumerate(self.groups):
+            transcript = self._exported_transcript(group)
+            if transcript is not None:
+                tf = transcript['transcript_feature']
+                extents[i] = (sign * tf.start, sign * tf.end)
 
-        sl_prev = slg_prev['super_locus']
-        sl = slg['super_locus']
-        if self.is_plus_strand and sl_prev.end > sl.start:
-            if sl_prev.end > sl.end:
-                nested_status = _nested_error_status(slg)
-                return nested_status
+        # _overlapping_pairs wants (lo, hi, key) triples, hence appending the index to each span.
+        # pairs is used as an ordered set, the shared range it could hold being recomputed in
+        # _decide_overlap_pair from the extents; partners counts how many other loci each one
+        # runs into, which is what distinguishes an isolated pair from a chain
+        pairs, partners = {}, defaultdict(set)
+        for i, j, _, _ in self._overlapping_pairs([e + (i,) for i, e in extents.items()]):
+            pairs[(min(i, j), max(i, j))] = None
+            partners[i].add(j)
+            partners[j].add(i)
+
+        stats = self.controller.stats
+        # every locus with at least one partner, counted once however many partners it has
+        stats.super_loci_overlapping_exported += len(partners)
+        # ranges to mask, gathered per locus and merged at the end; a locus in several pairs
+        # collects an entry from each of them
+        masks = [[] for _ in self.groups]
+        # what each decision came to, collected here because the masks it implies cannot be
+        # worked out until every pair has been decided (see the second loop)
+        resolved, masked_whole = [], set()
+        for i, j in pairs:
+            keeper = dropped = mask = None
+            # only an isolated pair is decided; in a chain a dropped locus can sit between two
+            # kept ones, and the one masked region recorded per locus cannot express that
+            isolated = len(partners[i]) == 1 and len(partners[j]) == 1
+            if isolated:
+                keeper, dropped, mask = self._decide_overlap_pair(i, j, extents, sign)
+            if keeper is None:
+                # nothing could be saved here, so both genes are masked end to end; a locus in
+                # two undecided pairs lands in the set twice over and is masked once
+                masked_whole.update((i, j))
+                if isolated:
+                    stats.overlap_pairs_refused += 1
+                else:
+                    stats.overlap_pairs_in_chains += 1
+                continue
+            # marking it here, inside the loop, is what makes the dropped locus invisible to
+            # _exported_transcript, and so to the neighbour search the second loop relies on
+            self.groups[dropped]['super_locus'].excluded_from_export = types.OVERLAP_DROPPED
+            resolved.append((keeper, dropped, mask))
+            stats.overlap_pairs_resolved += 1
+            stats.overlap_loci_dropped += 1
+
+        # masks are extended only now that every drop is settled, so a border is measured toward
+        # a gene that really is exported
+        for i in masked_whole:
+            masks[i].append(self._extend_unknown_ends(i, extents[i], extents))
+        for keeper, dropped, mask in resolved:
+            nested = (extents[keeper][0] <= extents[dropped][0]
+                      and extents[dropped][1] <= extents[keeper][1])
+            if not nested:
+                # a nested gene's hole is interior, both its sides being the kept gene's own
+                # intron or UTR, so there is nothing out there to extend into. Crossing, the
+                # dropped gene sticks out on whichever side it starts or ends past the kept one,
+                # and that is the only side its own end can be unknown on
+                outward = 1 if extents[dropped][0] > extents[keeper][0] else -1
+                mask = self._extend_unknown_ends(dropped, mask, extents, sides=(outward,))
+            # the mask goes on the locus that is kept, the dropped one's own features never
+            # reaching an export to carry it (see orm.SuperLocus.excluded_from_export)
+            if mask[0] < mask[1]:  # two loci with identical spans leave nothing to mask
+                masks[keeper].append(mask)
+        # back out of sign-normalised coordinates into the strand-oriented ones the features use,
+        # merging first so a locus masked from several pairs ends up with the fewest ranges
+        self._overlap_masks = [[(sign * lo, sign * hi) for lo, hi in self._merge_ranges(ranges)]
+                               for ranges in masks]
+
+    def _extend_unknown_ends(self, i, mask, extents, sides=(-1, 1)):
+        """Runs a mask on past the gene it covers, on whichever of the given sides that gene's
+        end is not where the gene really ended: a truncated CDS, a missing start/stop codon or an
+        unannotated UTR all leave it unknown how much further the gene ran, so the sequence out
+        there cannot be taught as intergenic either. Reaches as far as any other error mask
+        would, the border with the next exported gene."""
+        lo, hi = mask
+        for direction in sides:
+            if self._end_is_known(self.groups[i], direction):
+                continue
+            limit = self._outward_limit(i, direction, extents)
+            if direction > 0:
+                hi += self._border_offset(limit - hi)
             else:
-                overlap_status = _overlap_error_status(slg_prev, slg)
-                return overlap_status
-        elif not self.is_plus_strand and sl_prev.end < sl.start:
-            if sl_prev.end < sl.end:
-                nested_status = _nested_error_status(slg)
-                return nested_status
+                lo -= self._border_offset(lo - limit)
+        return lo, hi
+
+    def _outward_limit(self, i, direction, extents):
+        """How far out a mask on this gene may reach: the next exported gene that way, or the end
+        of the sequence. A gene overlapping it gives no room at all, the gap being negative.
+
+        Neighbours are taken in sort order, which for a gene nested inside another is not the
+        nearest one by coordinate, so a mask can reach into a gene further along. That only
+        happens between genes that overlap, and those are masked whole anyway, so the masked
+        sequence comes out the same."""
+        neighbour = self._exported_neighbour(i, direction)
+        if neighbour is not None:
+            return extents[neighbour][0] if direction > 0 else extents[neighbour][1]
+        lower, upper = (0, self.coord.length) if self.is_plus_strand else (-self.coord.length, 0)
+        return upper if direction > 0 else lower
+
+    def _end_is_known(self, group, direction):
+        """Whether a gene's annotated end on one side is where the gene really ends. Sign-normalised
+        coordinates run 5p to 3p, so direction 1 asks about its 3p end and -1 about its 5p one."""
+        transcript = self._selected_transcript(group)
+        cds, tf = transcript['cds'], transcript['transcript_feature']
+        if cds.is_truncated or cds.has_inframe_stop:
+            return False  # the reading frame is wrong, so neither end can be trusted
+        if direction > 0:
+            return cds.end != tf.end and cds.has_stop_codon
+        return cds.start != tf.start and cds.has_start_codon
+
+    def _decide_overlap_pair(self, i, j, extents, sign):
+        """Works out whether one locus of an overlapping pair can be kept, and what has to be
+        masked in place of the other. Returns (keeper, dropped, mask range) or three Nones.
+
+        Keeping one means its labels cover the range the two share, so the pair is only decided
+        where that stays true of the sequence underneath: the shared range must not hold the
+        dropped locus' coding sequence, which would then read as UTR or intron. With coding
+        sequence from both there is nothing to choose and the pair is left alone.
+
+        How much is masked depends on the shape. A nested locus is masked over its whole span,
+        which is interior to the other and so leaves both of that one's ends visible. A crossing
+        partner is masked only over the part sticking out past the locus that is kept; identical
+        spans need no mask at all, the kept locus covering the same bases. Either way the mask
+        may run further out still, see _extend_past_unknown_end.
+        """
+        spans = {k: extents[k] for k in (i, j)}
+        overlap = (max(spans[i][0], spans[j][0]), min(spans[i][1], spans[j][1]))
+        codes = {k: self._codes_within(self.groups[k], overlap, sign) for k in (i, j)}
+        if codes[i] and codes[j]:
+            return None, None, None
+
+        outer, inner = None, None
+        if spans[i][0] <= spans[j][0] and spans[j][1] <= spans[i][1]:
+            outer, inner = i, j
+        elif spans[j][0] <= spans[i][0] and spans[i][1] <= spans[j][1]:
+            outer, inner = j, i
+        if outer is not None:
+            # only the outer locus can be kept here: keeping the inner instead would mean masking
+            # the whole outer one to save the small gene inside it
+            if self._locus_severity(self.groups[outer]) == MASKED_OUTRIGHT:
+                return None, None, None
+            return outer, inner, spans[inner]
+
+        # crossing: whoever owns coding sequence in the shared range has to be the one kept
+        forced = i if codes[i] else (j if codes[j] else None)
+        options = [k for k in (i, j) if (forced is None or k == forced)
+                   and self._locus_severity(self.groups[k]) != MASKED_OUTRIGHT]
+        if not options:
+            return None, None, None
+        keeper = min(options, key=lambda k: (self._locus_severity(self.groups[k]),
+                                             -self._coding_length(self.groups[k]), k))
+        dropped = j if keeper == i else i
+        # only the part sticking out past the kept locus is masked, the shared range keeping the
+        # kept locus' labels, which are true for it
+        mask = ((spans[dropped][0], spans[keeper][0]) if spans[dropped][0] < spans[keeper][0]
+                else (spans[keeper][1], spans[dropped][1]))
+        return keeper, dropped, mask
+
+    def _codes_within(self, group, span, sign):
+        """Whether any exonic coding base of this locus' selected transcript falls in the range.
+        The cds feature spans the introns inside it, so those are taken back out."""
+        transcript = self._selected_transcript(group)
+        cds = transcript['cds']
+        lo = max(sign * cds.start, span[0])
+        hi = min(sign * cds.end, span[1])
+        if lo >= hi:
+            return False
+        coding = hi - lo
+        for intron in transcript['introns']:
+            coding -= max(0, min(hi, sign * intron.end) - max(lo, sign * intron.start))
+        return coding > 0
+
+    def _coding_length(self, group):
+        """Spliced coding length of the selected transcript, the same measure that picks the
+        longest isoform, so one rule ranks both."""
+        transcript = self._selected_transcript(group)
+        cds = transcript['cds']
+        length = abs(cds.end - cds.start)
+        for intron in transcript['introns']:
+            lo, hi = sorted((intron.start, intron.end))
+            c_lo, c_hi = sorted((cds.start, cds.end))
+            length -= max(0, min(c_hi, hi) - max(c_lo, lo))
+        return length
+
+    @staticmethod
+    def _locus_severity(group):
+        """How much of a locus its own errors already take away, lower being better. Keeping a
+        locus whose coding sequence is masked anyway recovers nothing, while one that only lacks
+        a UTR or a codon at its edge still has its coding sequence labelled: the mask for those
+        covers the flank, not the body (see _add_overlapping_error)."""
+        transcript = GFFErrorHandling._selected_transcript(group)
+        cds, tf = transcript['cds'], transcript['transcript_feature']
+        if cds.is_truncated or cds.has_inframe_stop:
+            return MASKED_OUTRIGHT
+        if (cds.start == tf.start or cds.end == tf.end
+                or not cds.has_start_codon or not cds.has_stop_codon):
+            return FLANK_MASKED
+        return NOT_MASKED
+
+    @staticmethod
+    def _coding_extent(group, sign):
+        """Everything a locus' coding transcripts reach over, as a sign-normalised ascending
+        range. Taken from the transcripts rather than the gene line, which for one line of a
+        discontinuous feature can be far narrower than the transcripts hanging off it."""
+        bounds = [(sign * t['transcript_feature'].start, sign * t['transcript_feature'].end)
+                  for t in group['transcripts']
+                  if 'cds' in t and t.get('transcript_feature') is not None]
+        return min(lo for lo, _ in bounds), max(hi for _, hi in bounds)
+
+    def _record_overlap_pairs(self, sign):
+        """Queues one super_locus_overlap row per pair of coding super loci sharing genomic range.
+        Measured over every coding transcript a locus has, not just the exported one, so this
+        record covers every overlap the masking sweep below can find and more.
+
+        Loci with no CDS anywhere under them take no part: a bare gene line whose exons name the
+        gene as their parent, or a purely non-coding gene, is not a gene anything here can be said
+        about, and such records outnumber the real ones several times over."""
+        spans = [self._coding_extent(g, sign) + (i,) for i, g in enumerate(self.groups)
+                 if any('cds' in t for t in g['transcripts'])]
+        involved = set()
+        for i, j, lo, hi in self._overlapping_pairs(spans):
+            self.controller.insertion_queues.super_locus_overlap.queue.append({
+                'super_locus_id': self.groups[i]['super_locus'].id,
+                'partner_id': self.groups[j]['super_locus'].id,
+                'start': sign * lo,
+                'end': sign * hi,
+                'is_plus_strand': self.is_plus_strand,
+                'coordinate_id': self.coord.id,
+            })
+            self.controller.stats.overlap_pairs_recorded += 1
+            involved.update((i, j))
+        self.controller.stats.super_loci_in_overlap_pairs += len(involved)
+
+    @staticmethod
+    def _selected_transcript(group):
+        """The locus' longest coding transcript, whether or not the locus is exported, or None
+        for a locus with no coding transcript at all."""
+        for transcript in group['transcripts']:
+            if 'cds' in transcript and transcript['transcript'].longest:
+                return transcript
+        return None
+
+    @staticmethod
+    def _exported_transcript(group):
+        """The transcript exported for this super locus, or None where it is not exported. A
+        dropped locus still has a selected transcript, it just reaches no consumer."""
+        if group['super_locus'].excluded_from_export is not None:
+            return None
+        return GFFErrorHandling._selected_transcript(group)
+
+    @staticmethod
+    def _overlapping_pairs(spans):
+        """Sweeps (lo, hi, key) spans, yielding (key_a, key_b, lo, hi) for every pair sharing
+        range, with (lo, hi) the shared range itself. Keeping every span that still reaches
+        past the current start ('active') is what finds every partner: comparing each span only
+        against its immediate predecessor in sort order misses both the partner that lies
+        downstream (a span overlapped only from the 3p side is never the second argument of such
+        a comparison, so it is never examined at all) and the non-adjacent partner, e.g.
+        A(1-1000), B(50-100) nested in A, C(500-600) also inside A but not touching B, where
+        comparing C only to B finds nothing."""
+        active = []
+        for lo, hi, key in sorted(spans):
+            # drop the spans that end at or before this one starts; directly adjacent is fine
+            active = [(a_hi, a_key) for a_hi, a_key in active if a_hi > lo]
+            for a_hi, a_key in active:
+                # spans are swept in ascending start order, so the shared range always starts
+                # at the current span's own start
+                yield a_key, key, lo, min(hi, a_hi)
+            active.append((hi, key))
+
+    @staticmethod
+    def _merge_ranges(ranges):
+        """Merges ascending, half-open (lo, hi) ranges into a minimal, sorted list of ranges."""
+        merged = []
+        for lo, hi in sorted(ranges):
+            if merged and lo <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], hi)
             else:
-                overlap_status = _overlap_error_status(slg_prev, slg)
-                return overlap_status
-        return 'normal'
+                merged.append([lo, hi])
+        return [tuple(r) for r in merged]
 
     def _3p_cds_start(self, transcript):
         """returns the start of the 3p most cds feature"""
@@ -732,29 +1114,12 @@ class GFFErrorHandling(object):
                 start = min(i_ends_within)
         return start
 
-    def _get_all_errors_of_slg(self, slg):
-        error_lists = [t['errors'] for t in slg['transcripts']]
-        merged_errors = [e for el in error_lists for e in el]
-        return merged_errors
-
-    def _print_overlap_error_msg(self, sl, sl_prev, status):
-        if status.startswith('overlap'):
-            msg = 'overlapping super loci: {} and {} (not nested), type: {}'
-        elif status.startswith('nested'):
-            msg = 'nested super loci: {} inside {}, type: {}'
-        else:
-            logger.error('overlapping status is not a known error')
-            return
-        logger.debug(msg.format(sl_prev.given_name, sl.given_name, status))
-
     def resolve_errors(self):
         for i, group in enumerate(self.groups):
-            # the case of a super locus being masked as fully erroneous (for some special reason)
-            # mask everything and append error to first transcript
-            if group['super_locus'].fully_erroneous:
-                sl_i = group['super_locus']
-                self._add_error(i, group['transcripts'][0], sl_i.start, sl_i.end, sl_i.is_plus_strand,
-                                types.MISMATCHING_STRANDS)
+            # a locus that is not exported at all is not analysed either, and gets no mask: where
+            # its features belong is exactly what is unknown about it, so any mask would be
+            # guesswork, either covering the wrong strand or covering sequence that is fine
+            if group['super_locus'].excluded_from_export is not None:
                 continue
 
             # the case of no transcript for a super locus
@@ -799,32 +1164,14 @@ class GFFErrorHandling(object):
                     if cds.phase_5p != 0:
                         self._add_overlapping_error(i, transcript, cds, '5p', types.WRONG_PHASE_5P)
 
-                    # check the case of overlapping sl together with an error in this transcript
-                    if i > 0:
-                        group_prev = self.groups[i - 1]
-                        sl, sl_prev = group['super_locus'], group_prev['super_locus']
-                        status = self._sl_neighbor_status(group_prev, group)
-                        if status != 'normal':
-                            if status == 'overlap_error_5p' or status == 'overlap_error_both':
-                                self._add_overlapping_error(i, transcript, sl_prev, '3p',
-                                                            types.SL_OVERLAP_ERROR,
-                                                            find_next_non_overlapping=True)
-                            elif status == 'overlap_error_3p' or status == 'overlap_error_both':
-                                self._add_overlapping_error(i, transcript, sl, '5p',
-                                                            types.SL_OVERLAP_ERROR,
-                                                            find_next_non_overlapping=True)
-                            elif status.startswith('nested_error'):
-                                # remove all missing 3p/5p errors as they have to be wrong and are
-                                # not needed further down the road
-                                # we could try to add error halfway to the intron border but
-                                # 1. it is not guaranteed that there is such an intron
-                                # 2. there could be multiple ones in different transcripts
-                                # due to that complexity we are content with adding no errors
-                                transcript['errors'] = [e for e in transcript['errors']
-                                                        if e.feature_type not in [
-                                                             types.MISSING_UTR_3P, types.MISSING_UTR_5P
-                                                        ]]
-                            self._print_overlap_error_msg(sl_prev, sl, status)
+                    # the case of this super locus sharing genomic range with another one. Only
+                    # the exported transcript carries the mask, the range having been worked out
+                    # from that transcript's own span, so this error type occurs once per gene
+                    # (see _compute_overlap_masks)
+                    if transcript['transcript'].longest:
+                        for error_start, error_end in self._overlap_masks[i]:
+                            self._add_error(i, transcript, error_start, error_end,
+                                            self.is_plus_strand, types.SL_OVERLAP_ERROR)
 
                     if introns:
                         # the case of wrong 3p phase
@@ -896,15 +1243,16 @@ class GFFErrorHandling(object):
                                   end=end,
                                   controller=self.controller)
         transcript_g['errors'].append(error_i)
-        # tallied per transcript afterward, not here (see clean_and_insert), so a transcript
-        # hit twice by the same error type is still only counted once
+        # a set, so a transcript hit twice by the same error type is still only counted once
+        # when the types are tallied at the end of the import (see clean_and_insert)
+        transcript_g['detected_error_types'].add(error_type)
         strand_str = 'plus' if is_plus_strand else 'minus'
         logger.debug(f'marked as erroneous: seqid: {self.coord.seqid}, {start}--{end}:'
                      f'{self.groups[i]["super_locus"].given_name}, on {strand_str} strand, '
                      f'with type: {error_type}')
 
     def _add_overlapping_error(self, i, transcript_g, handler, direction, error_type,
-                               find_next_non_overlapping=False, mark_other_handlers=None):
+                               mark_other_handlers=None):
         """Constructs an error features that overlaps halfway to the next super locus
         in the given direction from the given handler if possible. Otherwise, mark until the end.
         If the direction is 'whole', the handler parameter is ignored.
@@ -916,18 +1264,17 @@ class GFFErrorHandling(object):
 
         assert direction in ['5p', '3p', 'whole']
         coord = self.groups[i]['super_locus'].coord
+        # the error type is recorded as detected here, before any of the extent handling below
+        # can shorten the range to nothing or drop it, so the import statistics report what was
+        # found rather than what survived (see clean_and_insert)
+        transcript_g['detected_error_types'].add(error_type)
 
-        j = i  # do not change i as we need it later
         # set correct upstream error starting point
         if direction in ['5p', 'whole']:
-            if find_next_non_overlapping:
-                while (j > 0
-                       and self._sl_neighbor_status(self.groups[j - 1], self.groups[j]) != 'normal'):
-                    j -= 1
-            # perform marking
-            if j > 0:
-                anchor_5p = self._error_border_mark(self.groups[j - 1]['super_locus'],
-                                                    self.groups[j]['super_locus'])
+            previous = self._exported_neighbour(i, -1)
+            if previous is not None:
+                anchor_5p = self._error_border_mark(self.groups[previous]['super_locus'],
+                                                    self.groups[i]['super_locus'])
             else:
                 if self.is_plus_strand:
                     anchor_5p = 0
@@ -936,13 +1283,10 @@ class GFFErrorHandling(object):
 
         # set correct downstream error end point
         if direction in ['3p', 'whole']:
-            if find_next_non_overlapping:
-                while (j < len(self.groups) - 1
-                       and self._sl_neighbor_status(self.groups[j], self.groups[j + 1]) != 'normal'):
-                    j += 1
-            if j < len(self.groups) - 1:
-                anchor_3p = self._error_border_mark(self.groups[j]['super_locus'],
-                                                    self.groups[j + 1]['super_locus'])
+            following = self._exported_neighbour(i, 1)
+            if following is not None:
+                anchor_3p = self._error_border_mark(self.groups[i]['super_locus'],
+                                                    self.groups[following]['super_locus'])
             else:
                 if self.is_plus_strand:
                     anchor_3p = coord.length
@@ -967,6 +1311,23 @@ class GFFErrorHandling(object):
             error_5p = anchor_5p
             error_3p = anchor_3p
 
+        # _error_border_mark's dist <= 0 case (the anchor's own neighbour already extends
+        # into or past it, e.g. an overlapping predecessor) can place the computed anchor
+        # past the handler's own, exact boundary; without clamping, that silently produces
+        # a backwards region that _remove_backwards_errors later discards outright, losing
+        # the error entirely instead of just its precise extent. Clamp the computed anchor
+        # back to the reliable, handler-based side, not the other way around, so a
+        # degenerate case collapses to a zero-length marker right at the handler's own
+        # boundary instead of ballooning out to wherever the bad anchor landed. Such a marker
+        # masks nothing, which is the correct amount when there is no unclaimed sequence left
+        # to mask, while still recording the error (see docs/spec_vs_gff.md).
+        sign = 1 if self.is_plus_strand else -1
+        if sign * error_3p < sign * error_5p:
+            if direction == '5p':
+                error_5p = error_3p
+            else:
+                error_3p = error_5p
+
         if not self._zero_len_coords_at_sequence_edge(error_5p, error_3p, direction, coord):
             self._add_error(i, transcript_g, error_5p, error_3p, self.is_plus_strand, error_type)
 
@@ -989,23 +1350,33 @@ class GFFErrorHandling(object):
                     out = True
         return out
 
-    def _error_border_mark(self, sl, sl_next):
-        """Calculates the error border point between two super loci according to the formula
-        min(ig_length / 2, sqrt(ig_length) * 10), which is then used for error masks.
-        """
-        def offset(dist):
-            if dist <= 0:
-                # could happend with nested genes
-                return 0
-            return min(dist // 2, int(math.sqrt(dist)) * 10)
+    def _exported_neighbour(self, i, step):
+        """The index of the nearest exported gene to one side, or None. A mask that runs part of
+        the way to the next gene is measuring toward whatever a consumer will be handed, so
+        unexported loci, the dropped partner of a resolved overlap among them, are skipped rather
+        than cutting the mask short at sequence nothing is written for."""
+        j = i + step
+        while 0 <= j < len(self.groups):
+            if self._exported_transcript(self.groups[j]) is not None:
+                return j
+            j += step
+        return None
 
+    @staticmethod
+    def _border_offset(gap):
+        """How far a mask reaches into a gap of unclaimed sequence,
+        min(gap / 2, sqrt(gap) * 10). Nothing at all where there is no gap, as between a nested
+        gene and the one around it."""
+        if gap <= 0:
+            return 0
+        return min(gap // 2, int(math.sqrt(gap)) * 10)
+
+    def _error_border_mark(self, sl, sl_next):
+        """The point between two super loci that an error mask reaching toward the next gene
+        stops at."""
         if self.is_plus_strand:
-            dist = sl_next.start - sl.end
-            mark = sl.end + offset(dist)
-        else:
-            dist = sl.end - sl_next.start
-            mark = sl.end - offset(dist)
-        return mark
+            return sl.end + self._border_offset(sl_next.start - sl.end)
+        return sl.end - self._border_offset(sl.end - sl_next.start)
 
 
 ##### main flow control #####
@@ -1120,8 +1491,12 @@ class ImportController(object):
                         error.insert_feature_piece_association(tp.id)
 
         def clean_and_insert(self, groups, clean, is_final_coord):
-            plus = [g for g in groups if g['super_locus'].is_plus_strand]
-            minus = [g for g in groups if not g['super_locus'].is_plus_strand]
+            # a super locus whose own strand is neither '+' nor '-' is kept apart rather than
+            # falling into the minus bucket, where it would otherwise be free to sort first and
+            # give GFFErrorHandling a strand of None to work every neighbour comparison against
+            plus = [g for g in groups if g['super_locus'].is_plus_strand is True]
+            minus = [g for g in groups if g['super_locus'].is_plus_strand is False]
+            unstranded = [g for g in groups if g['super_locus'].is_plus_strand is None]
             if clean:
                 # check and correct for errors
                 # do so for each strand seperately
@@ -1131,19 +1506,31 @@ class ImportController(object):
                 GFFErrorHandling(minus[::-1], self).resolve_errors()
             # tally the final, selected transcripts (one per coding locus) now that error
             # resolution is done, so 'error-free' reflects every check that ran
-            for group in plus + minus:
+            for group in plus + minus + unstranded:
+                # an unexported locus was never checked for errors either, so counting its
+                # transcript here would report a gene nothing was ever looked at as error-free
+                reason = group['super_locus'].excluded_from_export
+                if reason is not None:
+                    self.stats.unexported_super_loci[reason] += 1
+                    continue
                 for transcript in group['transcripts']:
+                    # counted from the error types detected, not from the error features that
+                    # ended up being inserted: an error whose masked range collapses to nothing
+                    # (e.g. a missing UTR of a gene nested in another, which has no unclaimed
+                    # sequence to extend the mask into) is still a real finding about the
+                    # transcript, and dropping it from the count would understate the error rate
                     if transcript['transcript'].longest:
                         self.stats.longest_transcripts += 1
-                        if not transcript['errors']:
+                        if not transcript['detected_error_types']:
                             self.stats.longest_error_free_transcripts += 1
                     # each error type is counted once per transcript it occurs in, no matter
                     # how many times it occurs within that one transcript
-                    for error_type in {e.feature_type for e in transcript['errors']}:
+                    for error_type in transcript['detected_error_types']:
                         self.stats.errors[error_type] += 1
             # insert importers
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)
+            insert_importer_groups(self, unstranded)
             if is_final_coord or self.insertion_queues.total_size() > 10000:  # todo: change to 1000, RAM issue fix maybe
                 self.insertion_queues.execute_so_far()
 
@@ -1239,7 +1626,7 @@ class SuperLocusImporter(Insertable):
                  is_plus_strand=None,
                  start=-1,
                  end=-1,
-                 fully_erroneous=False):
+                 excluded_from_export=None):
         self.id = InsertCounterHolder.super_locus()
         self.entry_type = entry_type
         self.given_name = given_name
@@ -1249,10 +1636,12 @@ class SuperLocusImporter(Insertable):
         self.is_plus_strand = is_plus_strand
         self.start = start
         self.end = end
-        self.fully_erroneous = fully_erroneous
+        # a reason string from types, or None; see orm.SuperLocus.excluded_from_export
+        self.excluded_from_export = excluded_from_export
 
     def add_to_queue(self):
-        to_add = {'type': self.entry_type, 'given_name': self.given_name, 'id': self.id}
+        to_add = {'type': self.entry_type, 'given_name': self.given_name, 'id': self.id,
+                  'excluded_from_export': self.excluded_from_export}
         self.controller.insertion_queues.super_locus.queue.append(to_add)
 
     def __repr__(self):

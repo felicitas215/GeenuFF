@@ -1,0 +1,17 @@
+##gff-version 3
+##sequence-region CHR 1 2000
+CHR	EMBL	gene	100	399	.	+	.	ID=geneOK;Name=ordinary-coding-gene
+CHR	EMBL	mRNA	100	399	.	+	.	ID=rnaOK;Parent=geneOK
+CHR	EMBL	exon	100	399	.	+	.	ID=exon-rnaOK;Parent=rnaOK
+CHR	EMBL	CDS	150	350	.	+	0	ID=cds-rnaOK;Parent=rnaOK
+CHR	EMBL	gene	600	899	.	+	.	ID=geneTransSpliced;Name=coding-mRNA-with-question-mark-strand
+CHR	EMBL	mRNA	600	899	.	?	.	ID=rnaTransSpliced;Parent=geneTransSpliced
+CHR	EMBL	exon	600	899	.	?	.	ID=exon-rnaTransSpliced;Parent=rnaTransSpliced
+CHR	EMBL	CDS	650	850	.	?	0	ID=cds-rnaTransSpliced;Parent=rnaTransSpliced
+CHR	EMBL	gene	1100	1399	.	+	.	ID=geneCdsStrandClash;Name=cds-line-disagrees-with-its-mRNA
+CHR	EMBL	mRNA	1100	1399	.	+	.	ID=rnaCdsStrandClash;Parent=geneCdsStrandClash
+CHR	EMBL	exon	1100	1399	.	+	.	ID=exon-rnaCdsStrandClash;Parent=rnaCdsStrandClash
+CHR	EMBL	CDS	1150	1350	.	?	0	ID=cds-rnaCdsStrandClash;Parent=rnaCdsStrandClash
+CHR	EMBL	gene	1600	1899	.	+	.	ID=geneNonCoding;Name=non-coding-with-question-mark-strand;gene_biotype=lncRNA
+CHR	EMBL	lncRNA	1600	1899	.	?	.	ID=rnaNonCoding;Parent=geneNonCoding
+CHR	EMBL	exon	1600	1899	.	?	.	ID=exon-rnaNonCoding;Parent=rnaNonCoding
