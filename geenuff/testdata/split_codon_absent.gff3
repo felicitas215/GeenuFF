@@ -1,0 +1,23 @@
+##gff-version 3
+##sequence-region CHR 1 600
+# The mirror of split_codon.gff3: two genes whose CDS is split by an intron and whose start or
+# stop codon is genuinely absent from the spliced sequence, while the genome does read a valid
+# codon at the CDS boundary. Checking three contiguous genomic bases there would call both of
+# these fine; only the spliced CDS shows what the transcript actually starts and ends with.
+# The introns are deliberately not GT..AG, that being the whole point: the bases next to the
+# CDS boundary are what a boundary check would wrongly pick up as the codon.
+#
+# 1. the genome reads ATG at 150-152, but 151-152 are intron, so the CDS splices to AAG AAA TAA
+CHR	test	gene	101	300	.	+	.	ID=geneNoStart;Name=start-codon-only-in-the-genome
+CHR	test	mRNA	101	300	.	+	.	ID=rnaNoStart;Parent=geneNoStart
+CHR	test	exon	101	150	.	+	.	ID=exon-rnaNoStart-1;Parent=rnaNoStart
+CHR	test	CDS	150	150	.	+	0	ID=cds-rnaNoStart-1;Parent=rnaNoStart
+CHR	test	exon	201	300	.	+	.	ID=exon-rnaNoStart-2;Parent=rnaNoStart
+CHR	test	CDS	201	208	.	+	2	ID=cds-rnaNoStart-2;Parent=rnaNoStart
+# 2. the genome reads TGA at 450-452, but 450 is intron, so the CDS splices to ATG AAA CGA
+CHR	test	gene	351	550	.	+	.	ID=geneNoStop;Name=stop-codon-only-in-the-genome
+CHR	test	mRNA	351	550	.	+	.	ID=rnaNoStop;Parent=geneNoStop
+CHR	test	exon	351	400	.	+	.	ID=exon-rnaNoStop-1;Parent=rnaNoStop
+CHR	test	CDS	394	400	.	+	0	ID=cds-rnaNoStop-1;Parent=rnaNoStop
+CHR	test	exon	451	550	.	+	.	ID=exon-rnaNoStop-2;Parent=rnaNoStop
+CHR	test	CDS	451	452	.	+	2	ID=cds-rnaNoStop-2;Parent=rnaNoStop

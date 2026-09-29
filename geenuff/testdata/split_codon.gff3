@@ -1,0 +1,31 @@
+##gff-version 3
+##sequence-region CHR 1 900
+# Three genes whose start or stop codon is cut in two by an intron, so that the codon exists
+# only in the spliced CDS and never as three contiguous genomic bases. Every one of them splices
+# to ATG AAA TAA and is free of errors; reading three bases from the CDS boundary instead would
+# read into the intron and report a missing start or stop codon that is not there.
+#
+# 1. the start codon's 'A' sits alone in the first exon, its 'TG' in the second. The bases
+#    following the 'A' in the genome are the intron's 'GT', not 'TG'
+CHR	test	gene	101	300	.	+	.	ID=geneSplitStart;Name=start-codon-split-by-an-intron
+CHR	test	mRNA	101	300	.	+	.	ID=rnaSplitStart;Parent=geneSplitStart
+CHR	test	exon	101	150	.	+	.	ID=exon-rnaSplitStart-1;Parent=rnaSplitStart
+CHR	test	CDS	150	150	.	+	0	ID=cds-rnaSplitStart-1;Parent=rnaSplitStart
+CHR	test	exon	201	300	.	+	.	ID=exon-rnaSplitStart-2;Parent=rnaSplitStart
+CHR	test	CDS	201	208	.	+	2	ID=cds-rnaSplitStart-2;Parent=rnaSplitStart
+# 2. the stop codon's 'T' ends the first exon, its 'AA' opens the second. The bases preceding
+#    the 'AA' in the genome are the intron's 'AG', giving 'GAA' rather than 'TAA'
+CHR	test	gene	351	550	.	+	.	ID=geneSplitStop;Name=stop-codon-split-by-an-intron
+CHR	test	mRNA	351	550	.	+	.	ID=rnaSplitStop;Parent=geneSplitStop
+CHR	test	exon	351	400	.	+	.	ID=exon-rnaSplitStop-1;Parent=rnaSplitStop
+CHR	test	CDS	394	400	.	+	0	ID=cds-rnaSplitStop-1;Parent=rnaSplitStop
+CHR	test	exon	451	550	.	+	.	ID=exon-rnaSplitStop-2;Parent=rnaSplitStop
+CHR	test	CDS	451	452	.	+	2	ID=cds-rnaSplitStop-2;Parent=rnaSplitStop
+# 3. the same split start codon on the minus strand, where the transcript reads from 800 down
+#    to 601 and the lone 'A' of the start codon is the complement of the 'T' at 751
+CHR	test	gene	601	800	.	-	.	ID=geneSplitStartMinus;Name=start-codon-split-on-the-minus-strand
+CHR	test	mRNA	601	800	.	-	.	ID=rnaSplitStartMinus;Parent=geneSplitStartMinus
+CHR	test	exon	601	700	.	-	.	ID=exon-rnaSplitStartMinus-1;Parent=rnaSplitStartMinus
+CHR	test	CDS	693	700	.	-	2	ID=cds-rnaSplitStartMinus-1;Parent=rnaSplitStartMinus
+CHR	test	exon	751	800	.	-	.	ID=exon-rnaSplitStartMinus-2;Parent=rnaSplitStartMinus
+CHR	test	CDS	751	751	.	-	0	ID=cds-rnaSplitStartMinus-2;Parent=rnaSplitStartMinus

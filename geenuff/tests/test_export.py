@@ -1,5 +1,6 @@
 import os
 import pytest
+from collections import defaultdict
 from geenuff.applications.importer import ImportController
 from geenuff.applications.exporters.sequence import FastaExportController
 from geenuff.applications.exporters.lengths import LengthExportController
@@ -13,9 +14,13 @@ from geenuff.applications.exporter import GeenuffExportController
 
 EXPORTING_PFX = 'testdata/exporting.'
 EXONEXONCDS_PFX = 'testdata/exonexonCDS.'
+SPLIT_CODON_PFX = 'testdata/split_codon.'
+
+PREFIXES = [EXPORTING_PFX, EXONEXONCDS_PFX, SPLIT_CODON_PFX]
 
 EXPORTING_DB = EXPORTING_PFX + 'sqlite3'
 EXONEXONCDS_DB = EXONEXONCDS_PFX + 'sqlite3'
+SPLIT_CODON_DB = SPLIT_CODON_PFX + 'sqlite3'
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -23,15 +28,15 @@ def prepare_and_cleanup():
     if not os.getcwd().endswith('GeenuFF/geenuff'):
         pytest.exit('Tests need to be run from GeenuFF/geenuff directory')
 
-    for pfx in [EXPORTING_PFX, EXONEXONCDS_PFX]:
+    for pfx in PREFIXES:
         if not os.path.exists(pfx + 'sqlite3'):
             controller = ImportController(database_path='sqlite:///' + pfx + 'sqlite3')
             controller.add_genome(pfx + 'fa', pfx + 'gff3', clean_gff=True,
                                   genome_args={'species': 'dummy'})
 
     yield
-    for db in [EXPORTING_DB, EXONEXONCDS_DB]:
-        os.remove(db)
+    for pfx in PREFIXES:
+        os.remove(pfx + 'sqlite3')
 
 
 def seq_len_controllers(mode, longest=False, db=EXPORTING_DB):
@@ -41,6 +46,45 @@ def seq_len_controllers(mode, longest=False, db=EXPORTING_DB):
     lcontroller = LengthExportController(db_path_in='sqlite:///' + db, longest=longest)
     lcontroller.prep_ranges(range_function=MODES[mode])
     return econtroller, lcontroller
+
+
+def range_positions(arange):
+    """The set of genomic positions a range covers, as positions on the plus strand whichever
+    strand the range is on, so that ranges can be compared to each other as plain sets. On a
+    10 bp sequence, writing a range as start -> end:
+
+        the first three bases read:  plus 0 -> 3 is {0, 1, 2},   minus 9 -> 6 is {7, 8, 9}
+        the whole sequence:          plus 0 -> 10 is {0 ... 9},  minus 9 -> -1 is {0 ... 9}
+    """
+    if arange.is_plus_strand:
+        return set(range(arange.start, arange.end))
+    return set(range(arange.end + 1, arange.start + 1))
+
+
+def positions_by_strand(controller, one_set_per_range):
+    """Collects the positions a controller's prepared export ranges cover into a dict keyed by
+    coordinate and strand, the two being kept apart because a position means a different base on
+    each strand and the modes are computed per strand.
+
+    one_set_per_range keeps each range its own set, so that summed sizes against the size of the
+    union say whether any two of them claim the same base; without it the ranges of one strand
+    are merged, which absorbs the overlap instead. For the two ranges 0 -> 5 and 2 -> 7 on the
+    plus strand of coordinate 1:
+
+        one_set_per_range=True   {(1, True): [{0, 1, 2, 3, 4}, {2, 3, 4, 5, 6}]}
+        one_set_per_range=False  {(1, True): {0, 1, 2, 3, 4, 5, 6}}
+    """
+    out = defaultdict(list) if one_set_per_range else defaultdict(set)
+    for group in controller.export_ranges:
+        # a group is one exported sequence and may be built from several ranges, e.g. the exons
+        # of a spliced transcript, each of which covers its own stretch of the coordinate
+        for arange in group.ranges:
+            key = (arange.coordinate_id, arange.is_plus_strand)
+            if one_set_per_range:
+                out[key].append(range_positions(arange))
+            else:
+                out[key] |= range_positions(arange)
+    return out
 
 
 def compare2controllers(expect, econtroller, lcontroller):
@@ -445,6 +489,29 @@ def test_get_CDS():
     compare2controllers(expect, econtroller, lcontroller)
 
 
+def test_get_CDS_with_a_codon_split_by_an_intron():
+    """A start or stop codon can be cut in two by an intron, in which case it exists only in the
+    spliced CDS. The export joins the pieces across the junction rather than reading the genome
+    contiguously from the CDS boundary, which would read into the intron instead."""
+    econtroller, lcontroller = seq_len_controllers('CDS', db=SPLIT_CODON_DB)
+    assert len(econtroller.export_ranges) == len(lcontroller.export_ranges) == 3
+    spliced = {grp.seqid: ''.join(econtroller.get_seq(grp))
+               for grp in econtroller.export_ranges}
+    # the start codon is split in the first and third, the stop codon in the second, and the
+    # third is on the minus strand; all the same nine bases once spliced
+    assert spliced == {'rnaSplitStart': 'ATGAAATAA',
+                       'rnaSplitStop': 'ATGAAATAA',
+                       'rnaSplitStartMinus': 'ATGAAATAA'}
+
+    # and the introns doing the splitting come back 5' to 3' too, so each reads GT...AG
+    econtroller, lcontroller = seq_len_controllers('introns', db=SPLIT_CODON_DB)
+    assert len(econtroller.export_ranges) == len(lcontroller.export_ranges) == 3
+    for grp, lgrp in zip(econtroller.export_ranges, lcontroller.export_ranges):
+        seq = ''.join(econtroller.get_seq(grp))
+        assert seq.startswith('GT') and seq.endswith('AG')
+        assert lcontroller.get_length(lgrp) == 50
+
+
 def test_get_spliced_UTRs():
     expect = [('Chr1:195000-199000:780-979', 200,
                "AAGCCTTTCTCTTTAAATTCGTTATCGTTTTTTTTATTTTATCAATTTAATCTTTTTATT"
@@ -516,6 +583,56 @@ def test_get_spliced_UTRs():
     econtroller, lcontroller = seq_len_controllers('UTR', db=EXONEXONCDS_DB)
     assert len(econtroller.export_ranges) == len(lcontroller.export_ranges) == 4
     compare2controllers(expect, econtroller, lcontroller)
+
+
+def test_intergenic_ranges_are_what_the_genes_leave_over():
+    """Intergenic ranges are a coordinate minus the transcribed ranges on it, worked out per
+    strand: a strand carrying no gene comes back whole, and the ranges of the minus one run
+    from their higher coordinate down, as everywhere else in GeenuFF."""
+    econtroller, lcontroller = seq_len_controllers('intergenic', db=SPLIT_CODON_DB)
+    assert len(econtroller.export_ranges) == len(lcontroller.export_ranges) == 5
+
+    # two genes at 101-300 and 351-550 on the plus strand of a 900 bp sequence, one at 601-800
+    # on the minus, which leaves the whole of the minus strand above and below that one gene
+    ranges = [(r.is_plus_strand, r.start, r.end)
+              for group in econtroller.export_ranges for r in group.ranges]
+    assert ranges == [(True, 0, 100), (True, 300, 350), (True, 550, 900),
+                      (False, 899, 799), (False, 599, -1)]
+
+    lengths = [lcontroller.get_length(group) for group in lcontroller.export_ranges]
+    assert lengths == [100, 50, 350, 100, 600]
+    # both strands of the sequence, less the three genes, each 200 bp long
+    assert sum(lengths) == 2 * 900 - 3 * 200
+
+    # the minus strand ranges are returned 5' to 3', so the filler C of the last 100 bases of
+    # the sequence comes back as G
+    assert ''.join(econtroller.get_seq(econtroller.export_ranges[3])) == 'G' * 100
+
+
+def test_intergenic_ranges_tile_each_strand_with_the_transcribed_ones():
+    """Between them the intergenic and the transcribed ranges account for every base of every
+    strand exactly once, whether the export takes all transcripts or only the longest. The
+    exporting test data has two transcripts one inside the other, so the intergenic ranges of
+    that strand come from subtracting overlapping ranges."""
+    for longest in (False, True):
+        igcontroller, _ = seq_len_controllers('intergenic', longest=longest)
+        txcontroller, _ = seq_len_controllers('pre-mRNA', longest=longest)
+        intergenic = positions_by_strand(igcontroller, one_set_per_range=True)
+        transcribed = positions_by_strand(txcontroller, one_set_per_range=False)
+        coordinates = igcontroller.session.query(orm.Coordinate).all()
+        assert len(coordinates) == 2
+
+        for coord in coordinates:
+            for is_plus_strand in (True, False):
+                pieces = intergenic[(coord.id, is_plus_strand)]
+                covered = set().union(*pieces) if pieces else set()
+                genes = transcribed[(coord.id, is_plus_strand)]
+                # no two intergenic ranges of one strand claim the same base
+                assert sum(len(piece) for piece in pieces) == len(covered)
+                # none of them claims a transcribed base either
+                assert not covered & genes
+                # and nothing between the genes is left out
+                assert covered | genes == set(range(coord.length))
 
 
 def test_get_json_feature():

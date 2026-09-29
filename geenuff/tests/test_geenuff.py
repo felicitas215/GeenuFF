@@ -1253,6 +1253,42 @@ def test_cds_starting_phase_is_reset_not_trusted():
     assert len(wrong_phase_errors) == 1
 
 
+def test_codon_split_by_an_intron_is_not_reported_as_missing():
+    """A start or stop codon can be cut in two by an intron, in which case it exists only in the
+    spliced CDS and never as three contiguous genomic bases. The check reads the spliced CDS
+    sequence for that reason; reading three bases from the CDS boundary instead reads into the
+    intron and reports a codon that is there as missing."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/split_codon.fa', 'testdata/split_codon.gff3', clean_gff=True)
+
+    # the three transcripts splice to ATG AAA TAA, two on the plus strand and one on the minus
+    assert controller.stats.total_coding_transcripts == 3
+    assert controller.stats.longest_error_free_transcripts == 3
+    assert not controller.stats.errors
+    assert not controller.session.query(Feature).filter(
+        Feature.type.in_(types.geenuff_error_type_values)).all()
+
+
+def test_codon_split_by_an_intron_is_still_reported_when_absent():
+    """The mirror of the above: where the split codon is genuinely absent from the spliced CDS,
+    the error is still raised, even though the genome does read a valid codon at the boundary of
+    the CDS. Each gene here draws exactly one error, the one it is missing."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/split_codon_absent.fa',
+                          'testdata/split_codon_absent.gff3', clean_gff=True)
+
+    def errors_of(given_name):
+        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
+        return sorted(f.type.value for p in transcript.transcript_pieces for f in p.features
+                      if f.type.value in types.geenuff_error_type_values)
+
+    # the genome reads ATG over the first gene's CDS boundary and TGA over the second's, but
+    # both of those codons are half intron, so neither survives into the transcript
+    assert errors_of('rnaNoStart') == [types.MISSING_START_CODON]
+    assert errors_of('rnaNoStop') == [types.MISSING_STOP_CODON]
+    assert controller.stats.errors == {types.MISSING_START_CODON: 1, types.MISSING_STOP_CODON: 1}
+
+
 def test_gff_gen():
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     x = list(gff_organizer._gff_gen())
