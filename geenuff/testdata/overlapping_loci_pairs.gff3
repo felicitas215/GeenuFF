@@ -2,7 +2,7 @@
 ##sequence-region CHR 1 7300
 # Four isolated overlapping pairs, on overlapping_loci_pairs.fa: all C except an ATG and a TAA at
 # the ends of every CDS that is a multiple of 3. Those genes each lack a UTR and so are flank
-# masked, the longer spliced CDS being kept and on a tie the 5'-most gene. geneBothTruncatedLeft,
+# masked, the longer spliced CDS of a crossing pair being kept. geneBothTruncatedLeft,
 # geneBothTruncatedRight and geneTruncatedCoder have a CDS that is not a multiple of 3 and no
 # codons, and are masked outright.
 #
@@ -16,9 +16,9 @@ CHR	EMBL	gene	350	652	.	+	.	ID=geneCrossGivesWay;Name=crossing-no-cds-in-the-sha
 CHR	EMBL	mRNA	350	652	.	+	.	ID=rnaCrossGivesWay;Parent=geneCrossGivesWay
 CHR	EMBL	exon	350	652	.	+	.	ID=exon-rnaCrossGivesWay;Parent=rnaCrossGivesWay
 CHR	EMBL	CDS	452	652	.	+	0	ID=cds-rnaCrossGivesWay;Parent=rnaCrossGivesWay
-# 2. nested, resolved: both CDS are 201 bp, so the 5'-most geneOuter is kept, and geneInner,
-#    sitting in its intron, is masked where it sat, leaving both of the outer's ends visible
-CHR	EMBL	gene	800	1399	.	+	.	ID=geneOuter;Name=outer-with-the-inner-in-its-intron
+# 2. nested, refused: geneInner sits in geneOuter's intron, and a nested pair is never decided,
+#    so both are masked over their whole length
+CHR	EMBL	gene	800	1399	.	+	.	ID=geneOuter;Name=outer-with-the-inner-in-its-intron-masked-whole
 CHR	EMBL	mRNA	800	1399	.	+	.	ID=rnaOuter;Parent=geneOuter
 CHR	EMBL	exon	800	900	.	+	.	ID=exon-rnaOuter-1;Parent=rnaOuter
 CHR	EMBL	exon	1300	1399	.	+	.	ID=exon-rnaOuter-2;Parent=rnaOuter

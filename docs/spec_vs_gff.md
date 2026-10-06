@@ -21,12 +21,40 @@ used as an intermediary and gene annotation was performed and stored directly in
 structured database, all the errors could be assigned more precise ranges for any ambiguity.
 
 An error that leaves a gene's end unknown is extended from that end into the gap of unclaimed
-sequence beside the gene, the *flank*. The flank is measured from the gene with the error:
-`min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap toward the next exported coding gene that
-way, or toward the end of the sequence where there is none. Two genes both extending into the
-gap between them therefore never meet in the middle of a large gap, and sequence far enough from
-any gene stays usable as intergenic. Genes without a CDS do not bound a flank, as a transposon or
+sequence beside the gene, the *flank*. A gene's span here is that of its selected transcript, the
+one exported, not its gene line, which can be far wider or narrower. The flank is measured from
+the gene with the error toward the closest edge of another coding gene that way, i.e. the
+nearest end before it or start after it, or toward the end of the sequence where there is none.
+A gene overlapping it is not a neighbour, sharing sequence with it rather than bounding it, so
+the flank is measured past it. A gene dropped for an overlap still counts as a neighbour.
+
+The flank reaches `min(int(10 * sqrt(gap)), midpoint of the gap)` bp into the gap, the midpoint
+rounded up in genomic coordinates on both strands. Where the midpoint binds (gaps below about
+400 bp), the flanks of two genes meet exactly, with no base masked twice or skipped; where the
+square root binds, they leave the middle of the gap unmasked, so sequence far enough from any
+gene stays usable as intergenic. Genes without a CDS do not bound a flank, as a transposon or
 lncRNA overlapping a coding gene would otherwise leave that gene no flank at all.
+
+**To watch: masking in dense genomes.** Up to a gap of 400 bp the midpoint always binds
+(`10 * sqrt(gap) >= gap / 2` exactly there), so an erroneous gene masks half of every such gap
+next to it, however small, and a gap between two erroneous genes is masked entirely:
+
+| gap    | flank per erroneous side | gap masked, one erroneous neighbour | gap masked, both erroneous |
+|--------|--------------------------|-------------------------------------|----------------------------|
+| 100 bp | 50 bp                    | 50 %                                | 100 %                      |
+| 400 bp | 200 bp                   | 50 %                                | 100 %                      |
+| 1 kb   | 316 bp                   | 32 %                                | 63 %                       |
+| 2.5 kb | 500 bp                   | 20 %                                | 40 %                       |
+| 10 kb  | 1000 bp                  | 10 %                                | 20 %                       |
+
+Within one gap this rarely masks sequence that is clearly intergenic, 50-200 bp being about one
+typical UTR length. The risk is a bias: in compact genomes (fungi, many algae, gene-dense plant
+regions) the intergenic sequence left unmasked comes mostly from long gaps or gaps beside clean
+genes, so short intergenic stretches, typical there, are underrepresented in training. Errors
+masking a gene whole add to this, each taking both neighbouring gaps down to their midpoints. To
+check on real data: the share of intergenic base pairs masked, by gap size, on a dense and a
+sparse genome. Possible remedies are a share smaller than half the gap (giving up masks that meet
+exactly).
 
 | type                     | cause                                                   | masked                               |
 |--------------------------|---------------------------------------------------------|--------------------------------------|
@@ -62,10 +90,10 @@ sequence two genes both claim rather than anything wrong with one gene. Every sh
 carries two mutually exclusive true labels (e.g. CDS for one gene and intron or UTR for the
 other), which a one-class-per-base consumer cannot represent.
 
-Of two overlapping genes the better one is exported whole and its partner is left out of exports
-altogether; the error then covers what that partner occupied beyond the kept gene, or where it
-sat if it lay wholly inside it. Where both are masked outright for their own errors, both genes
-are exported and each is covered over its whole length. Only genes with a CDS
+Of two crossing genes the better one is exported whole and its partner is left out of exports
+altogether; the error then covers what that partner occupied beyond the kept gene. Where both
+are masked outright for their own errors, or one lies inside the other, both genes are exported
+and each is covered over its whole length and the flank on both sides. Only genes with a CDS
 take part, so a coding gene annotated inside a transposable-element or other non-coding record
 is not masked for it. Every overlapping pair of coding genes is recorded without masking in the
 `super_locus_overlap` table as well. See `overlap_masking.md` for both records, the rules

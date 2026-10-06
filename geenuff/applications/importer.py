@@ -1,4 +1,5 @@
 import os
+import bisect
 import math
 import logging
 import shutil
@@ -30,6 +31,9 @@ class GFFValidityError(Exception):
 NOT_MASKED = 0       # nothing wrong with it
 FLANK_MASKED = 1     # an edge is unknown, e.g. a missing UTR, but the coding sequence is correct
 MASKED_OUTRIGHT = 2  # the coding sequence itself is masked, so keeping the locus recovers nothing
+
+# a mask's flank reaches int(MASK_BUFFER_SQRT_FACTOR * sqrt(gap)) into a gap, at most to its middle
+MASK_BUFFER_SQRT_FACTOR = 10
 
 
 @dataclass(frozen=True)
@@ -854,17 +858,26 @@ class GFFErrorHandling(object):
         self.groups = geenuff_importer_groups
         self.controller = controller
         self._overlap_masks = []
+        self._extents = {}
+        self._starts, self._ends = [], []
         if self.groups:
             self.is_plus_strand = self.groups[0]['super_locus'].is_plus_strand
             self.coord = self.groups[0]['super_locus'].coord
-            # make sure self.groups is sorted correctly
-            self.groups.sort(key=lambda g: g['super_locus'].start, reverse=not self.is_plus_strand)
+            # 5p to 3p by the selected transcript, the gene line of a locus without one
+            self.groups.sort(key=self._sort_start, reverse=not self.is_plus_strand)
             # found before overlaps are settled, which grade each locus by its errors
             for group in self.groups:
                 for transcript in group['transcripts']:
                     if 'cds' in transcript:
                         transcript['findings'] = self._find_errors(transcript)
             self._compute_overlap_masks()
+
+    @staticmethod
+    def _sort_start(group):
+        transcript = GFFErrorHandling._selected_transcript(group)
+        if transcript is None:
+            return group['super_locus'].start
+        return transcript['transcript_feature'].start
 
     def _compute_overlap_masks(self):
         """Settles what happens to every pair of super loci on this strand that share genomic
@@ -876,10 +889,10 @@ class GFFErrorHandling(object):
 
         The second record decides what an export is handed. Two loci cannot share a base: one
         label per base is written, so whichever is written last silently wins. Of an isolated
-        pair the better locus is kept whole and its partner is dropped from the export, leaving
-        one coherent gene rather than two with a hole through them (see _decide_overlap_pair).
-        Where both are masked outright, both genes are masked over their whole length (+
-        flank/buffer if they have an error tha calls for that).
+        crossing pair the better locus is kept whole and its partner is dropped from the export,
+        leaving one coherent gene rather than two with a hole through them (see
+        _decide_overlap_pair). Where both are masked outright, or one lies inside the other, both
+        genes are masked over their whole length and the flank on both sides.
         """
         # multiplying by sign turns both strands into ascending coordinates running 5p to 3p, so
         # everything below can compare and sort without asking which strand it is on
@@ -895,6 +908,12 @@ class GFFErrorHandling(object):
             if transcript is not None:
                 tf = transcript['transcript_feature']
                 extents[i] = (sign * tf.start, sign * tf.end)
+        # every mask measures its flank over these spans, toward the closest of their edges (see
+        # _buffered_span); a locus dropped below stays among them, being an annotated gene all the
+        # same, which a gene's true end is not assumed to run through
+        self._extents = extents
+        self._starts = sorted(lo for lo, _ in extents.values())
+        self._ends = sorted(hi for _, hi in extents.values())
 
         # _overlapping_pairs wants (lo, hi, key) triples, hence appending the index to each span.
         # pairs is used as an ordered set, the shared range it could hold being recomputed in
@@ -931,91 +950,93 @@ class GFFErrorHandling(object):
                 else:
                     stats.overlap_pairs_in_chains += 1
                 continue
-            # marking it here, inside the loop, is what makes the dropped locus invisible to
-            # _exported_transcript, and so to the neighbour search the second loop relies on
             self.groups[dropped]['super_locus'].excluded_from_export = types.OVERLAP_DROPPED
             resolved.append((keeper, dropped, pieces))
             stats.overlap_pairs_resolved += 1
             stats.overlap_loci_dropped += 1
 
-        # masks are extended only now that every drop is settled, so a border is measured toward
-        # a gene that really is exported
+        # an unresolved locus is masked like any gene with an error masking it whole, its flank
+        # included on both sides
         for i in masked_whole:
-            masks[i].append(self._extend_unknown_ends(i, extents[i], extents))
+            masks[i].append(self._buffered_span(i))
         for keeper, dropped, pieces in resolved:
-            for mask, side in pieces:
-                # a piece sticking out past the kept locus can run on further where the dropped
-                # locus' own end on that side is unknown; a hole inside the kept locus cannot
-                if side is not None:
-                    mask = self._extend_unknown_ends(dropped, mask, extents, sides=(side,))
+            # an erroneous dropped locus has untrustworthy outer boundaries like any other erroneous
+            # gene, so the piece sticking out past the kept locus gets the flank on its outer side
+            erroneous = self._locus_severity(self.groups[dropped]) != NOT_MASKED
+            buffered_lo, buffered_hi = self._buffered_span(dropped)
+            for (lo, hi), side in pieces:
+                if erroneous and side == -1:
+                    lo = buffered_lo
+                elif erroneous and side == 1:
+                    hi = buffered_hi
                 # the mask goes on the locus that is kept, the dropped one's own features never
                 # reaching an export to carry it (see orm.SuperLocus.excluded_from_export)
-                masks[keeper].append(mask)
+                masks[keeper].append((lo, hi))
         # back out of sign-normalised coordinates into the strand-oriented ones the features use,
         # merging first so a locus masked from several pairs ends up with the fewest ranges
         self._overlap_masks = [[(sign * lo, sign * hi) for lo, hi in self._merge_ranges(ranges)]
                                for ranges in masks]
 
-    def _extend_unknown_ends(self, i, mask, extents, sides=(-1, 1)):
-        """Runs a mask on past the gene it covers, on whichever of the given sides that gene's
-        end is not where the gene really ended: a truncated CDS, a missing start/stop codon or an
-        unannotated UTR all leave it unknown how much further the gene ran, so the sequence out
-        there cannot be taught as intergenic either. Reaches as far as any other error mask
-        would, _border_offset into the gap toward the next exported gene, measured from this one."""
-        lo, hi = mask
-        for direction in sides:
-            if self._end_is_known(self.groups[i], direction):
-                continue
-            limit = self._outward_limit(i, direction, extents)
-            if direction > 0:
-                hi += self._border_offset(limit - hi)
-            else:
-                lo -= self._border_offset(lo - limit)
-        return lo, hi
+    def _buffered_span(self, i):
+        """The span of locus i's selected transcript with the flank on both sides, sign-normalised.
 
-    def _outward_limit(self, i, direction, extents):
-        """How far out a mask on this gene may reach: the next exported gene reaching past it that
-        way, or the end of the sequence. A gene overlapping it from that side gives no room at
-        all, the gap being negative. One lying wholly inside it, such as the kept inner partner
-        of a dropped outer gene, is passed over.
+        Each flank reaches into the gap toward the closest edge of another locus' selected
+        transcript, i.e. the largest end at or before the span's start and the smallest start at
+        or after its end, or toward the end of the sequence where there is none. Taking the
+        closest edge rather than the next locus in sort order matters where a long transcript
+        encloses a shorter one: the shorter one need not end closest to whatever follows the long
+        one. A transcript overlapping locus i is not a neighbour, sharing sequence with it rather
+        than bounding it, so the flank is measured past it.
 
-        Neighbours are taken in sort order, which for a gene nested inside another is not the
-        nearest one by coordinate, so a mask can reach into a gene further along. That only
-        happens between genes that overlap in a chain, and those are masked whole anyway, so the
-        masked sequence comes out the same."""
-        lo, hi = extents[i]
-        neighbour = self._exported_neighbour(i, direction)
-        while neighbour is not None and (extents[neighbour][1] <= hi if direction > 0
-                                         else extents[neighbour][0] >= lo):
-            neighbour = self._exported_neighbour(neighbour, direction)
-        if neighbour is not None:
-            return extents[neighbour][0] if direction > 0 else extents[neighbour][1]
+        A flank reaches min(_buffer_reach(gap), the midpoint of the gap) (see _midpoint)."""
+        lo, hi = self._extents[i]
         lower, upper = self._sequence_bounds()
-        return upper if direction > 0 else lower
+        j = bisect.bisect_right(self._ends, lo)
+        previous_end = self._ends[j - 1] if j > 0 else lower
+        j = bisect.bisect_left(self._starts, hi)
+        next_start = self._starts[j] if j < len(self._starts) else upper
+        return (max(lo - self._buffer_reach(lo - previous_end), self._midpoint(previous_end, lo)),
+                min(hi + self._buffer_reach(next_start - hi), self._midpoint(hi, next_start)))
 
-    def _end_is_known(self, group, direction):
-        """Whether a gene's annotated end on one side is where the gene really ends, i.e. none of
-        its errors masks the flank there. Sign-normalised coordinates run 5p to 3p, so direction 1
-        asks about its 3p end and -1 about its 5p one."""
-        side = '3p' if direction > 0 else '5p'
-        findings = self._selected_transcript(group)['findings']
-        return not any(f.extent in (side, 'whole') for f in findings)
+    @staticmethod
+    def _buffer_reach(gap):
+        """The square root term of a flank, int(MASK_BUFFER_SQRT_FACTOR * sqrt(gap)). Nothing at
+        all where there is no gap, as between touching loci."""
+        if gap <= 0:
+            return 0
+        return int(MASK_BUFFER_SQRT_FACTOR * math.sqrt(gap))
+
+    def _midpoint(self, a, b):
+        """The midpoint of the gap from a to b (sign-normalised), rounded up in genomic
+        coordinates on both strands. Where the midpoint binds, the mask of the gene before the gap
+        ends exactly where that of the gene after it starts, so no base is masked twice or
+        skipped. On the minus strand rounding up in genomic coordinates is rounding down in
+        sign-normalised ones."""
+        if self.is_plus_strand:
+            return -(-(a + b) // 2)
+        return (a + b) // 2
 
     def _decide_overlap_pair(self, i, j, extents):
         """Works out which locus of an overlapping pair is kept, and what is masked in place of
-        the other. Returns (keeper, dropped, pieces) or three Nones where neither can be kept.
+        the other. Returns (keeper, dropped, pieces) or three Nones where neither is kept.
+
+        A nested pair, one span lying wholly inside the other's, is never decided: on one strand
+        that is more often an annotation mistake than two real genes. Identical spans are not
+        nested, there being no inner locus.
 
         The keeper is the less damaged locus, on a tie the one with the longer spliced CDS and on
         a tie of both the 5'-most one, whichever of the two has coding sequence in the range they
         share. A locus masked outright for its own errors is never kept, keeping it recovering
         nothing.
 
-        The pieces are (range, side) pairs. What the dropped locus covers beyond the kept one is
-        masked, side being the direction the piece points away from the keeper, past which it may
-        run on (see _extend_unknown_ends). A dropped locus lying wholly inside the kept one is
-        masked over its own span instead, a hole leaving both of the keeper's ends visible, with
-        side None. Identical spans need no mask, the kept locus covering the same bases.
+        The pieces are (range, side) pairs: what the dropped locus covers beyond the kept one,
+        side being the direction the piece points away from the keeper, past which it may run on
+        into the flank (see _buffered_span). Identical spans need no mask, the kept locus covering
+        the same bases.
         """
+        (i_lo, i_hi), (j_lo, j_hi) = extents[i], extents[j]
+        if (i_lo, i_hi) != (j_lo, j_hi) and (i_lo <= j_lo and j_hi <= i_hi or j_lo <= i_lo and i_hi <= j_hi):
+            return None, None, None
         options = [k for k in (i, j) if self._locus_severity(self.groups[k]) != MASKED_OUTRIGHT]
         if not options:
             return None, None, None
@@ -1029,8 +1050,6 @@ class GFFErrorHandling(object):
             pieces.append(((dropped_lo, keeper_lo), -1))
         if dropped_hi > keeper_hi:
             pieces.append(((keeper_hi, dropped_hi), 1))
-        if not pieces and (dropped_lo, dropped_hi) != (keeper_lo, keeper_hi):
-            pieces.append(((dropped_lo, dropped_hi), None))
         return keeper, dropped, pieces
 
     def _coding_length(self, group):
@@ -1185,7 +1204,7 @@ class GFFErrorHandling(object):
         """Whether a feature runs against the strand, as the stand-in for overlapping exons does."""
         if self.is_plus_strand:
             return feature.end < feature.start
-        return feature.end > feature.start
+        return feature.end > feature.start  # GeenuFF convention: - strand start > end
 
     def resolve_errors(self):
         for i, group in enumerate(self.groups):
@@ -1266,9 +1285,9 @@ class GFFErrorHandling(object):
                      f'with type: {error_type}')
 
     def _add_overlapping_error(self, i, transcript_g, handler, direction, error_type):
-        """Constructs an error feature from the given handler's boundary out into the gap on the
-        given side of the locus, as far as _error_mark. With direction 'whole' it covers the locus
-        and the gaps on both sides, and the handler is not used."""
+        """Constructs an error feature from the given handler's boundary out into the flank on the
+        given side of the locus (see _buffered_span). With direction 'whole' it covers the locus'
+        selected transcript and the flanks on both sides, and the handler is not used."""
         assert direction in ['5p', '3p', 'whole']
         coord = self.groups[i]['super_locus'].coord
         # the error type is recorded as detected here, before any of the extent handling below
@@ -1276,10 +1295,9 @@ class GFFErrorHandling(object):
         # found rather than what survived (see clean_and_insert)
         transcript_g['detected_error_types'].add(error_type)
 
-        if direction in ['5p', 'whole']:
-            anchor_5p = self._error_mark(i, -1)
-        if direction in ['3p', 'whole']:
-            anchor_3p = self._error_mark(i, 1)
+        sign = 1 if self.is_plus_strand else -1
+        buffered_lo, buffered_hi = self._buffered_span(i)
+        anchor_5p, anchor_3p = sign * buffered_lo, sign * buffered_hi
 
         if direction == '5p':
             error_5p = anchor_5p
@@ -1291,17 +1309,11 @@ class GFFErrorHandling(object):
             error_5p = anchor_5p
             error_3p = anchor_3p
 
-        # _error_border_mark's dist <= 0 case (the anchor's own neighbour already extends
-        # into or past it, e.g. an overlapping predecessor) can place the computed anchor
-        # past the handler's own, exact boundary; without clamping, that silently produces
-        # a backwards region that _remove_backwards_errors later discards outright, losing
-        # the error entirely instead of just its precise extent. Clamp the computed anchor
-        # back to the reliable, handler-based side, not the other way around, so a
-        # degenerate case collapses to a zero-length marker right at the handler's own
-        # boundary instead of ballooning out to wherever the bad anchor landed. Such a marker
-        # masks nothing, which is the correct amount when there is no unclaimed sequence left
-        # to mask, while still recording the error (see docs/spec_vs_gff.md).
-        sign = 1 if self.is_plus_strand else -1
+        # the anchor is measured from the selected transcript, so for another isoform reaching
+        # past it the anchor can lie beyond the handler's own boundary. Without clamping that
+        # would be a backwards region, which _remove_backwards_errors discards, losing the error;
+        # clamped, it collapses to a zero length marker at the handler's boundary, which masks
+        # nothing but still records the error (see docs/spec_vs_gff.md)
         if sign * error_3p < sign * error_5p:
             if direction == '5p':
                 error_5p = error_3p
@@ -1329,45 +1341,6 @@ class GFFErrorHandling(object):
                 if error_5p == error_3p == -1:
                     out = True
         return out
-
-    def _exported_neighbour(self, i, step):
-        """The index of the nearest exported gene to one side, or None. A mask that runs part of
-        the way to the next gene is measuring toward whatever a consumer will be handed, so
-        unexported loci, the dropped partner of a resolved overlap among them, are skipped rather
-        than cutting the mask short at sequence nothing is written for."""
-        j = i + step
-        while 0 <= j < len(self.groups):
-            if self._exported_transcript(self.groups[j]) is not None:
-                return j
-            j += step
-        return None
-
-    @staticmethod
-    def _border_offset(gap):
-        """How far a mask reaches into a gap of unclaimed sequence,
-        min(gap // 2, int(sqrt(gap)) * 10). Nothing at all where there is no gap, as between a nested
-        gene and the one around it."""
-        if gap <= 0:
-            return 0
-        return min(gap // 2, int(math.sqrt(gap)) * 10)
-
-    def _error_mark(self, i, direction):
-        """The point an error mask on locus i stops at, direction -1 being its 5p side and 1 its
-        3p side. The mask reaches from the locus itself _border_offset into the gap toward the
-        next exported locus that way, or toward the end of the sequence where there is none, so
-        the sequence beyond stays usable as intergenic."""
-        sign = 1 if self.is_plus_strand else -1
-        sl = self.groups[i]['super_locus']
-        neighbour = self._exported_neighbour(i, direction)
-        lower, upper = self._sequence_bounds()
-        # sign-normalised, ascending coordinates, so one formula serves both strands
-        if direction > 0:
-            own = sign * sl.end
-            limit = upper if neighbour is None else sign * self.groups[neighbour]['super_locus'].start
-            return sign * (own + self._border_offset(limit - own))
-        own = sign * sl.start
-        limit = lower if neighbour is None else sign * self.groups[neighbour]['super_locus'].end
-        return sign * (own - self._border_offset(own - limit))
 
     def _sequence_bounds(self):
         """The sequence as a sign-normalised, half open range. On the minus strand the bases
