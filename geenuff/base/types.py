@@ -63,16 +63,15 @@ EMPTY_SUPER_LOCUS = 'empty_super_locus'
 MISSING_START_CODON = 'missing_start_codon'
 MISSING_STOP_CODON = 'missing_stop_codon'
 WRONG_PHASE_5P = 'wrong_starting_phase'
-MISMATCHED_PHASE_3P = 'mismatched_ending_phase'
 OVERLAPPING_EXONS = 'overlapping_exons'
 TOO_SHORT_INTRON = 'too_short_intron'
 SL_OVERLAP_ERROR = 'super_loci_overlap_error'
-MISMATCHING_STRANDS = 'missmatching_strands'
+MISMATCHING_STRANDS = 'mismatching_strands'
 TRUNCATED_INTRON = 'truncated_intron'
 TRUNCATED_CDS = 'truncated_cds'
 INFRAME_STOP_CODON = 'inframe_stop_codon'
 Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, EMPTY_SUPER_LOCUS, MISSING_START_CODON,
-                   MISSING_STOP_CODON, WRONG_PHASE_5P, MISMATCHED_PHASE_3P, OVERLAPPING_EXONS,
+                   MISSING_STOP_CODON, WRONG_PHASE_5P, OVERLAPPING_EXONS,
                    TOO_SHORT_INTRON, SL_OVERLAP_ERROR, MISMATCHING_STRANDS, TRUNCATED_INTRON,
                    TRUNCATED_CDS, INFRAME_STOP_CODON)
 

@@ -1,9 +1,10 @@
 # Overlapping genes
 
 Two genes cannot share a base in an export: one label is written per base per strand, so
-whichever is written second silently wins. Where one of two overlapping genes can be kept
-without mislabelling the other's coding sequence, it is kept whole and its partner is left out
-of exports. Where neither can be, both are masked over their whole length.
+whichever is written second silently wins. Of two overlapping genes the better one is kept whole
+and its partner is left out of exports, whichever of them has coding sequence where they
+overlap. Only where both are masked outright for their own errors are both masked over their
+whole length.
 
 One coherent gene beats two with a hole through them, and a gene with a hole is worth no more
 than no gene at all. A hole costs more than its base pairs: the gene either side of it has no
@@ -40,13 +41,13 @@ from the export entirely.
 
 ### Crossing, one gene kept
 
-The gene owning coding sequence in the shared stretch is the one kept, so those bases stay
-labelled as the coding sequence they are. The dropped gene's overhang is masked; the shared
-stretch keeps the kept gene's labels, which are true for it. Identical spans need no mask at all.
+The better gene is kept (see "Which gene is kept"). The dropped gene's overhang is masked; the
+shared stretch keeps the kept gene's labels, which are true for it, even where the dropped gene
+had coding sequence there. Identical spans need no mask at all.
 
 ```
-  geneA   ==================            has CDS in the shared stretch
-  geneB             ==================  its CDS starts further right
+  geneA   ==================            the better gene
+  geneB             ==================
   shared            |<---->|
 
   result  ==================xxxxxxxxxx  geneA exported whole, geneB not exported
@@ -54,41 +55,66 @@ stretch keeps the kept gene's labels, which are true for it. Identical spans nee
 ```
 
 Where the dropped gene's far end is not where the gene really ended, the mask runs on past it,
-as far as any other error mask would: the border with the next exported gene. A truncated CDS,
-an in-frame stop, a missing start codon (or start codon in A if B would be kept) or an
-unannotated UTR on that side all leave it unknown how much further the gene ran, so that sequence
-cannot be taught as intergenic either.
+as far as any other error mask would: its flank into the gap toward the next exported gene,
+measured from the dropped gene itself (see `spec_vs_gff.md`). An unannotated UTR on that side,
+or any error masking the gene whole (a missing start or stop codon, a truncated CDS or intron, an
+in-frame stop or a too short intron), leaves it unknown how much further the gene ran, so that
+sequence cannot be taught as intergenic either.
 
 ```
   geneA   ==================            geneB has no annotated 3' UTR, so
   geneB             ==================  where it stopped is unknown
   geneC                                            ==========  next exported gene
 
-  result  ==================xxxxxxxxxx             ==========
+  result  ==================xxxxxxxxxx             ==========  kept: gene A (and C)
                             ###############
                                            ^ the mask reaches part way into the gap,
                                              not only to geneB's annotated end
 ```
 
-### Nested, the outer kept
-
-A nested gene can be masked away without touching the outer gene's start or end, the hole being
-strictly interior. Not attempted when the outer gene also has CDS inside that span, which the
-mask would cut into.
+Where no exported gene lies that way at all, the end of the sequence stands in for one and the
+mask reaches part way toward it by the same rule. It does not run to the end. The offset is
+`min(gap // 2, int(sqrt(gap)) * 10)`, whose square root term grows slowly enough to be a ceiling in
+itself: a gene at the edge of a 10 Mb chromosome arm masks some 32 kb of it, not all 10 Mb. One
+unannotated UTR on the last gene of a chromosome should not cost a whole telomere, and sequence
+far enough from a gene is intergenic whatever that gene did.
 
 ```
-  geneA   ================================  outer, its intron spanning geneB
+  geneA   ==========                          | end of the sequence
+                                              |
+  result  ==========####                      |
+                        ^ part way toward the end, the same offset as toward a next gene
+                        (gene A is missing a 3' UTR -> flank mask only)
+```
+
+### Nested, one gene kept
+
+Where the outer gene is the better one, the inner gene is masked where it sat, without touching
+the outer gene's start or end, the hole being strictly interior. This holds even where the outer
+gene has CDS inside that span, which the hole then covers.
+
+```
+  geneA   ================================  outer, the better gene
   geneB             xxxxxxxxxx              inner, not exported
   shared            |<------>|
 
   result  ==========##########============  geneA exported whole, masked only where geneB sat
 ```
 
+Where the inner gene is the better one, the outer gene is dropped and what it covers beyond the
+inner gene is masked on both sides. Each side runs on past the outer gene's end where that end is
+unknown, as for a crossing pair.
+
+```
+  geneA   ================================  outer, not exported
+  geneB             ==========              inner, the better gene
+
+  result  ##########==========##########    geneB exported whole, geneA's overhangs masked
+```
+
 ### Refused, both masked whole
 
-With coding sequence from both genes in the shared stretch there is nothing to choose: whichever
-were kept, the other's CDS would read as UTR or intron. The same applies when the only gene that
-could be kept is masked outright for its own errors, since keeping it recovers nothing.
+Where both genes are masked outright for their own errors, keeping either recovers nothing.
 
 Both genes are then masked over their **whole length**, not only over what they share. Masking
 just the shared stretch would leave each of them with a hole through it, and a gene with a hole
@@ -109,7 +135,7 @@ not where it really ended, its mask runs on past its span toward the next export
 ends the two face each other with need no such treatment, the partner leaving no room.
 
 ```
-  geneA          ==================            neither has an annotated outer UTR
+  geneA          ==================            neither has an annotated outer UTR or other severe errors
   geneB                    ==================
 
   result    #######################                 geneA masked, reaching out to its left
@@ -120,12 +146,16 @@ A pair left alone as part of a chain is masked the same way, for the same reason
 
 ## Which gene is kept
 
-Two rules, in this order:
+One ranking, whatever the shape of the pair and wherever either gene has coding sequence:
 
-1. **Coding sequence wins.** If exactly one of the pair has CDS in the shared stretch, it is the
-   keeper. If that gene cannot be kept, the pair is refused rather than the other one kept.
-2. **Then the less damaged gene**, and on a tie the longer spliced CDS, which is the same measure
-   that picks the longest isoform.
+1. **The less damaged gene.** A gene masked outright is never kept; where both are, the pair is
+   refused.
+2. **On a tie, the longer spliced CDS**, the same measure that picks the longest isoform.
+3. **On a tie of both, the 5'-most gene.**
+
+Keeping a gene means its labels cover the shared stretch, so coding sequence of the dropped gene
+lying there reads as the kept gene's UTR, intron or CDS. Of two annotations that cannot both be
+written, the better one is taken whole.
 
 Damage is graded, not a yes/no:
 
@@ -135,8 +165,10 @@ Damage is graded, not a yes/no:
 | flank masked    | the flank only, coding sequence still labelled | yes, below a clean gene |
 | masked outright | the coding sequence itself                     | no, nothing to recover  |
 
-*flank masked* is a missing UTR or a missing start or stop codon; *masked outright* is a
-truncated CDS or an in-frame stop codon.
+*flank masked* is a missing UTR; *masked outright* (+ flank if applicable) is a missing start or stop codon, a truncated
+CDS, an in-frame stop codon, a truncated intron, a too short intron or overlapping exons. A wrong
+starting phase masks nothing and counts as none. The same errors decide whether a gene's end is
+known, i.e. whether its overlap mask runs on past that end (see the table in `spec_vs_gff.md`).
 
 **A missing UTR never disqualifies a gene from being kept.** Its unknown boundary is already
 covered by its own missing-UTR mask, which on the side facing the partner simply runs into the
@@ -154,12 +186,3 @@ That also means masks measured toward "the next gene" skip it. A mask running pa
 its neighbour is measuring toward whatever a consumer will be handed, so an unexported gene does
 not bound one; the border falls between the two genes actually written.
 
-## What changed
-
-- **GeenuFF v0.3.2** masked only when a missing-UTR error happened to coincide with the
-  overlap, and placed that mask *beside* the shared stretch rather than on it, covering none of
-  it. A nested gene got no mask at all, its missing-UTR errors deleted instead.
-- **Now** an isolated pair keeps one gene whole where that can be done honestly, and where it
-  cannot, both genes go entirely rather than being left with a hole each.
-
-See `spec_vs_gff.md` for the error type list and for zero length error features.

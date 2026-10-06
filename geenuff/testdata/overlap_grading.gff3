@@ -1,0 +1,30 @@
+##gff-version 3
+##sequence-region SHORT 1 2400
+##sequence-region PHASE 1 2400
+# Two crossing pairs, one per sequence, testing how a locus' own errors grade it when an overlap
+# is settled (docs/overlap_masking.md, 'Which gene is kept'). The sequences are all C except an
+# ATG at the start and a TAA at the end of every CDS, so no gene has an error it was not given.
+#
+# SHORT: geneShortIntron has the longer CDS (990 bp against 600 bp), but its 10 bp intron
+#        (601-610) cannot be spliced, which masks it outright. geneClean is kept and what
+#        geneShortIntron covers beyond it (201-1200) is masked
+SHORT	test	gene	201	1400	.	+	.	ID=geneShortIntron
+SHORT	test	mRNA	201	1400	.	+	.	ID=rnaShortIntron;Parent=geneShortIntron
+SHORT	test	exon	201	600	.	+	.	ID=exon-rnaShortIntron-1;Parent=rnaShortIntron
+SHORT	test	CDS	301	600	.	+	0	ID=cds-rnaShortIntron-1;Parent=rnaShortIntron
+SHORT	test	exon	611	1400	.	+	.	ID=exon-rnaShortIntron-2;Parent=rnaShortIntron
+SHORT	test	CDS	611	1300	.	+	0	ID=cds-rnaShortIntron-2;Parent=rnaShortIntron
+SHORT	test	gene	1201	2200	.	+	.	ID=geneClean
+SHORT	test	mRNA	1201	2200	.	+	.	ID=rnaClean;Parent=geneClean
+SHORT	test	exon	1201	2200	.	+	.	ID=exon-rnaClean;Parent=rnaClean
+SHORT	test	CDS	1501	2100	.	+	0	ID=cds-rnaClean;Parent=rnaClean
+# PHASE: genePhaseLong's only error is the file's starting phase of 1, which changes no label,
+#        so both are undamaged and the longer spliced CDS (900 bp against 600 bp) is kept
+PHASE	test	gene	201	1400	.	+	.	ID=genePhaseLong
+PHASE	test	mRNA	201	1400	.	+	.	ID=rnaPhaseLong;Parent=genePhaseLong
+PHASE	test	exon	201	1400	.	+	.	ID=exon-rnaPhaseLong;Parent=rnaPhaseLong
+PHASE	test	CDS	301	1200	.	+	1	ID=cds-rnaPhaseLong;Parent=rnaPhaseLong
+PHASE	test	gene	1301	2200	.	+	.	ID=geneCleanShort
+PHASE	test	mRNA	1301	2200	.	+	.	ID=rnaCleanShort;Parent=geneCleanShort
+PHASE	test	exon	1301	2200	.	+	.	ID=exon-rnaCleanShort;Parent=rnaCleanShort
+PHASE	test	CDS	1501	2100	.	+	0	ID=cds-rnaCleanShort;Parent=rnaCleanShort

@@ -81,7 +81,8 @@
 2	manual	exon	700	750	.	+	.	ID=e4;Parent=y6
 2	manual	CDS	700	725	.	+	2	ID=c4;Parent=y6
 #
-# test case 7: missing 5p utr and phase of the last cds does not match sequence length 
+# test case 7: missing 5p utr; the phase of the last cds does not match its length, which is
+# not an error, the file's phases being unused
 # gene is on the minus strand
 2	manual	gene	950	1350	.	-	.	ID=gene_wrong_phase_last_exon
 2	manual	mRNA	950	1350	.	-	.	ID=x7;Parent=gene_wrong_phase_last_exon

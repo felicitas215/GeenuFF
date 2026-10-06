@@ -3,6 +3,7 @@ import math
 import logging
 import shutil
 from collections import defaultdict
+from dataclasses import dataclass
 
 import intervaltree
 from abc import ABC, abstractmethod
@@ -29,6 +30,21 @@ class GFFValidityError(Exception):
 NOT_MASKED = 0       # nothing wrong with it
 FLANK_MASKED = 1     # an edge is unknown, e.g. a missing UTR, but the coding sequence is correct
 MASKED_OUTRIGHT = 2  # the coding sequence itself is masked, so keeping the locus recovers nothing
+
+
+@dataclass(frozen=True)
+class Finding:
+    """One error of a coding transcript (see GFFErrorHandling._find_errors).
+
+    extent is what the error masks: '5p' or '3p' the flank on that side of the locus, from
+    handlers[0] outward; 'whole' the locus and both flanks; or an explicit (start, end) range,
+    which is empty for an error that is only recorded. side is the end of every handler that is
+    not where the feature really ends, or None."""
+    error_type: str
+    extent: str | tuple[int, int]
+    side: str | None = None
+    handlers: tuple['FeatureImporter', ...] = ()
+
 
 
 # what each orm.SuperLocus.excluded_from_export value means, for the import summary
@@ -236,6 +252,7 @@ class OrganizedGeenuffImporterGroup(object):
                 'introns': [intron_importer1, intron_importer2, ...],
                 'errors': [],  # errors are filled in later
                 'detected_error_types': set(),  # every error type found, see _add_error
+                'findings': [...],  # coding transcripts only, see GFFErrorHandling._find_errors
             },
             ...
         ],
@@ -363,12 +380,7 @@ class OrganizedGeenuffImporterGroup(object):
                                       super_locus_id=sl_i.id,
                                       controller=self.controller)
                 # create coding features from exon limits
-                if t_is_plus_strand:
-                    phase_5p = t_entries['cds'][0].phase
-                    phase_3p = t_entries['cds'][-1].phase
-                else:
-                    phase_5p = t_entries['cds'][-1].phase
-                    phase_3p = t_entries['cds'][0].phase
+                phase_5p = t_entries['cds'][0 if t_is_plus_strand else -1].phase
                 # spliced once here, from the raw per-piece CDS list we already have on hand,
                 # to check for a truncated (non-codon-multiple) length, a premature stop codon,
                 # or a missing start/stop codon, none of which the file's own annotation is
@@ -382,7 +394,6 @@ class OrganizedGeenuffImporterGroup(object):
                                         t_is_plus_strand,
                                         types.GEENUFF_CDS,
                                         phase_5p=phase_5p,
-                                        phase_3p=phase_3p,
                                         # the file's starting phase isn't trusted; the first
                                         # CDS piece always starts a fresh codon, i.e. phase 0
                                         # -> same value in both phase conventions, Helixer later
@@ -848,6 +859,11 @@ class GFFErrorHandling(object):
             self.coord = self.groups[0]['super_locus'].coord
             # make sure self.groups is sorted correctly
             self.groups.sort(key=lambda g: g['super_locus'].start, reverse=not self.is_plus_strand)
+            # found before overlaps are settled, which grade each locus by its errors
+            for group in self.groups:
+                for transcript in group['transcripts']:
+                    if 'cds' in transcript:
+                        transcript['findings'] = self._find_errors(transcript)
             self._compute_overlap_masks()
 
     def _compute_overlap_masks(self):
@@ -859,11 +875,11 @@ class GFFErrorHandling(object):
         as given, it masks nothing, and no consumer that reads error features sees it.
 
         The second record decides what an export is handed. Two loci cannot share a base: one
-        label per base is written, so whichever is written last silently wins. Where one of the
-        two can be kept without mislabelling the other's coding sequence, it is kept whole and
-        its partner is dropped from the export, leaving one coherent gene rather than two with a
-        hole through them (see _decide_overlap_pair). Where neither can be kept, both genes are
-        masked over their whole length.
+        label per base is written, so whichever is written last silently wins. Of an isolated
+        pair the better locus is kept whole and its partner is dropped from the export, leaving
+        one coherent gene rather than two with a hole through them (see _decide_overlap_pair).
+        Where both are masked outright, both genes are masked over their whole length (+
+        flank/buffer if they have an error tha calls for that).
         """
         # multiplying by sign turns both strands into ascending coordinates running 5p to 3p, so
         # everything below can compare and sort without asking which strand it is on
@@ -900,12 +916,12 @@ class GFFErrorHandling(object):
         # worked out until every pair has been decided (see the second loop)
         resolved, masked_whole = [], set()
         for i, j in pairs:
-            keeper = dropped = mask = None
+            keeper = dropped = pieces = None
             # only an isolated pair is decided; in a chain a dropped locus can sit between two
             # kept ones, and the one masked region recorded per locus cannot express that
             isolated = len(partners[i]) == 1 and len(partners[j]) == 1
             if isolated:
-                keeper, dropped, mask = self._decide_overlap_pair(i, j, extents, sign)
+                keeper, dropped, pieces = self._decide_overlap_pair(i, j, extents)
             if keeper is None:
                 # nothing could be saved here, so both genes are masked end to end; a locus in
                 # two undecided pairs lands in the set twice over and is masked once
@@ -918,7 +934,7 @@ class GFFErrorHandling(object):
             # marking it here, inside the loop, is what makes the dropped locus invisible to
             # _exported_transcript, and so to the neighbour search the second loop relies on
             self.groups[dropped]['super_locus'].excluded_from_export = types.OVERLAP_DROPPED
-            resolved.append((keeper, dropped, mask))
+            resolved.append((keeper, dropped, pieces))
             stats.overlap_pairs_resolved += 1
             stats.overlap_loci_dropped += 1
 
@@ -926,19 +942,14 @@ class GFFErrorHandling(object):
         # a gene that really is exported
         for i in masked_whole:
             masks[i].append(self._extend_unknown_ends(i, extents[i], extents))
-        for keeper, dropped, mask in resolved:
-            nested = (extents[keeper][0] <= extents[dropped][0]
-                      and extents[dropped][1] <= extents[keeper][1])
-            if not nested:
-                # a nested gene's hole is interior, both its sides being the kept gene's own
-                # intron or UTR, so there is nothing out there to extend into. Crossing, the
-                # dropped gene sticks out on whichever side it starts or ends past the kept one,
-                # and that is the only side its own end can be unknown on
-                outward = 1 if extents[dropped][0] > extents[keeper][0] else -1
-                mask = self._extend_unknown_ends(dropped, mask, extents, sides=(outward,))
-            # the mask goes on the locus that is kept, the dropped one's own features never
-            # reaching an export to carry it (see orm.SuperLocus.excluded_from_export)
-            if mask[0] < mask[1]:  # two loci with identical spans leave nothing to mask
+        for keeper, dropped, pieces in resolved:
+            for mask, side in pieces:
+                # a piece sticking out past the kept locus can run on further where the dropped
+                # locus' own end on that side is unknown; a hole inside the kept locus cannot
+                if side is not None:
+                    mask = self._extend_unknown_ends(dropped, mask, extents, sides=(side,))
+                # the mask goes on the locus that is kept, the dropped one's own features never
+                # reaching an export to carry it (see orm.SuperLocus.excluded_from_export)
                 masks[keeper].append(mask)
         # back out of sign-normalised coordinates into the strand-oriented ones the features use,
         # merging first so a locus masked from several pairs ends up with the fewest ranges
@@ -950,7 +961,7 @@ class GFFErrorHandling(object):
         end is not where the gene really ended: a truncated CDS, a missing start/stop codon or an
         unannotated UTR all leave it unknown how much further the gene ran, so the sequence out
         there cannot be taught as intergenic either. Reaches as far as any other error mask
-        would, the border with the next exported gene."""
+        would, _border_offset into the gap toward the next exported gene, measured from this one."""
         lo, hi = mask
         for direction in sides:
             if self._end_is_known(self.groups[i], direction):
@@ -963,91 +974,64 @@ class GFFErrorHandling(object):
         return lo, hi
 
     def _outward_limit(self, i, direction, extents):
-        """How far out a mask on this gene may reach: the next exported gene that way, or the end
-        of the sequence. A gene overlapping it gives no room at all, the gap being negative.
+        """How far out a mask on this gene may reach: the next exported gene reaching past it that
+        way, or the end of the sequence. A gene overlapping it from that side gives no room at
+        all, the gap being negative. One lying wholly inside it, such as the kept inner partner
+        of a dropped outer gene, is passed over.
 
         Neighbours are taken in sort order, which for a gene nested inside another is not the
         nearest one by coordinate, so a mask can reach into a gene further along. That only
-        happens between genes that overlap, and those are masked whole anyway, so the masked
-        sequence comes out the same."""
+        happens between genes that overlap in a chain, and those are masked whole anyway, so the
+        masked sequence comes out the same."""
+        lo, hi = extents[i]
         neighbour = self._exported_neighbour(i, direction)
+        while neighbour is not None and (extents[neighbour][1] <= hi if direction > 0
+                                         else extents[neighbour][0] >= lo):
+            neighbour = self._exported_neighbour(neighbour, direction)
         if neighbour is not None:
             return extents[neighbour][0] if direction > 0 else extents[neighbour][1]
-        lower, upper = (0, self.coord.length) if self.is_plus_strand else (-self.coord.length, 0)
+        lower, upper = self._sequence_bounds()
         return upper if direction > 0 else lower
 
     def _end_is_known(self, group, direction):
-        """Whether a gene's annotated end on one side is where the gene really ends. Sign-normalised
-        coordinates run 5p to 3p, so direction 1 asks about its 3p end and -1 about its 5p one."""
-        transcript = self._selected_transcript(group)
-        cds, tf = transcript['cds'], transcript['transcript_feature']
-        if cds.is_truncated or cds.has_inframe_stop:
-            return False  # the reading frame is wrong, so neither end can be trusted
-        if direction > 0:
-            return cds.end != tf.end and cds.has_stop_codon
-        return cds.start != tf.start and cds.has_start_codon
+        """Whether a gene's annotated end on one side is where the gene really ends, i.e. none of
+        its errors masks the flank there. Sign-normalised coordinates run 5p to 3p, so direction 1
+        asks about its 3p end and -1 about its 5p one."""
+        side = '3p' if direction > 0 else '5p'
+        findings = self._selected_transcript(group)['findings']
+        return not any(f.extent in (side, 'whole') for f in findings)
 
-    def _decide_overlap_pair(self, i, j, extents, sign):
-        """Works out whether one locus of an overlapping pair can be kept, and what has to be
-        masked in place of the other. Returns (keeper, dropped, mask range) or three Nones.
+    def _decide_overlap_pair(self, i, j, extents):
+        """Works out which locus of an overlapping pair is kept, and what is masked in place of
+        the other. Returns (keeper, dropped, pieces) or three Nones where neither can be kept.
 
-        Keeping one means its labels cover the range the two share, so the pair is only decided
-        where that stays true of the sequence underneath: the shared range must not hold the
-        dropped locus' coding sequence, which would then read as UTR or intron. With coding
-        sequence from both there is nothing to choose and the pair is left alone.
+        The keeper is the less damaged locus, on a tie the one with the longer spliced CDS and on
+        a tie of both the 5'-most one, whichever of the two has coding sequence in the range they
+        share. A locus masked outright for its own errors is never kept, keeping it recovering
+        nothing.
 
-        How much is masked depends on the shape. A nested locus is masked over its whole span,
-        which is interior to the other and so leaves both of that one's ends visible. A crossing
-        partner is masked only over the part sticking out past the locus that is kept; identical
-        spans need no mask at all, the kept locus covering the same bases. Either way the mask
-        may run further out still, see _extend_past_unknown_end.
+        The pieces are (range, side) pairs. What the dropped locus covers beyond the kept one is
+        masked, side being the direction the piece points away from the keeper, past which it may
+        run on (see _extend_unknown_ends). A dropped locus lying wholly inside the kept one is
+        masked over its own span instead, a hole leaving both of the keeper's ends visible, with
+        side None. Identical spans need no mask, the kept locus covering the same bases.
         """
-        spans = {k: extents[k] for k in (i, j)}
-        overlap = (max(spans[i][0], spans[j][0]), min(spans[i][1], spans[j][1]))
-        codes = {k: self._codes_within(self.groups[k], overlap, sign) for k in (i, j)}
-        if codes[i] and codes[j]:
-            return None, None, None
-
-        outer, inner = None, None
-        if spans[i][0] <= spans[j][0] and spans[j][1] <= spans[i][1]:
-            outer, inner = i, j
-        elif spans[j][0] <= spans[i][0] and spans[i][1] <= spans[j][1]:
-            outer, inner = j, i
-        if outer is not None:
-            # only the outer locus can be kept here: keeping the inner instead would mean masking
-            # the whole outer one to save the small gene inside it
-            if self._locus_severity(self.groups[outer]) == MASKED_OUTRIGHT:
-                return None, None, None
-            return outer, inner, spans[inner]
-
-        # crossing: whoever owns coding sequence in the shared range has to be the one kept
-        forced = i if codes[i] else (j if codes[j] else None)
-        options = [k for k in (i, j) if (forced is None or k == forced)
-                   and self._locus_severity(self.groups[k]) != MASKED_OUTRIGHT]
+        options = [k for k in (i, j) if self._locus_severity(self.groups[k]) != MASKED_OUTRIGHT]
         if not options:
             return None, None, None
+        # groups are ordered 5p to 3p, so the lower index is the 5'-most locus
         keeper = min(options, key=lambda k: (self._locus_severity(self.groups[k]),
                                              -self._coding_length(self.groups[k]), k))
         dropped = j if keeper == i else i
-        # only the part sticking out past the kept locus is masked, the shared range keeping the
-        # kept locus' labels, which are true for it
-        mask = ((spans[dropped][0], spans[keeper][0]) if spans[dropped][0] < spans[keeper][0]
-                else (spans[keeper][1], spans[dropped][1]))
-        return keeper, dropped, mask
-
-    def _codes_within(self, group, span, sign):
-        """Whether any exonic coding base of this locus' selected transcript falls in the range.
-        The cds feature spans the introns inside it, so those are taken back out."""
-        transcript = self._selected_transcript(group)
-        cds = transcript['cds']
-        lo = max(sign * cds.start, span[0])
-        hi = min(sign * cds.end, span[1])
-        if lo >= hi:
-            return False
-        coding = hi - lo
-        for intron in transcript['introns']:
-            coding -= max(0, min(hi, sign * intron.end) - max(lo, sign * intron.start))
-        return coding > 0
+        (keeper_lo, keeper_hi), (dropped_lo, dropped_hi) = extents[keeper], extents[dropped]
+        pieces = []
+        if dropped_lo < keeper_lo:
+            pieces.append(((dropped_lo, keeper_lo), -1))
+        if dropped_hi > keeper_hi:
+            pieces.append(((keeper_hi, dropped_hi), 1))
+        if not pieces and (dropped_lo, dropped_hi) != (keeper_lo, keeper_hi):
+            pieces.append(((dropped_lo, dropped_hi), None))
+        return keeper, dropped, pieces
 
     def _coding_length(self, group):
         """Spliced coding length of the selected transcript, the same measure that picks the
@@ -1064,15 +1048,12 @@ class GFFErrorHandling(object):
     @staticmethod
     def _locus_severity(group):
         """How much of a locus its own errors already take away, lower being better. Keeping a
-        locus whose coding sequence is masked anyway recovers nothing, while one that only lacks
-        a UTR or a codon at its edge still has its coding sequence labelled: the mask for those
-        covers the flank, not the body (see _add_overlapping_error)."""
-        transcript = GFFErrorHandling._selected_transcript(group)
-        cds, tf = transcript['cds'], transcript['transcript_feature']
-        if cds.is_truncated or cds.has_inframe_stop:
+        locus whose coding sequence is masked anyway recovers nothing, while one whose errors
+        only mask a flank still has its coding sequence labelled (see _find_errors)."""
+        extents = [f.extent for f in GFFErrorHandling._selected_transcript(group)['findings']]
+        if any(e == 'whole' or isinstance(e, tuple) and e[0] != e[1] for e in extents):
             return MASKED_OUTRIGHT
-        if (cds.start == tf.start or cds.end == tf.end
-                or not cds.has_start_codon or not cds.has_stop_codon):
+        if any(e in ('5p', '3p') for e in extents):
             return FLANK_MASKED
         return NOT_MASKED
 
@@ -1158,21 +1139,53 @@ class GFFErrorHandling(object):
                 merged.append([lo, hi])
         return [tuple(r) for r in merged]
 
-    def _3p_cds_start(self, transcript):
-        """returns the start of the 3p most cds feature"""
-        cds = transcript['cds']
-        start = cds.start
-        # introns are ordered by coordinate with no respect to strand
-        intron_ends = [x.end for x in transcript["introns"]]
+    def _find_errors(self, transcript):
+        """Every error of a coding transcript, as a list of Finding."""
+        cds, tf, introns = transcript['cds'], transcript['transcript_feature'], transcript['introns']
+        found = []
+        # a missing UTR leaves only where the transcript ends unknown, the CDS being sound
+        if cds.start == tf.start:
+            found.append(Finding(types.MISSING_UTR_5P, '5p', '5p', (cds, tf)))
+        if cds.end == tf.end:
+            found.append(Finding(types.MISSING_UTR_3P, '3p', '3p', (cds, tf)))
+
+        # every error below means the CDS boundaries cannot be trusted, so the locus is masked
+        # whole together with the flank on both sides. Codons and the reading frame are checked
+        # once in _parse_gff_entries, on the spliced CDS sequence (see there for why)
+        if not cds.has_start_codon:
+            found.append(Finding(types.MISSING_START_CODON, 'whole', '5p', (cds,)))
+        if not cds.has_stop_codon:
+            found.append(Finding(types.MISSING_STOP_CODON, 'whole', '3p', (cds,)))
+        if cds.is_truncated:  # not a multiple of 3
+            found.append(Finding(types.TRUNCATED_CDS, 'whole'))
+        if cds.has_inframe_stop:
+            found.append(Finding(types.INFRAME_STOP_CODON, 'whole'))
+        proper = [x for x in introns if not self._is_backwards(x)]
+        min_length = self.controller.config['min_intron_length']
+        if any(abs(x.end - x.start) < min_length for x in proper):  # cannot be spliced
+            found.append(Finding(types.TOO_SHORT_INTRON, 'whole'))
+        # the transcript ending inside an intron, its outermost exon missing
+        for intron in proper:
+            if intron.start == tf.start:
+                found.append(Finding(types.TRUNCATED_INTRON, 'whole', '5p', (intron,)))
+            if intron.end == tf.end:
+                found.append(Finding(types.TRUNCATED_INTRON, 'whole', '3p', (intron,)))
+
+        # overlapping exons, a backwards intron standing in for them, are an impossible structure,
+        # so no label inside the transcript can be trusted
+        if len(proper) < len(introns):
+            found.append(Finding(types.OVERLAPPING_EXONS, (tf.start, tf.end)))
+        # a starting phase in the file other than 0 is only recorded, the importer setting the
+        # phase itself whatever the file says
+        if cds.phase_5p != 0:
+            found.append(Finding(types.WRONG_PHASE_5P, (cds.start, cds.start)))
+        return found
+
+    def _is_backwards(self, feature):
+        """Whether a feature runs against the strand, as the stand-in for overlapping exons does."""
         if self.is_plus_strand:
-            i_ends_within = [i for i in intron_ends if cds.start < i < cds.end]
-            if i_ends_within:
-                start = max(i_ends_within)
-        else:
-            i_ends_within = [i for i in intron_ends if cds.end < i < cds.start]
-            if i_ends_within:
-                start = min(i_ends_within)
-        return start
+            return feature.end < feature.start
+        return feature.end > feature.start
 
     def resolve_errors(self):
         for i, group in enumerate(self.groups):
@@ -1189,103 +1202,44 @@ class GFFErrorHandling(object):
                              'never be exported or masked'.format(group['super_locus'].given_name))
             # other cases
             for transcript in group['transcripts']:
-                # if coding transcript
-                if 'cds' in transcript:
-                    cds = transcript['cds']
-                    introns = transcript['introns']
-                    tf = transcript['transcript_feature']
+                if 'cds' not in transcript:
+                    continue
+                for finding in transcript['findings']:
+                    for handler in finding.handlers:
+                        if finding.side == '5p':
+                            handler.start_is_biological_start = False
+                        else:
+                            handler.end_is_biological_end = False
+                    if isinstance(finding.extent, tuple):
+                        self._add_error(i, transcript, *finding.extent, self.is_plus_strand,
+                                        finding.error_type)
+                    else:
+                        anchor = finding.handlers[0] if finding.handlers else None
+                        self._add_overlapping_error(i, transcript, anchor, finding.extent,
+                                                    finding.error_type)
 
-                    # the case of missing of implicit UTR ranges
-                    # the solution is similar to the one above
-                    if cds.start == tf.start:
-                        self._add_overlapping_error(i, transcript, cds, '5p', types.MISSING_UTR_5P,
-                                                    mark_other_handlers=[tf])
-                    if cds.end == tf.end:
-                        self._add_overlapping_error(i, transcript, cds, '3p', types.MISSING_UTR_3P,
-                                                    mark_other_handlers=[tf])
+                # the case of this super locus sharing genomic range with another one. Only
+                # the exported transcript carries the mask, the range having been worked out
+                # from that transcript's own span, so this error type occurs once per gene
+                # (see _compute_overlap_masks)
+                if transcript['transcript'].longest:
+                    for error_start, error_end in self._overlap_masks[i]:
+                        self._add_error(i, transcript, error_start, error_end,
+                                        self.is_plus_strand, types.SL_OVERLAP_ERROR)
 
-                    # the case of missing start/stop codon; already computed once in
-                    # _parse_gff_entries, from the spliced CDS sequence (see there for why)
-                    if not cds.has_start_codon:
-                        self._add_overlapping_error(i, transcript, cds, '5p', types.MISSING_START_CODON)
-                    if not cds.has_stop_codon:
-                        self._add_overlapping_error(i, transcript, cds, '3p', types.MISSING_STOP_CODON)
-
-                    # the case of a truncated (not a multiple of 3) or a premature-stop-codon
-                    # containing CDS; both were already computed once in _parse_gff_entries
-                    if cds.is_truncated:
-                        self._add_error(i, transcript, cds.start, cds.end, self.is_plus_strand,
-                                        types.TRUNCATED_CDS)
-                    if cds.has_inframe_stop:
-                        self._add_error(i, transcript, cds.start, cds.end, self.is_plus_strand,
-                                        types.INFRAME_STOP_CODON)
-
-                    # the case of wrong 5p phase
-                    if cds.phase_5p != 0:
-                        self._add_overlapping_error(i, transcript, cds, '5p', types.WRONG_PHASE_5P)
-
-                    # the case of this super locus sharing genomic range with another one. Only
-                    # the exported transcript carries the mask, the range having been worked out
-                    # from that transcript's own span, so this error type occurs once per gene
-                    # (see _compute_overlap_masks)
-                    if transcript['transcript'].longest:
-                        for error_start, error_end in self._overlap_masks[i]:
-                            self._add_error(i, transcript, error_start, error_end,
-                                            self.is_plus_strand, types.SL_OVERLAP_ERROR)
-
-                    if introns:
-                        # the case of wrong 3p phase
-                        len_3p_exon = abs(cds.end - self._3p_cds_start(transcript))
-                        if cds.phase_3p != len_3p_exon % 3:
-                            self._add_overlapping_error(i, transcript, cds, '3p',
-                                                        types.MISMATCHED_PHASE_3P)
-
-                    faulty_introns = []
-                    for j, intron in enumerate(introns):
-                        # the case of overlapping exons
-                        if ((tf.is_plus_strand and intron.end < intron.start)
-                                or (not self.is_plus_strand and intron.end > intron.start)):
-                            # mark the overlapping cds regions as errors
-                            if j > 0:
-                                error_start = introns[j - 1].end
-                            else:
-                                error_start = tf.start
-                            if j < len(introns) - 1:
-                                error_end = introns[j + 1].start
-                            else:
-                                error_end = tf.end
-                            self._add_error(i, transcript, error_start, error_end,
-                                            self.is_plus_strand, types.OVERLAPPING_EXONS)
-                            faulty_introns.append(intron)
-                        # the case of a too short intron
-                        # todo put the minimum length in a config somewhere
-                        elif abs(intron.end - intron.start) < self.controller.config['min_intron_length']:
-                            self._add_error(i, transcript, intron.start, intron.end,
-                                            self.is_plus_strand, types.TOO_SHORT_INTRON)
-                    # do not save faulty introns, the error should be descriptive enough
-                    for intron in faulty_introns:
-                        introns.remove(intron)
-
-                    # finally, introns can be partial (although this normally happens at a sequence end)
-                    for intron in transcript['introns']:
-                        if intron.start == tf.start:
-                            self._add_overlapping_error(i, transcript, intron, '5p', types.TRUNCATED_INTRON)
-                        if intron.end == tf.end:
-                            self._add_overlapping_error(i, transcript, intron, '3p', types.TRUNCATED_INTRON)
+                # the backwards introns standing in for overlapping exons are not saved, the
+                # OVERLAPPING_EXONS error being descriptive enough
+                transcript['introns'][:] = [x for x in transcript['introns'] if not self._is_backwards(x)]
         # remove all errors that are in the wrong order (caused by overlapping super loci)
         # these can only be removed now as they were needed for further processing
         self._remove_backwards_errors()
 
     def _remove_backwards_errors(self):
-        def is_backwards(e):
-            return ((self.is_plus_strand and e.end < e.start)
-                    or (not self.is_plus_strand and e.end > e.start))
-
         for group in self.groups:
             n_removed = 0
             for transcript in group['transcripts']:
                 full_len = len(transcript['errors'])
-                transcript['errors'] = [e for e in transcript['errors'] if not is_backwards(e)]
+                transcript['errors'] = [e for e in transcript['errors'] if not self._is_backwards(e)]
                 n_removed += full_len - len(transcript['errors'])
             if n_removed > 0:
                 self.controller.stats.backwards_errors_removed += n_removed
@@ -1311,17 +1265,10 @@ class GFFErrorHandling(object):
                      f'{self.groups[i]["super_locus"].given_name}, on {strand_str} strand, '
                      f'with type: {error_type}')
 
-    def _add_overlapping_error(self, i, transcript_g, handler, direction, error_type,
-                               mark_other_handlers=None):
-        """Constructs an error features that overlaps halfway to the next super locus
-        in the given direction from the given handler if possible. Otherwise, mark until the end.
-        If the direction is 'whole', the handler parameter is ignored.
-
-        Also sets handler.start_is_biological_start=False (or the end) if necessary
-        """
-        if mark_other_handlers is None:
-            mark_other_handlers = []
-
+    def _add_overlapping_error(self, i, transcript_g, handler, direction, error_type):
+        """Constructs an error feature from the given handler's boundary out into the gap on the
+        given side of the locus, as far as _error_mark. With direction 'whole' it covers the locus
+        and the gaps on both sides, and the handler is not used."""
         assert direction in ['5p', '3p', 'whole']
         coord = self.groups[i]['super_locus'].coord
         # the error type is recorded as detected here, before any of the extent handling below
@@ -1329,44 +1276,17 @@ class GFFErrorHandling(object):
         # found rather than what survived (see clean_and_insert)
         transcript_g['detected_error_types'].add(error_type)
 
-        # set correct upstream error starting point
         if direction in ['5p', 'whole']:
-            previous = self._exported_neighbour(i, -1)
-            if previous is not None:
-                anchor_5p = self._error_border_mark(self.groups[previous]['super_locus'],
-                                                    self.groups[i]['super_locus'])
-            else:
-                if self.is_plus_strand:
-                    anchor_5p = 0
-                else:
-                    anchor_5p = coord.length
-
-        # set correct downstream error end point
+            anchor_5p = self._error_mark(i, -1)
         if direction in ['3p', 'whole']:
-            following = self._exported_neighbour(i, 1)
-            if following is not None:
-                anchor_3p = self._error_border_mark(self.groups[i]['super_locus'],
-                                                    self.groups[following]['super_locus'])
-            else:
-                if self.is_plus_strand:
-                    anchor_3p = coord.length
-                else:
-                    anchor_3p = -1
+            anchor_3p = self._error_mark(i, 1)
 
         if direction == '5p':
             error_5p = anchor_5p
             error_3p = handler.start
-            for h in [handler] + mark_other_handlers:
-                if isinstance(h, FeatureImporter):
-                    h.start_is_biological_start = False
-
         elif direction == '3p':
             error_5p = handler.end
             error_3p = anchor_3p
-            for h in [handler] + mark_other_handlers:
-                if isinstance(h, FeatureImporter):
-                    h.end_is_biological_end = False
-
         elif direction == 'whole':
             error_5p = anchor_5p
             error_3p = anchor_3p
@@ -1425,18 +1345,36 @@ class GFFErrorHandling(object):
     @staticmethod
     def _border_offset(gap):
         """How far a mask reaches into a gap of unclaimed sequence,
-        min(gap / 2, sqrt(gap) * 10). Nothing at all where there is no gap, as between a nested
+        min(gap // 2, int(sqrt(gap)) * 10). Nothing at all where there is no gap, as between a nested
         gene and the one around it."""
         if gap <= 0:
             return 0
         return min(gap // 2, int(math.sqrt(gap)) * 10)
 
-    def _error_border_mark(self, sl, sl_next):
-        """The point between two super loci that an error mask reaching toward the next gene
-        stops at."""
+    def _error_mark(self, i, direction):
+        """The point an error mask on locus i stops at, direction -1 being its 5p side and 1 its
+        3p side. The mask reaches from the locus itself _border_offset into the gap toward the
+        next exported locus that way, or toward the end of the sequence where there is none, so
+        the sequence beyond stays usable as intergenic."""
+        sign = 1 if self.is_plus_strand else -1
+        sl = self.groups[i]['super_locus']
+        neighbour = self._exported_neighbour(i, direction)
+        lower, upper = self._sequence_bounds()
+        # sign-normalised, ascending coordinates, so one formula serves both strands
+        if direction > 0:
+            own = sign * sl.end
+            limit = upper if neighbour is None else sign * self.groups[neighbour]['super_locus'].start
+            return sign * (own + self._border_offset(limit - own))
+        own = sign * sl.start
+        limit = lower if neighbour is None else sign * self.groups[neighbour]['super_locus'].end
+        return sign * (own - self._border_offset(own - limit))
+
+    def _sequence_bounds(self):
+        """The sequence as a sign-normalised, half open range. On the minus strand the bases
+        length - 1 down to 0 become -(length - 1) up to 0, so the exclusive end is 1."""
         if self.is_plus_strand:
-            return sl.end + self._border_offset(sl_next.start - sl.end)
-        return sl.end - self._border_offset(sl.end - sl_next.start)
+            return 0, self.coord.length
+        return -(self.coord.length - 1), 1
 
 
 ##### main flow control #####
@@ -1719,7 +1657,6 @@ class FeatureImporter(Insertable):
                  end=-1,
                  given_name=None,
                  phase_5p=0,
-                 phase_3p=0,
                  phase=None,
                  is_truncated=False,
                  has_inframe_stop=False,
@@ -1736,7 +1673,6 @@ class FeatureImporter(Insertable):
         self.start = start
         self.end = end
         self.phase_5p = phase_5p  # the file's own value, only used for the WRONG_PHASE_5P check
-        self.phase_3p = phase_3p  # only used for error checking
         # the phase actually saved to the db; defaults to phase_5p for every non-CDS feature
         # type (where phase is irrelevant and stays 0), but a CDS passes its own recomputed
         # value here instead of trusting the file's phase_5p (see _parse_gff_entries)
