@@ -165,6 +165,23 @@ an annotation of another assembly version, or from a gene crossing the origin of
 molecule written with an end past its length. Its sequence cannot be read to check it or label
 it, and a line starting before the sequence could not even be stored.
 
+##### grouping lines into genes
+
+Lines are grouped into genes by their `ID` and `Parent` attributes, whatever their order in the
+file. Every line left out is counted in the import summary, per reason and GFF type, and every
+line below a line left out goes with it.
+
+- Gene and transcript lines need an `ID`, being the lines others name as their parent; one without
+  an `ID`, or sharing it with another gene or transcript line, is left out. Exon and CDS lines need
+  only a `Parent`, and CDS lines sharing one `ID` are normal.
+- A transcript names exactly one gene. One naming no parent, several genes or another transcript
+  is left out. Transcripts naming a `Parent` that matches no line share a gene inferred for them,
+  spanning them all.
+- An exon or CDS line is put under every transcript it names. One naming a gene instead is left
+  out, whether or not it duplicates a line of one of that gene's transcripts: it could equally
+  belong to an isoform the file gives no transcript line of its own.
+- A line on another sequence than its parent is left out.
+
 ##### reverse complement
 
 Importantly, the coding-start should always point to the first

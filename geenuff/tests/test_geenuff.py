@@ -1026,26 +1026,21 @@ def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path,
     assert '2 genes left out, their features are not all on one definite strand' in caplog.text
 
 
-def test_exon_lines_above_their_transcript_are_examined_before_being_dropped():
-    """An exon or CDS line standing above its gene's first transcript line used to be dropped for
-    its position alone, before anything was collected that could tell what it was. Such lines now
-    wait until the gene has been read, which lets the echoes among them be recognised as the
-    duplicates they are often rather than counted as lost annotation.
-
-    What is left is still not attached to any transcript, not even where the gene has only one:
-    a line above the transcripts characteristically belongs to a further isoform the file gives
-    no transcript line of its own, so attaching it would merge two proteins into one.
-    See OrganizedGFFEntryGroup._place_deferred_feature; the four cases are in the gff3."""
+def test_exon_lines_naming_a_gene_are_left_out_wherever_they_stand():
+    """Exon lines naming their gene as the parent instead of a transcript, written above the
+    gene's transcript lines as NCBI does. Lines are grouped by Parent, not by position, so where
+    they stand does not matter. Each is left out, the one duplicating a line of the gene's
+    transcript counted as such, and none is attached to a transcript, not even to a sole one: it
+    could equally belong to an isoform the file gives no transcript line of its own, so attaching
+    it could merge two proteins into one. See OrganizedGFFEntries._place_pieces; the four cases
+    are in the gff3."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/overlapping_loci_chain.fa',
                           'testdata/features_above_transcript.gff3', clean_gff=True)
-    stats = controller.stats
 
-    assert stats.gene_parented_duplicates_dropped == 1  # geneEchoAbove, recognised as an echo
-    assert stats.feature_lines_without_any_transcript == {'exon': 1}  # geneNoTranscript
-    # geneSoleTranscript and geneAmbiguous, neither attached to anything
-    assert stats.feature_lines_above_their_transcript == {'exon': 2}
-    assert stats.gene_parented_features_reparented == 0
+    # geneEchoAbove's echo; geneSoleTranscript's, geneAmbiguous's and geneNoTranscript's lines
+    assert controller.stats.dropped_lines == {'gene_parented_duplicate': {'exon': 1},
+                                              'gene_parented': {'exon': 3}}
 
     # the sole-transcript gene keeps only the exon nested under its transcript (800-900), so its
     # one intron runs from the transcript's start. Had the line above been attached, the intron
@@ -1071,23 +1066,19 @@ def test_unrecognized_feature_type_is_skipped_not_fatal():
     assert len(sl.transcripts) == 1
 
 
-def test_gene_parented_duplicate_exons_are_dropped_not_glued_onto_wrong_transcript():
-    """Some GFF3 sources (e.g. NCBI/EMBL) redundantly echo a transcript's already-nested
-    exon/CDS a second time as a standalone feature parented directly to the gene. Grouping
-    is otherwise purely positional, not Parent-id aware, so without a check for this, such
-    a line gets glued onto whatever transcript happens to be 'latest', silently corrupting
-    it with a bogus self-overlap. gene1 is a real pattern found in NCBI's TAIR12 Arabidopsis
-    thaliana annotation (gene HEC1/AT5G67060). gene2 has two transcripts and a gene-parented
-    exon matching neither, which is genuinely ambiguous, so it's dropped too, just flagged
-    louder than a known, tidy echo. gene3 has only one transcript, so a non-duplicate
-    gene-parented exon is unambiguous and gets attached to it directly instead of dropped."""
+def test_exon_and_cds_lines_naming_a_gene_are_left_out_not_glued_onto_a_transcript():
+    """Some GFF3 sources (e.g. NCBI/EMBL) redundantly echo a transcript's exon/CDS lines a second
+    time, naming the gene as the parent. gene1 is a real pattern found in NCBI's TAIR12
+    Arabidopsis thaliana annotation (gene HEC1/AT5G67060): its three echoes duplicate lines of
+    its transcripts. gene2's gene-parented exon matches neither of its transcripts, and gene3's
+    exon and CDS match its only transcript neither. All are left out, none attached to a
+    transcript, so no transcript gets a bogus overlap."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/gene_parented_duplicate_exons.fa',
                           'testdata/gene_parented_duplicate_exons.gff3', clean_gff=True)
 
-    assert controller.stats.gene_parented_duplicates_dropped == 3
-    assert controller.stats.gene_parented_ambiguous_dropped == 1
-    assert controller.stats.gene_parented_features_reparented == 2
+    assert controller.stats.dropped_lines == {'gene_parented_duplicate': {'exon': 3},
+                                              'gene_parented': {'exon': 2, 'CDS': 1}}
     error_types = {e.type.value for e in controller.session.query(Feature).filter(
         Feature.type.in_([types.GeenuffFeature(t) for t in types.geenuff_error_type_values]))}
     assert types.OVERLAPPING_EXONS not in error_types
@@ -1103,12 +1094,12 @@ def test_gene_parented_duplicate_exons_are_dropped_not_glued_onto_wrong_transcri
     features = [(f.start, f.end) for p in rna3.transcript_pieces for f in p.features]
     assert features == [(299, 350)]
 
-    # rna5 is gene3's sole transcript: the gene-parented exon/CDS pair got attached to it,
-    # producing a real intron between its own exon and the reparented one
+    # rna5 is gene3's sole transcript and keeps only its own exon (500-520), so the transcript,
+    # running on to 560, ends in an intron
     rna5 = controller.session.query(Transcript).filter_by(given_name='rna5').one()
     introns5 = [(f.start, f.end) for f in rna5.transcript_pieces[0].features
                 if f.type.value == types.GEENUFF_INTRON]
-    assert introns5 == [(520, 539)]
+    assert introns5 == [(520, 560)]
 
 
 def test_overlapping_loci_in_a_chain_are_each_masked_whole():
@@ -1263,7 +1254,8 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
 
     assert controller.stats.overlap_pairs_resolved == 2
     assert controller.stats.overlap_loci_dropped == 2
-    assert controller.stats.overlap_pairs_refused == 2
+    assert controller.stats.overlap_pairs_both_masked_outright == 1
+    assert controller.stats.overlap_pairs_nested == 1
     assert controller.stats.overlap_pairs_in_chains == 0
 
 
@@ -1350,8 +1342,11 @@ def test_missing_utr_errors_of_a_nested_gene_are_still_counted():
     assert controller.stats.overlap_pairs_recorded == 5
     assert controller.stats.super_loci_in_overlap_pairs == 6
     assert controller.stats.overlap_pairs_resolved == 0
-    assert controller.stats.overlap_pairs_refused == 0
+    assert controller.stats.overlap_pairs_both_masked_outright == 0
+    assert controller.stats.overlap_pairs_nested == 0
     assert controller.stats.overlap_pairs_in_chains == 5
+    # geneA, geneB and geneC in one chain, geneF, geneG and geneH in the other
+    assert controller.stats.overlap_loci_in_chains == 6
 
 
 def test_cds_starting_phase_is_reset_not_trusted():
@@ -1425,39 +1420,30 @@ def test_gff_useful_gen():
 
 
 def test_gff_grouper():
+    """Lines are grouped into genes by ID and Parent. gene0's two exons name rna0, whose
+    'lnc_RNA' line is skipped as a feature type GeenuFF does not know, so their parent matches no
+    line; the pseudogene gene3754's six exons name the gene itself."""
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     gff_organizer.load_organized_entries()
     n_genes_seqid = {'NC_015438.2': 2, 'NC_015439.2': 2, 'NC_015440.2': 1}
     for seqid, count in n_genes_seqid.items():
         assert len(gff_organizer.organized_entries[seqid]) == count
         for group in gff_organizer.organized_entries[seqid]:
-            assert group[0].type == 'gene'
+            assert group['super_locus'].type == 'gene'
+    assert gff_organizer.stats.dropped_lines == {'unknown_parent': {'exon': 2},
+                                                 'gene_parented': {'exon': 6}}
 
 
-def test_gff_grouper_keeps_discontinuous_gene_as_separate_loci():
-    """A GFF3 'gene' ID split across two non-adjacent lines (a discontinuous feature) must
-    stay as two separately-spanned super locus groups instead of being merged into one
-    locus spanning both segments: merging would make the unrelated gene sitting in between
-    them look nested/overlapping to GFFErrorHandling purely as an artifact of the merge."""
+def test_gff_grouper_leaves_out_genes_sharing_an_id():
+    """gene1's ID is used by two gene lines, so which of them a transcript names is undecidable:
+    both are left out, with their transcripts and those transcripts' exon and CDS lines. Only
+    gene2 remains."""
     gff_organizer = OrganizedGFFEntries('testdata/discontinuous_gene.gff3')
     gff_organizer.load_organized_entries()
     groups = gff_organizer.organized_entries['NC_TEST.1']
-    assert len(groups) == 3
-
-    given_names = [group[0].get_ID() for group in groups]
-    assert given_names == ['gene1', 'gene2', 'gene1']
-
-    gene1a, gene2, gene1b = (group[0] for group in groups)
-    # each occurrence keeps its own, real span; not merged into 100-5000
-    assert (gene1a.start, gene1a.end) == (100, 1000)
-    assert (gene2.start, gene2.end) == (2000, 2800)
-    assert (gene1b.start, gene1b.end) == (3900, 5000)
-
-    # each group's own transcript (and only its own) is attached to it
-    rna_ids_by_group = [
-        {e.get_ID() for e in group if e.type == 'mRNA'} for group in groups
-    ]
-    assert rna_ids_by_group == [{'rna1a'}, {'rna2'}, {'rna1b'}]
+    assert [group['super_locus'].get_ID() for group in groups] == ['gene2']
+    assert gff_organizer.stats.dropped_lines == {'shared_id': {'gene': 2},
+                                                 'parent_dropped': {'mRNA': 2, 'exon': 6, 'CDS': 6}}
 
 
 # section: types

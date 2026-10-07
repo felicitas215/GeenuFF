@@ -1,10 +1,12 @@
 ##gff-version 3
 ##sequence-region CHR 1 7300
-# Four genes whose exon lines stand ABOVE their transcript line, as NCBI writes the
-# gene-parented echo of a transcript's own exons. One case per outcome of
-# OrganizedGFFEntryGroup._place_deferred_feature.
+# Four genes with an exon line naming the gene as its parent, standing ABOVE their transcript
+# line, as NCBI writes the gene-parented echo of a transcript's own exons. Lines are grouped by
+# Parent, not by position, and every such line is left out (see
+# OrganizedGFFEntries._place_pieces).
 #
-# 1. the line above is an echo of one nested below, at the same coordinates: dropped
+# 1. the line above is an echo of one nested below, at the same coordinates: dropped as a
+#    duplicate
 CHR	EMBL	gene	100	400	.	+	.	ID=geneEchoAbove;Name=echo-of-a-line-nested-below
 CHR	EMBL	exon	100	400	.	+	.	ID=id-geneEchoAbove;Parent=geneEchoAbove
 CHR	EMBL	mRNA	100	400	.	+	.	ID=rnaEchoAbove;Parent=geneEchoAbove

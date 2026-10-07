@@ -3,7 +3,7 @@ import bisect
 import math
 import logging
 import shutil
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 import intervaltree
@@ -20,10 +20,6 @@ from geenuff.base.helpers import (get_strand_direction, strand_or_none, get_geen
                                   STOP_CODONS, in_enum_values)
 
 logger = logging.getLogger(__name__)
-
-
-class GFFValidityError(Exception):
-    pass
 
 
 # how much of a locus its own errors take away, lower being better (see
@@ -56,6 +52,23 @@ UNEXPORTED_REASONS = {
     types.OVERLAP_DROPPED: 'dropped so an overlapping partner could be kept whole (see below)',
 }
 
+# why a GFF line was left out while the lines are grouped into loci by their ID and Parent
+# attributes (see OrganizedGFFEntries.load_organized_entries), for the import summary
+DROPPED_LINE_REASONS = {
+    'no_id': 'gene and transcript lines without an ID, which no line can name as its parent',
+    'shared_id': 'gene and transcript lines sharing their ID with another such line, so that '
+                 'which one a child names is undecidable',
+    'several_genes': 'transcript lines naming more than one gene as their parent',
+    'parent_not_gene': 'transcript lines naming another transcript as their parent',
+    'no_parent': 'transcript, exon and CDS lines naming no parent',
+    'unknown_parent': 'exon/CDS lines whose parent matches no line',
+    'gene_parented_duplicate': "exon/CDS lines naming a gene as their parent and duplicating a "
+                               "line of one of that gene's transcripts",
+    'gene_parented': 'exon/CDS lines naming a gene instead of a transcript as their parent',
+    'parent_dropped': 'lines whose parent was left out',
+    'other_sequence': 'lines on another sequence than their parent',
+}
+
 
 class ImportStatistics(object):
     """Aggregate counts for one add_genome() call. A single summary logged at the end of
@@ -65,6 +78,7 @@ class ImportStatistics(object):
 
     def __init__(self) -> None:
         self.total_super_loci: int = 0
+        self.coding_super_loci: int = 0  # with at least one transcript with CDS lines
         self.total_transcripts: int = 0
         self.total_coding_transcripts: int = 0
         # transcript.longest == True, one per exported gene; a gene left out of exports is not
@@ -72,12 +86,12 @@ class ImportStatistics(object):
         self.longest_transcripts: int = 0
         self.longest_error_free_transcripts: int = 0  # of the above, the ones with no error at all
         self.empty_super_loci: int = 0  # a gene with no transcripts at all
-        # exon/CDS lines the file holds and GeenuFF does not, keyed by GFF type: ones whose gene
-        # has no transcript line anywhere, and ones written above their gene's transcripts while
-        # echoing none of them, which is how an isoform with no transcript line of its own looks
-        # (see _place_deferred_feature)
-        self.feature_lines_without_any_transcript: defaultdict[str, int] = defaultdict(int)
-        self.feature_lines_above_their_transcript: defaultdict[str, int] = defaultdict(int)
+        # genes inferred for a Parent ID of transcripts that names no line in the file, one per
+        # such ID, shared by every transcript naming it
+        self.genes_inferred_for_missing_parents: int = 0
+        # GFF lines left out while grouping, keyed by a DROPPED_LINE_REASONS key and then by GFF
+        # type; a line with several parents counts once per parent it is left out for
+        self.dropped_lines: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.unstranded_super_loci: int = 0  # e.g. NCBI's '?' strand for trans-spliced genes
         # kept in full but never exported, counted per reason and keyed by the value stored in
         # orm.SuperLocus.excluded_from_export
@@ -86,10 +100,6 @@ class ImportStatistics(object):
         # partly outside their sequence
         self.unstorable_transcripts_dropped: int = 0
         self.transcripts_outside_sequence_dropped: int = 0
-        self.discontinuous_gene_ids_reused: int = 0
-        self.gene_parented_duplicates_dropped: int = 0  # see OrganizedGFFEntryGroup._is_parented_to_super_locus
-        self.gene_parented_features_reparented: int = 0  # same, but attached to the sole transcript instead
-        self.gene_parented_ambiguous_dropped: int = 0  # same, but position matched no transcript
         self.backwards_errors_removed: int = 0  # from overlapping super loci, see _remove_backwards_errors
         # every pair of super loci sharing genomic range, of whatever kind, as recorded in the
         # super_locus_overlap table; these mask nothing, see _record_overlap_pairs
@@ -97,12 +107,14 @@ class ImportStatistics(object):
         self.super_loci_in_overlap_pairs: int = 0
         # loci whose exported transcript overlaps another's, counted once each however many partners it has
         self.super_loci_overlapping_exported: int = 0
-        # of the pairs where both genes are exported, how each was settled; the three always sum
+        # of the pairs where both genes are exported, how each was settled; the four always sum
         # to that number (see GFFErrorHandling._compute_overlap_masks)
         self.overlap_pairs_resolved: int = 0  # one locus kept whole, the other dropped
-        self.overlap_pairs_refused: int = 0  # neither could be kept, both masked over the shared range
+        self.overlap_pairs_both_masked_outright: int = 0  # neither worth keeping, both masked whole
+        self.overlap_pairs_nested: int = 0  # one inside the other, never decided, both masked whole
         self.overlap_pairs_in_chains: int = 0  # a partner overlaps a third locus, so not decided
         self.overlap_loci_dropped: int = 0
+        self.overlap_loci_in_chains: int = 0  # each counted once however many pairs it is in
         # keyed by types.Errors value, counted per transcript from the error types detected
         # rather than from the error features inserted, so an error left with a zero-length
         # range to mask still shows up here (see docs/spec_vs_gff.md)
@@ -120,13 +132,18 @@ class ImportStatistics(object):
     def log_summary(self, species: str) -> None:
         """Logs one summary of the import, as sections of counted lines with the counts in a
         column, so a reader can scan down them rather than through a paragraph."""
-        overlap_pairs = (self.overlap_pairs_resolved + self.overlap_pairs_refused
-                         + self.overlap_pairs_in_chains)
+        overlap_pairs = (self.overlap_pairs_resolved + self.overlap_pairs_both_masked_outright
+                         + self.overlap_pairs_nested + self.overlap_pairs_in_chains)
+        # every transcript of an undecided isolated pair is in that one pair only, two per pair
+        masked_whole = (2 * self.overlap_pairs_both_masked_outright + 2 * self.overlap_pairs_nested
+                        + self.overlap_loci_in_chains)
         sections = [
             ('loci', [
-                (self.total_super_loci, 'gene lines in the file'),
+                (self.total_super_loci, 'genes imported, the inferred ones below included'),
+                (self.coding_super_loci, 'of them with a coding transcript'),
                 (self.empty_super_loci, 'of them with no transcript under them'),
-                (self.discontinuous_gene_ids_reused, 'gene IDs used by more than one gene line'),
+                (self.genes_inferred_for_missing_parents, 'genes inferred for a Parent ID of '
+                                                          'transcripts naming no line'),
                 (self.unstranded_super_loci, "gene lines on neither strand, e.g. '.' or NCBI's '?'"),
             ] + [(count, f'genes kept but never exported: {UNEXPORTED_REASONS[reason]}')
                  for reason, count in sorted(self.unexported_super_loci.items())]),
@@ -141,33 +158,30 @@ class ImportStatistics(object):
                                                             'before or ending past their sequence'),
             ]),
             ('transcripts overlapping another transcript that will be exported on the same strand', [
-                (self.super_loci_overlapping_exported, 'transcripts overlap at least one other'),
-                (overlap_pairs, 'pairs between them, each settled one of three ways:'),
-                (self.overlap_pairs_resolved, 'pairs where one transcript was kept whole and its '
-                                              'partner dropped from the export'),
-                (self.overlap_pairs_refused, 'pairs where neither transcript could be kept, so both '
-                                             'are masked over the sequence they share'),
-                (self.overlap_pairs_in_chains, 'pairs left alone, one of the two overlapping a '
-                                               'further transcript as well'),
+                (self.super_loci_overlapping_exported, f'transcripts overlap at least one other, in '
+                                                       f'{overlap_pairs} pairs, settled as follows:'),
+                (self.overlap_pairs_resolved, '  kept whole, their partner dropped from the export'),
+                (self.overlap_loci_dropped, '  dropped from the export, their region masked on the '
+                                            'transcript kept'),
+                (masked_whole, '  masked whole with both flanks, the sum of:'),
+                (2 * self.overlap_pairs_both_masked_outright, '    in a pair where both are masked '
+                                                              'outright for their own errors'),
+                (2 * self.overlap_pairs_nested, '    in a pair where one is nested inside the other'
+                                                'on the same strand'),
+                (self.overlap_loci_in_chains, '    in a chain, overlapping more than one other transcript'),
             ]),
-            ('exon/CDS lines naming their gene as the parent instead of a transcript', [
-                (self.gene_parented_duplicates_dropped, 'dropped as duplicates of a transcript\'s '
-                                                        'own lines'),
-                (self.gene_parented_features_reparented, 'given to the gene\'s sole transcript'),
-                (self.gene_parented_ambiguous_dropped, 'dropped, matching no transcript'),
-            ] + [self._per_type(self.feature_lines_without_any_transcript,
-                                'lines dropped for belonging to a gene with no transcript line '
-                                'anywhere'),
-                 self._per_type(self.feature_lines_above_their_transcript,
-                                'lines dropped for standing above their gene\'s transcripts and '
-                                'echoing none of them, most likely an isoform given no '
-                                'transcript line of its own')]),
         ]
-        if self.errors:
+        if self.dropped_lines:
+            sections.append(('GFF lines left out while grouping lines into genes by ID and Parent',
+                             [self._per_type(self.dropped_lines[reason], text)
+                              for reason, text in DROPPED_LINE_REASONS.items()
+                              if reason in self.dropped_lines]))
+        # the overlap masks are reported per outcome in the overlap section above instead
+        errors = [(count, error_type) for error_type, count in sorted(self.errors.items())
+                  if error_type != types.SL_OVERLAP_ERROR]
+        if errors:
             sections.append(('errors, counted once per transcript they occur in, however often '
-                             'they occur in that one',
-                             [(count, error_type)
-                              for error_type, count in sorted(self.errors.items())]))
+                             'they occur in that one', errors))
         if self.unrecognized_feature_types:
             sections.append(('lines skipped for a feature type GeenuFF has no use for',
                              [(count, feature_type) for feature_type, count
@@ -177,21 +191,18 @@ class ImportStatistics(object):
         lines = [f'import summary for "{species}":']
         for heading, entries in sections:
             lines.append(f'  {heading}:')
-            lines += [f'    {count:>{width}}  {text}' for count, text in entries]
+            # leading spaces of a text indent its whole line, the count included, so that the
+            # parts of a total stand below it
+            lines += [f'    {" " * (len(text) - len(text.lstrip(" ")))}{count:>{width}}  {text.lstrip(" ")}'
+                      for count, text in entries]
         for note in self._summary_notes():
             lines.append(f'  note: {note}')
         logger.info('\n'.join(lines))
 
     def _summary_notes(self) -> list[str]:
         """Explanations for the parts of the summary above that a count alone does not convey."""
-        notes = []
-        if types.SL_OVERLAP_ERROR in self.errors:
-            notes.append(f"'{types.SL_OVERLAP_ERROR}' marks sequence claimed by two transcripts at "
-                         f'once: on a transcript that was kept, the region its dropped partner used to '
-                         f'cover; on a pair where neither could be kept, the sequence they share')
-        notes.append(f'errors are counted as found, so one whose masked range came out empty, '
-                     f'such as a missing UTR with no room to mask it in, still counts '
-                     f'(see docs/spec_vs_gff.md)')
+        notes = [f'errors are counted as found, so one whose masked range came out empty, such as '
+                 f'a missing UTR with no room to mask it in, still counts (see docs/spec_vs_gff.md)']
         if self.backwards_errors_removed:
             notes.append(f'{self.backwards_errors_removed} error masks were discarded for coming '
                          f'out with their start and end the wrong way round')
@@ -303,6 +314,8 @@ class OrganizedGeenuffImporterGroup(object):
         sl = entries['super_locus']
         stats = self.controller.stats
         stats.total_super_loci += 1
+        if any(t_entries['cds'] for t_entries in entries['transcripts'].values()):
+            stats.coding_super_loci += 1
         try:
             sl_is_plus_strand = get_strand_direction(sl)
         except ValueError:
@@ -336,11 +349,6 @@ class OrganizedGeenuffImporterGroup(object):
         for t, t_entries in entries['transcripts'].items():
             stats.total_transcripts += 1
             t_importers = {'errors': [], 'detected_error_types': set()}
-            # check for multi inheritance and throw NotImplementedError if found
-            if t.get_Parent() is None:
-                raise GFFValidityError(f"transcript level feature without Parent found {t}, attributes: {t.attributes}")
-            if len(t.get_Parent()) > 1:
-                raise NotImplementedError
             t_id = t.get_ID()
             if t.start > t.end:
                 self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end)
@@ -600,11 +608,11 @@ class OrganizedGeenuffImporterGroup(object):
 
 
 class OrganizedGFFEntryGroup(object):
-    """Takes an entry group (all entries of one super locus) and stores the entries
-    in an orderly fashion. Can then return a corresponding OrganizedGeenuffImporterGroup.
-    Does not perform error checking, which happens later.
+    """Holds the entries of one super locus as grouped by OrganizedGFFEntries, and returns the
+    corresponding OrganizedGeenuffImporterGroup. Does not perform error checking, which happens
+    later.
 
-    The entries are organised in the following way:
+    The entries are organised in the following way, exons and CDS sorted by start:
 
     entries = {
         'super_locus' = super_locus_entry,
@@ -622,137 +630,10 @@ class OrganizedGFFEntryGroup(object):
     }
     """
 
-    def __init__(self, gff_entry_group, fasta_importer, controller):
-        self.fasta_importer = fasta_importer
+    def __init__(self, entries, fasta_importer, controller):
         self.controller = controller
-        self.entries = {'transcripts': {}}
-        self.coord = None
-        self.add_gff_entry_group(gff_entry_group)
-
-    def add_gff_entry_group(self, entries):
-        latest_transcript = None
-        # exon/CDS lines standing above this gene's first transcript line, held back until the
-        # whole group has been read (see _place_deferred_feature)
-        deferred = []
-        for entry in list(entries):
-            if in_enum_values(entry.type, types.SuperLocusAll):
-                assert 'super_locus' not in self.entries
-                self.entries['super_locus'] = entry
-            elif in_enum_values(entry.type, types.TranscriptLevel):
-                self.entries['transcripts'][entry] = {'exons': [], 'cds': []}
-                latest_transcript = entry
-            elif latest_transcript is not None:
-                is_exon = in_enum_values(entry.type, types.ExonLevel)
-                is_cds = in_enum_values(entry.type, types.CDSLevel)
-                key = 'exons' if is_exon else 'cds'
-                if (is_exon or is_cds) and self._is_parented_to_super_locus(entry):
-                    # some GFF3 sources (e.g. NCBI/EMBL) redundantly echo a transcript's
-                    # already-nested exon/CDS a second time as a standalone feature parented
-                    # directly to the gene; grouping is otherwise positional (not Parent-id
-                    # aware), so without this check such a line would get glued onto whatever
-                    # transcript happens to be "latest", corrupting it with a bogus overlap
-                    if self._matches_existing_transcript_feature(entry, key):
-                        # a duplicate echo of something already attached: drop it, keeping
-                        # the copy that's already correctly attached
-                        self.controller.stats.gene_parented_duplicates_dropped += 1
-                        logger.debug(f"skipping {entry.type} parented directly to the gene "
-                                     f"'{self.entries['super_locus'].get_ID()}' instead of a "
-                                     f"transcript (a redundant echo of an already-nested "
-                                     f"feature)")
-                    elif len(self.entries['transcripts']) == 1:
-                        # not a duplicate, but this gene has exactly one transcript declared
-                        # so far, so Parent=gene can only mean this one transcript; unlike
-                        # the ambiguous case below, there is no other candidate to confuse it
-                        # with, so it's safe to attach directly (mirrors how positional
-                        # grouping already handles this correctly for a single-transcript
-                        # gene when the line isn't gene-parented at all)
-                        self.controller.stats.gene_parented_features_reparented += 1
-                        logger.debug(f"reparenting {entry.type} from gene "
-                                     f"'{self.entries['super_locus'].get_ID()}' to its sole "
-                                     f"transcript '{latest_transcript.get_ID()}'")
-                        self.entries['transcripts'][latest_transcript][key].append(entry)
-                    else:
-                        # neither a known duplicate nor safely attributable to a sole
-                        # transcript: genuinely ambiguous (which of several transcripts, if
-                        # any, does it belong to?), so it's dropped, but flagged louder
-                        self.controller.stats.gene_parented_ambiguous_dropped += 1
-                        logger.warning(f"skipping {entry.type} parented directly to the gene "
-                                       f"'{self.entries['super_locus'].get_ID()}' instead of a "
-                                       f"transcript, and its position matches no transcript "
-                                       f"already collected for this gene; check this gene by "
-                                       f"hand")
-                elif is_exon:
-                    self.entries['transcripts'][latest_transcript]['exons'].append(entry)
-                elif is_cds:
-                    self.entries['transcripts'][latest_transcript]['cds'].append(entry)
-                else:
-                    logger.warning(f'Found unexpected entry type: {entry.type}')
-            elif (in_enum_values(entry.type, types.ExonLevel)
-                  or in_enum_values(entry.type, types.CDSLevel)):
-                # an exon or CDS line above this gene's first transcript line, as NCBI writes
-                # the gene-parented echo of a transcript's own exons. Nothing is collected yet
-                # to attach it to or to recognise it as the duplicate it usually is, so it waits
-                # until the group has been read rather than being dropped for its position
-                deferred.append(entry)
-            else:
-                logger.debug(f'Ignoring {entry.type} without transcript found in {entry.seqid}: '
-                             f'{entries[0].attribute}')
-
-        for entry in deferred:
-            self._place_deferred_feature(entry)
-
-        # set the coordinate
-        self.coord = self.fasta_importer.gffid_to_coords[self.entries['super_locus'].seqid]
-
-        # order exon and cds lists by start value (disregard strand for now)
-        for _, value_dict in self.entries['transcripts'].items():
-            for key in ['exons', 'cds']:
-                value_dict[key].sort(key=lambda e: e.start)
-
-    def _is_parented_to_super_locus(self, entry):
-        """True if entry's Parent= names the gene itself rather than any specific
-        transcript"""
-        parent_ids = entry.get_Parent()
-        return bool(parent_ids) and self.entries['super_locus'].get_ID() in parent_ids
-
-    def _place_deferred_feature(self, entry):
-        """Decides what becomes of one exon/CDS line that stood above its gene's first transcript
-        line, now that every transcript of the gene has been collected. Waiting lets the echoes
-        among them be recognised as such instead of being dropped unexamined for their position,
-        which is what the overwhelming majority of them are.
-
-        What is left is not attached to anything, not even where the gene has a single
-        transcript. A line written above the transcripts characteristically belongs to a further
-        isoform that the file gives no transcript line of its own (NCBI sometimes writes an isoform's whole
-        CDS this way), so attaching it to the transcript that does exist would merge two proteins
-        into one. It is dropped and counted instead."""
-        key = 'exons' if in_enum_values(entry.type, types.ExonLevel) else 'cds'
-        gene_id = self.entries['super_locus'].get_ID()
-        stats = self.controller.stats
-
-        if not self.entries['transcripts']:
-            stats.feature_lines_without_any_transcript[entry.type] += 1
-            logger.debug(f"dropping {entry.type} of gene '{gene_id}': the gene has no transcript "
-                         f"line anywhere for it to belong to")
-        elif self._matches_existing_transcript_feature(entry, key):
-            stats.gene_parented_duplicates_dropped += 1
-            logger.debug(f"skipping {entry.type} of gene '{gene_id}' listed above its transcript "
-                         f"(a redundant echo of a feature nested below)")
-        else:
-            stats.feature_lines_above_their_transcript[entry.type] += 1
-            logger.debug(f"dropping {entry.type} of gene '{gene_id}' listed above its "
-                         f"transcripts and echoing none of them, most likely an isoform the file "
-                         f"gives no transcript line of its own")
-
-    def _matches_existing_transcript_feature(self, entry, key):
-        """True if (entry.start, entry.end) already belongs to some transcript of this
-        gene collected so far, under 'exons' or 'cds' (whichever key is given). Order
-        dependent: a gene-parented duplicate seen before the transcript it echoes has been
-        fully collected will not match yet."""
-        position = (entry.start, entry.end)
-        return any(position == (existing.start, existing.end)
-                   for t_entries in self.entries['transcripts'].values()
-                   for existing in t_entries[key])
+        self.entries = entries
+        self.coord = fasta_importer.gffid_to_coords[entries['super_locus'].seqid]
 
     def get_geenuff_importers(self):
         geenuff_importer_group = OrganizedGeenuffImporterGroup(self.entries, self.coord,
@@ -761,21 +642,19 @@ class OrganizedGFFEntryGroup(object):
 
 
 class OrganizedGFFEntries(object):
-    """Structures the gff entries coming from gffhelper by seqid and gene. Also does some
-    basic gff value cleanup.
-    The entries are organized in the following way:
+    """Groups the gff entries coming from gffhelper into genes by their ID and Parent attributes,
+    whatever the order of the lines in the file. Also does some basic gff value cleanup.
+    The entries are organized in the following way, one entry group per gene (see
+    OrganizedGFFEntryGroup):
 
     organized_entries = {
-        'seqid1': [
-            [gff_entry1_gene1, gff_entry2_gene1, ...],
-            [gff_entry1_gene2, gff_entry2_gene2, ...],
-        ],
-        'seqid2': [
-            [gff_entry1_gene1, gff_entry2_gene1, ...],
-            [gff_entry1_gene2, gff_entry2_gene2, ...],
-        ],
+        'seqid1': [entry_group_gene1, entry_group_gene2, ...],
+        'seqid2': [...],
         ...
     }
+
+    Lines that cannot be placed are left out and counted (see DROPPED_LINE_REASONS), together
+    with every line below them.
     """
 
     def __init__(self, gff_file, stats=None):
@@ -786,40 +665,141 @@ class OrganizedGFFEntries(object):
         self.stats = stats if stats is not None else ImportStatistics()
 
     def load_organized_entries(self):
+        genes, transcripts, pieces = [], [], []
+        for entry in self._useful_gff_entries():
+            if in_enum_values(entry.type, types.SuperLocusAll):
+                genes.append(entry)
+            elif in_enum_values(entry.type, types.TranscriptLevel):
+                transcripts.append(entry)
+            elif in_enum_values(entry.type, types.ExonLevel) or in_enum_values(entry.type, types.CDSLevel):
+                pieces.append(entry)
+            else:
+                logger.debug(f'ignoring {entry.type} at {entry.seqid}:{entry.start}-{entry.end}')
+
+        # the IDs of every gene or transcript line left out, so that the lines below it go too
+        dropped_ids = set()
+        genes_by_id = self._lines_by_unique_id(genes, transcripts, dropped_ids)
+        transcripts_by_id = self._lines_by_unique_id(transcripts, genes, dropped_ids)
+        groups = {gene_id: {'super_locus': gene, 'transcripts': {}}
+                  for gene_id, gene in genes_by_id.items()}
+        self._place_transcripts(transcripts_by_id, groups, dropped_ids)
+        self._place_pieces(pieces, groups, dropped_ids)
+
         self.organized_entries = {}
-        gene_level = [x.value for x in types.SuperLocusAll]
+        for group in groups.values():
+            for t_entries in group['transcripts'].values():
+                for key in ['exons', 'cds']:
+                    t_entries[key].sort(key=lambda e: e.start)
+            self.organized_entries.setdefault(group['super_locus'].seqid, []).append(group)
 
-        reader = self._useful_gff_entries()
-        first = next(reader, None)
+    @staticmethod
+    def _id_of(entry):
+        """The line's ID, or None where it has none, for which gffhelper's get_ID raises an error."""
+        return next((attribute.value[0] for attribute in entry.attributes if attribute.tag == 'ID'),
+                    None)
 
-        if first is not None:
-            seqid = first.seqid
-            gene_group = [first]
-            # GFF3 allows one ID to be split across several 'gene' lines (a discontinuous
-            # feature); these are kept as separate super locus records below rather than
-            # merged into one, since merging would make any real gene lying between the two
-            # occurrences falsely look nested/overlapping in _compute_overlap_masks
-            seen_gene_ids = {first.get_ID()} - {None}
-            self.organized_entries[seqid] = []
+    def _drop(self, entry, reason):
+        self.stats.dropped_lines[reason][entry.type] += 1
+        logger.debug(f'leaving out {entry.type} at {entry.seqid}:{entry.start}-{entry.end}: '
+                     f'{DROPPED_LINE_REASONS[reason]}')
 
-            for entry in reader:
-                if entry.type in gene_level:
-                    entry_id = entry.get_ID()
-                    if entry_id is not None:
-                        if entry_id in seen_gene_ids:
-                            self.stats.discontinuous_gene_ids_reused += 1
-                            logger.debug(f"'gene' ID '{entry_id}' reused at "
-                                         f"{entry.seqid}:{entry.start}-{entry.end}; kept "
-                                         f"as a separate super locus record")
-                        seen_gene_ids.add(entry_id)
-                    self.organized_entries[seqid].append(gene_group)
-                    gene_group = [entry]
-                    if entry.seqid != seqid:
-                        self.organized_entries[entry.seqid] = []
-                        seqid = entry.seqid
+    def _lines_by_unique_id(self, lines, other_parent_lines, dropped_ids):
+        """{ID: line} of the gene or transcript lines whose ID no other gene or transcript line
+        uses. A line without an ID, which no line can name as its parent, or with an ID another
+        line shares, which makes what a child names undecidable, is left out."""
+        counts = Counter(self._id_of(line) for line in lines + other_parent_lines)
+        by_id = {}
+        for line in lines:
+            line_id = self._id_of(line)
+            if line_id is None:
+                self._drop(line, 'no_id')
+            elif counts[line_id] > 1:
+                self._drop(line, 'shared_id')
+                dropped_ids.add(line_id)
+            else:
+                by_id[line_id] = line
+        return by_id
+
+    def _place_transcripts(self, transcripts_by_id, groups, dropped_ids):
+        """Puts every transcript under the one gene it names. The transcripts naming one Parent ID
+        that matches no line share a gene inferred for them, spanning them all (see _inferred_gene)."""
+        named_missing_parent = defaultdict(list)
+        for t_id, t in transcripts_by_id.items():
+            parents = t.get_Parent() or []
+            if len(parents) == 1 and parents[0] in groups:
+                reason = 'other_sequence' if t.seqid != groups[parents[0]]['super_locus'].seqid else None
+            elif not parents:
+                reason = 'no_parent'
+            elif len(parents) > 1:
+                reason = 'several_genes'
+            elif parents[0] in dropped_ids:
+                reason = 'parent_dropped'
+            elif parents[0] in transcripts_by_id:
+                reason = 'parent_not_gene'
+            else:
+                named_missing_parent[parents[0]].append(t)
+                continue
+            if reason is None:
+                groups[parents[0]]['transcripts'][t] = {'exons': [], 'cds': []}
+            else:
+                self._drop(t, reason)
+                dropped_ids.add(t_id)
+
+        for parent_id, members in named_missing_parent.items():
+            seqid = members[0].seqid
+            for t in members:
+                if t.seqid != seqid:
+                    self._drop(t, 'other_sequence')
+                    dropped_ids.add(t.get_ID())
+            members = [t for t in members if t.seqid == seqid]
+            groups[parent_id] = {'super_locus': self._inferred_gene(parent_id, members),
+                                 'transcripts': {t: {'exons': [], 'cds': []} for t in members}}
+            self.stats.genes_inferred_for_missing_parents += 1
+
+    def _inferred_gene(self, gene_id, transcripts):
+        """A gene line for transcripts naming a Parent ID that matches no line, spanning them all,
+        on their strand where they agree on one and on none otherwise."""
+        strands = {t.strand for t in transcripts}
+        strand = strands.pop() if len(strands) == 1 and None not in strands else '.'
+        line = (f'{transcripts[0].seqid}\tGeenuFF\tgene\t{min(t.start for t in transcripts)}\t'
+                f'{max(t.end for t in transcripts)}\t.\t{strand}\t.\tID={gene_id}')
+        gene = gffhelper.GFFObject(line)
+        self._clean_entry(gene)
+        return gene
+
+    def _place_pieces(self, pieces, groups, dropped_ids):
+        """Puts every exon and CDS line under each transcript it names, several being allowed.
+        One naming a gene is left out, whether or not it duplicates a line of one of that gene's
+        transcripts: it could equally belong to an isoform given no transcript line of its own."""
+        transcripts = {t.get_ID(): (t, t_entries) for group in groups.values()
+                       for t, t_entries in group['transcripts'].items()}
+        gene_parented = []
+        for piece in pieces:
+            key = 'exons' if in_enum_values(piece.type, types.ExonLevel) else 'cds'
+            parents = piece.get_Parent() or []
+            if not parents:
+                self._drop(piece, 'no_parent')
+            for parent_id in parents:
+                if parent_id in transcripts:
+                    t, t_entries = transcripts[parent_id]
+                    if piece.seqid != t.seqid:
+                        self._drop(piece, 'other_sequence')
+                    else:
+                        t_entries[key].append(piece)
+                elif parent_id in groups:
+                    gene_parented.append((piece, key, parent_id))
+                elif parent_id in dropped_ids:
+                    self._drop(piece, 'parent_dropped')
                 else:
-                    gene_group.append(entry)
-            self.organized_entries[seqid].append(gene_group)
+                    self._drop(piece, 'unknown_parent')
+
+        # judged only once every transcript line is placed, so the order of lines does not matter
+        for piece, key, gene_id in gene_parented:
+            position = (piece.start, piece.end)
+            duplicate = any(position == (other.start, other.end)
+                            for t_entries in groups[gene_id]['transcripts'].values()
+                            for other in t_entries[key])
+            self._drop(piece, 'gene_parented_duplicate' if duplicate else 'gene_parented')
 
     def _useful_gff_entries(self):
         skipable = [x.value for x in types.IgnorableGFFFeatures]
@@ -915,8 +895,8 @@ class GFFErrorHandling(object):
         label per base is written, so whichever is written last silently wins. Of an isolated
         crossing pair the better locus is kept whole and its partner is dropped from the export,
         leaving one coherent gene rather than two with a hole through them (see
-        _decide_overlap_pair). Where both are masked outright, or one lies inside the other, both
-        genes are masked over their whole length and the flank on both sides.
+        _decide_overlap_pair). Where both are masked outright, or nested inside the other on the
+        same strand, both genes are masked over their whole length and the flank on both sides.
         """
         # multiplying by sign turns both strands into ascending coordinates running 5p to 3p, so
         # everything below can compare and sort without asking which strand it is on
@@ -957,27 +937,30 @@ class GFFErrorHandling(object):
         masks = [[] for _ in self.groups]
         # what each decision came to, collected here because the masks it implies cannot be
         # worked out until every pair has been decided (see the second loop)
-        resolved, masked_whole = [], set()
+        # a locus in two undecided pairs lands in a set twice over and is masked once
+        resolved, masked_whole, in_chains = [], set(), set()
         for i, j in pairs:
-            keeper = dropped = pieces = None
             # only an isolated pair is decided; in a chain a dropped locus can sit between two
-            # kept ones, and the one masked region recorded per locus cannot express that
-            isolated = len(partners[i]) == 1 and len(partners[j]) == 1
-            if isolated:
-                keeper, dropped, pieces = self._decide_overlap_pair(i, j, extents)
-            if keeper is None:
-                # nothing could be saved here, so both genes are masked end to end; a locus in
-                # two undecided pairs lands in the set twice over and is masked once
+            # kept ones, and the one masked region recorded per locus cannot express that. Where
+            # nothing is decided, both genes are masked end to end
+            if len(partners[i]) > 1 or len(partners[j]) > 1:
+                in_chains.update((i, j))
+                stats.overlap_pairs_in_chains += 1
+            elif self._is_nested(extents[i], extents[j]):
                 masked_whole.update((i, j))
-                if isolated:
-                    stats.overlap_pairs_refused += 1
+                stats.overlap_pairs_nested += 1
+            else:
+                keeper, dropped, pieces = self._decide_overlap_pair(i, j, extents)
+                if keeper is None:
+                    masked_whole.update((i, j))
+                    stats.overlap_pairs_both_masked_outright += 1
                 else:
-                    stats.overlap_pairs_in_chains += 1
-                continue
-            self.groups[dropped]['super_locus'].excluded_from_export = types.OVERLAP_DROPPED
-            resolved.append((keeper, dropped, pieces))
-            stats.overlap_pairs_resolved += 1
-            stats.overlap_loci_dropped += 1
+                    self.groups[dropped]['super_locus'].excluded_from_export = types.OVERLAP_DROPPED
+                    resolved.append((keeper, dropped, pieces))
+                    stats.overlap_pairs_resolved += 1
+                    stats.overlap_loci_dropped += 1
+        stats.overlap_loci_in_chains += len(in_chains)
+        masked_whole |= in_chains
 
         # an unresolved locus is masked like any gene with an error masking it whole, its flank
         # included on both sides
@@ -1027,13 +1010,19 @@ class GFFErrorHandling(object):
             return 0
         return min(gap // 2, int(math.sqrt(gap)) * 10)
 
-    def _decide_overlap_pair(self, i, j, extents):
-        """Works out which locus of an overlapping pair is kept, and what is masked in place of
-        the other. Returns (keeper, dropped, pieces) or three Nones where neither is kept.
+    @staticmethod
+    def _is_nested(span_a, span_b):
+        """Whether one span lies wholly inside the other, which on one strand is more often an
+        annotation mistake than two real genes, so such a pair is never decided. Identical spans
+        are not nested, there being no inner locus."""
+        (a_lo, a_hi), (b_lo, b_hi) = span_a, span_b
+        if (a_lo, a_hi) == (b_lo, b_hi):
+            return False
+        return a_lo <= b_lo and b_hi <= a_hi or b_lo <= a_lo and a_hi <= b_hi
 
-        A nested pair, one span lying wholly inside the other's, is never decided: on one strand
-        that is more often an annotation mistake than two real genes. Identical spans are not
-        nested, there being no inner locus.
+    def _decide_overlap_pair(self, i, j, extents):
+        """Works out which locus of a crossing pair is kept, and what is masked in place of the
+        other. Returns (keeper, dropped, pieces) or three Nones where neither is kept.
 
         The keeper is the less damaged locus, on a tie the one with the longer spliced CDS and on
         a tie of both the 5'-most one, whichever of the two has coding sequence in the range they
@@ -1045,10 +1034,7 @@ class GFFErrorHandling(object):
         into the flank (see _buffered_span). Identical spans need no mask, the kept locus covering
         the same bases.
         """
-        (i_lo, i_hi), (j_lo, j_hi) = extents[i], extents[j]
-        if (i_lo, i_hi) != (j_lo, j_hi) and (i_lo <= j_lo and j_hi <= i_hi or j_lo <= i_lo and i_hi <= j_hi):
-            return None, None, None
-        options = [k for k in (i, j) if self._locus_severity(self.groups[k]) != MASKED_OUTRIGHT]
+        options =[k for k in (i, j) if self._locus_severity(self.groups[k]) != MASKED_OUTRIGHT]
         if not options:
             return None, None, None
         # groups are ordered 5p to 3p, so the lower index is the 5'-most locus
@@ -1090,8 +1076,8 @@ class GFFErrorHandling(object):
     @staticmethod
     def _coding_extent(group, sign):
         """Everything a locus' coding transcripts reach over, as a sign-normalised ascending
-        range. Taken from the transcripts rather than the gene line, which for one line of a
-        discontinuous feature can be far narrower than the transcripts hanging off it."""
+        range. Taken from the transcripts rather than the gene line, which can be far wider or
+        narrower than the transcripts hanging off it."""
         bounds = [(sign * t['transcript_feature'].start, sign * t['transcript_feature'].end)
                   for t in group['transcripts']
                   if 'cds' in t and t.get('transcript_feature') is not None]
