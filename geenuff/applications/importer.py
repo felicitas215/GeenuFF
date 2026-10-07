@@ -1203,15 +1203,19 @@ class GFFErrorHandling(object):
             found.append(Finding(types.TRUNCATED_CDS, 'whole'))
         if cds.has_inframe_stop:
             found.append(Finding(types.INFRAME_STOP_CODON, 'whole'))
+        # cannot be spliced; an intron the transcript starts or ends in is only partly inside it,
+        # so its length says nothing, and it is a truncated intron instead (see below)
         min_length = self.controller.config['min_intron_length']
-        if any(abs(x.end - x.start) < min_length for x in proper):  # cannot be spliced
+        complete = [x for x in proper if x.start != tf.start and x.end != tf.end]
+        if any(abs(x.end - x.start) < min_length for x in complete):
             found.append(Finding(types.TOO_SHORT_INTRON, 'whole'))
-        # the transcript ending inside an intron, its outermost exon missing
+        # the transcript starting or ending inside an intron, its outermost exon missing, so where
+        # the transcript really starts or ends is unknown as well
         for intron in proper:
             if intron.start == tf.start:
-                found.append(Finding(types.TRUNCATED_INTRON, 'whole', '5p', (intron,)))
+                found.append(Finding(types.TRUNCATED_INTRON, 'whole', '5p', (intron, tf)))
             if intron.end == tf.end:
-                found.append(Finding(types.TRUNCATED_INTRON, 'whole', '3p', (intron,)))
+                found.append(Finding(types.TRUNCATED_INTRON, 'whole', '3p', (intron, tf)))
 
         # a starting phase in the file other than 0 is only recorded, the importer setting the
         # phase itself whatever the file says

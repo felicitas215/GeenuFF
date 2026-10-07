@@ -1,0 +1,34 @@
+##gff-version 3
+##sequence-region HANG5 1 1000
+##sequence-region HANG5FLUSH 1 1000
+##sequence-region HANG3FLUSH 1 1000
+# Transcripts whose mRNA line reaches past their outermost exon, so that they start or end inside
+# an intron. One gene per sequence, each 1000 bp of C except an ATG and a TAA at the ends of its
+# spliced CDS, so no gene has an error it was not given. Coordinates in the comments are GeenuFF's
+# (0-based, end exclusive).
+#
+# HANG5: the mRNA starts 11 bp before the first exon (intron 233-244); the CDS starts inside that
+#        exon, so only the truncated intron is wrong. Masked whole with both flanks
+HANG5	test	gene	234	566	.	+	.	ID=geneHang5
+HANG5	test	mRNA	234	566	.	+	.	ID=rnaHang5;Parent=geneHang5
+HANG5	test	exon	245	279	.	+	.	ID=exon-rnaHang5-1;Parent=rnaHang5
+HANG5	test	exon	351	566	.	+	.	ID=exon-rnaHang5-2;Parent=rnaHang5
+HANG5	test	CDS	260	279	.	+	0	ID=cds-rnaHang5-1;Parent=rnaHang5
+HANG5	test	CDS	351	501	.	+	1	ID=cds-rnaHang5-2;Parent=rnaHang5
+# HANG5FLUSH: as HANG5, but the CDS starts at the first exon's start, so the CDS is run on through
+#             the hanging intron to the transcript start and the 5' UTR counts as missing
+HANG5FLUSH	test	gene	234	566	.	+	.	ID=geneHang5Flush
+HANG5FLUSH	test	mRNA	234	566	.	+	.	ID=rnaHang5Flush;Parent=geneHang5Flush
+HANG5FLUSH	test	exon	245	279	.	+	.	ID=exon-rnaHang5Flush-1;Parent=rnaHang5Flush
+HANG5FLUSH	test	exon	351	566	.	+	.	ID=exon-rnaHang5Flush-2;Parent=rnaHang5Flush
+HANG5FLUSH	test	CDS	245	279	.	+	0	ID=cds-rnaHang5Flush-1;Parent=rnaHang5Flush
+HANG5FLUSH	test	CDS	351	501	.	+	1	ID=cds-rnaHang5Flush-2;Parent=rnaHang5Flush
+# HANG3FLUSH: the mRNA ends 46 bp after the last exon (intron 654-700) and the CDS ends at that
+#             exon's end, so the CDS is run on through the hanging intron to the transcript end
+#             and the 3' UTR counts as missing
+HANG3FLUSH	test	gene	301	700	.	+	.	ID=geneHang3Flush
+HANG3FLUSH	test	mRNA	301	700	.	+	.	ID=rnaHang3Flush;Parent=geneHang3Flush
+HANG3FLUSH	test	exon	301	400	.	+	.	ID=exon-rnaHang3Flush-1;Parent=rnaHang3Flush
+HANG3FLUSH	test	exon	471	654	.	+	.	ID=exon-rnaHang3Flush-2;Parent=rnaHang3Flush
+HANG3FLUSH	test	CDS	321	400	.	+	0	ID=cds-rnaHang3Flush-1;Parent=rnaHang3Flush
+HANG3FLUSH	test	CDS	471	654	.	+	1	ID=cds-rnaHang3Flush-2;Parent=rnaHang3Flush

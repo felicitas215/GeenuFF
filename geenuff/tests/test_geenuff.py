@@ -1,5 +1,7 @@
 import os
 import logging
+from collections import defaultdict
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy import func
@@ -333,6 +335,66 @@ def test_import_intron_at_seq_end():
     # note that the cds.start is presumably the start codon here, but it is ultimately ambiguous, so
     # conservatively we mark start_is_biological_start as False
     assert (intron.start_is_biological_start, intron.end_is_biological_end) == (True, False)
+
+
+@pytest.fixture(scope='module')
+def hanging_intron_session():
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/hanging_intron.fa', 'testdata/hanging_intron.gff3', clean_gff=True)
+    return controller.session
+
+
+def transcript_features(session, given_name):
+    """{feature type: sorted (start, end, start_is_biological_start, end_is_biological_end)} of
+    one transcript."""
+    transcript = session.query(Transcript).filter_by(given_name=given_name).one()
+    features = defaultdict(list)
+    for f in transcript.transcript_pieces[0].features:
+        features[f.type.value].append((f.start, f.end, f.start_is_biological_start,
+                                       f.end_is_biological_end))
+    return {feature_type: sorted(found) for feature_type, found in features.items()}
+
+
+def test_a_transcript_starting_in_an_intron_is_masked_whole(hanging_intron_session):
+    """The mRNA starts 11bp before its first exon, so the transcript starts in an intron
+    (233-244) and where it really starts is unknown: the gene (233-566) is masked whole with
+    116 of the 233bp to the sequence start and 200 of the 434bp to its end. The CDS starts inside
+    the first exon and is sound. See testdata/hanging_intron.gff3."""
+    assert transcript_features(hanging_intron_session, 'rnaHang5') == {
+        types.GEENUFF_TRANSCRIPT: [(233, 566, False, True)],
+        types.GEENUFF_CDS: [(259, 501, True, True)],
+        types.GEENUFF_INTRON: [(233, 244, False, True), (279, 350, True, True)],
+        types.TRUNCATED_INTRON: [(117, 766, True, True)],
+    }
+
+
+def test_a_cds_flush_with_a_first_exon_after_a_hanging_intron_runs_to_the_transcript_start(
+        hanging_intron_session):
+    """As above, but the CDS starts at the first exon's start. Where the CDS really starts is then
+    unknown too, so it is run on through the hanging intron to the transcript start, which leaves
+    no 5' UTR: missing_utr_5p masks the 5' flank. See testdata/hanging_intron.gff3."""
+    assert transcript_features(hanging_intron_session, 'rnaHang5Flush') == {
+        types.GEENUFF_TRANSCRIPT: [(233, 566, False, True)],
+        types.GEENUFF_CDS: [(233, 501, False, True)],
+        types.GEENUFF_INTRON: [(233, 244, False, True), (279, 350, True, True)],
+        types.MISSING_UTR_5P: [(117, 233, True, True)],
+        types.TRUNCATED_INTRON: [(117, 766, True, True)],
+    }
+
+
+def test_a_cds_flush_with_a_last_exon_before_a_hanging_intron_runs_to_the_transcript_end(
+        hanging_intron_session):
+    """The mRNA ends 46bp after its last exon (intron 654-700), and the CDS ends at that exon's
+    end, so the CDS is run on to the transcript end and missing_utr_3p masks the 3' flank. The
+    gene (300-700) is masked whole with 150 of the 300bp on either side.
+    See testdata/hanging_intron.gff3."""
+    assert transcript_features(hanging_intron_session, 'rnaHang3Flush') == {
+        types.GEENUFF_TRANSCRIPT: [(300, 700, True, False)],
+        types.GEENUFF_CDS: [(320, 700, True, False)],
+        types.GEENUFF_INTRON: [(400, 470, True, True), (654, 700, True, False)],
+        types.MISSING_UTR_3P: [(700, 850, True, True)],
+        types.TRUNCATED_INTRON: [(150, 850, True, True)],
+    }
 
 
 # section: api

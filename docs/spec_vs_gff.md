@@ -64,7 +64,7 @@ sparse genome. A possible remedy is a share smaller than half the gap.
 | truncated_cds            | spliced CDS length is not a multiple of 3               | whole gene and both flanks           |
 | inframe_stop_codon       | a stop codon in frame before the end of the CDS         | whole gene and both flanks           |
 | truncated_intron         | the transcript line reaches past its outermost exon     | whole gene and both flanks           |
-| too_short_intron         | intron shorter than `min_intron_length` (default 20 bp) | whole gene and both flanks           |
+| too_short_intron         | full intron shorter than `min_intron_length` (20 bp)    | whole gene and both flanks           |
 | overlapping_exons        | two exon lines of one transcript overlap                | whole gene and both flanks           |
 | overlapping_cds          | two CDS lines of one transcript overlap                 | whole gene and both flanks           |
 | wrong_starting_phase     | phase of the first CDS piece in the file is not 0       | nothing, only recorded               |
@@ -76,13 +76,16 @@ start or stop codon, a reading frame that is wrong (truncated CDS, in-frame stop
 that is partial (truncated intron) or an intron too short to be spliced, which typically stands in
 for a frameshift in the assembly that an annotation pipeline bridged and may or may not be right.
 Such a gene is masked whole together with the flank on both sides. Masking only part of it would
-leave a hole, whose edges read as transitions that are not there (see `overlap_masking.md`).
+leave a hole, whose edges read as transitions that are not there (see `overlap_masking.md`). An
+intron the transcript starts or ends in lies only partly inside it, so its length is not checked;
+it is a truncated intron, and the transcript's start or end counts as not biological.
 
 Overlapping exon or CDS lines are a structure that cannot exist and most likely come from a wrong
 annotation, so the gene is masked whole together with the flank on both sides, and both ends of
-its transcript and CDS count as not biological. Nothing else is checked for such a transcript: the
-spliced CDS sequence the codon and frame checks read repeats the overlapping bases and is wrong,
-so whatever they reported would be wrong too. A wrong starting phase changes no label,
+its transcript and CDS count as not biological. No further checks are applied to such a
+transcript: concatenating overlapping CDS pieces duplicates the bases they share, so the
+reconstructed coding sequence, on which the codon and reading-frame checks operate, is incorrect.
+A wrong starting phase changes no label,
 as the importer sets every CDS phase itself whatever the file says, so it is recorded as a zero
 length error feature (see below). The file's phases of the other CDS pieces are not checked at
 all: they are never used, and a CDS that really leaves its frame is caught as truncated_cds.
