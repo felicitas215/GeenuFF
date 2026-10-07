@@ -64,6 +64,7 @@ MISSING_START_CODON = 'missing_start_codon'
 MISSING_STOP_CODON = 'missing_stop_codon'
 WRONG_PHASE_5P = 'wrong_starting_phase'
 OVERLAPPING_EXONS = 'overlapping_exons'
+OVERLAPPING_CDS = 'overlapping_cds'
 TOO_SHORT_INTRON = 'too_short_intron'
 SL_OVERLAP_ERROR = 'super_loci_overlap_error'
 MISMATCHING_STRANDS = 'mismatching_strands'
@@ -71,7 +72,7 @@ TRUNCATED_INTRON = 'truncated_intron'
 TRUNCATED_CDS = 'truncated_cds'
 INFRAME_STOP_CODON = 'inframe_stop_codon'
 Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, EMPTY_SUPER_LOCUS, MISSING_START_CODON,
-                   MISSING_STOP_CODON, WRONG_PHASE_5P, OVERLAPPING_EXONS,
+                   MISSING_STOP_CODON, WRONG_PHASE_5P, OVERLAPPING_EXONS, OVERLAPPING_CDS,
                    TOO_SHORT_INTRON, SL_OVERLAP_ERROR, MISMATCHING_STRANDS, TRUNCATED_INTRON,
                    TRUNCATED_CDS, INFRAME_STOP_CODON)
 
@@ -84,12 +85,13 @@ geenuff_error_type_values = [t.value for t in Errors]
 # stay in the database either way.
 UNPLACEABLE_STRAND = 'unplaceable_strand'  # not on one definite strand, see docs/trans_splicing.md
 UNPLACEABLE_COORDINATES = 'unplaceable_coordinates'  # a line whose start runs past its end
+OUTSIDE_SEQUENCE = 'outside_sequence'  # a line starting before or ending past its sequence
 OVERLAP_DROPPED = 'overlap_dropped'  # gave way so an overlapping partner could be kept whole
 
 # of those, the reasons a locus cannot be written out at all, whatever it is written for: where
 # its features belong is what is unknown about it. OVERLAP_DROPPED is deliberately not among
 # them, nothing being wrong with such a locus beyond sharing sequence with another, which only a
 # consumer holding one label per base pair cannot take.
-unrepresentable_reasons = (UNPLACEABLE_STRAND, UNPLACEABLE_COORDINATES)
+unrepresentable_reasons = (UNPLACEABLE_STRAND, UNPLACEABLE_COORDINATES, OUTSIDE_SEQUENCE)
 
 GeenuffFeature = join_to_enum('GeenuffFeature', GeenuffSequenceFeature, Errors)

@@ -11,7 +11,6 @@ from geenuff.base import orm, types
 import json
 from geenuff.applications.exporter import GeenuffExportController
 
-
 EXPORTING_PFX = 'testdata/exporting.'
 EXONEXONCDS_PFX = 'testdata/exonexonCDS.'
 SPLIT_CODON_PFX = 'testdata/split_codon.'
@@ -541,7 +540,7 @@ def test_get_spliced_UTRs():
                "TTTTGTCAACGATCACATTCACATGTCACTTATTAGATATTGTAATATGTAATGTTTGGA"
                "CCGACGTCGAAGCATAAGCAGGTGATTGGTCGATGGATC"
                )
-    ]
+              ]
     econtroller, lcontroller = seq_len_controllers('UTR')
     assert len(econtroller.export_ranges) == len(lcontroller.export_ranges) == 4
     compare2controllers(expect, econtroller, lcontroller)
@@ -561,7 +560,7 @@ def test_get_spliced_UTRs():
                "TGTTTGTTTCGGCAAATAGAAGTTGATGTACATGGCATGTCTGATGTTTGTATTTTGTAC"
                "CTAGAATAATGGAAACAATGCGTT"
                ),
-               ('Gm01:923-1415_Gm01:2042-2081', 533,
+              ('Gm01:923-1415_Gm01:2042-2081', 533,
                "TAACGGCGAAAACTTTGTGTCCACCGCCCAGCCCCTCGGCCAATCCCCCAAAACACAAAA"
                "AACTGTTTTTAAAACATAAAAAAAAAACTCATAACATATGAATAATAATAACAATAAAAA"
                "CTAAGAAGCAATAATTATTATTTAATTGTGCATTAAGATATGATTTAAGGGAGATAAGGG"
@@ -578,7 +577,8 @@ def test_get_spliced_UTRs():
                "TATTTTTCTTTCAAAGGTTGGGGATGATGGGGACAAGATTCAGATATATTATTCAAGATT"
                "AGCTGAAAAGTTTTCTGGGGAGGAGCTCTTTTGTCCTTTTTTTTGTTTTTTTTTCTTCCT"
                "TTTATGTTTAAAATTTCAACCACTATTTTGTTACATTTAAATTGGCATCTTCCCCCATTT"
-               "CCATT")
+               # the sequence's last 56bp are unknown in the test data, written as N
+               "CCATT" + 'N' * 56)
               ]
     econtroller, lcontroller = seq_len_controllers('UTR', db=EXONEXONCDS_DB)
     assert len(econtroller.export_ranges) == len(lcontroller.export_ranges) == 4
@@ -652,7 +652,8 @@ def test_get_json_feature():
         slh = SuperLocusJsonable(sl)
         #print(json.dumps(slh.to_jsonable(sl, coord, 790, 3000, True), indent=2))
     #print(controller.session.query(orm.Genome).all())
-    meh = controller.coordinate_range_to_jsonable('dummy', seqid='Chr1:195000-199000', start=1, end=3900, is_plus_strand=True)
+    meh = controller.coordinate_range_to_jsonable('dummy', seqid='Chr1:195000-199000', start=1, end=3900,
+                                                  is_plus_strand=True)
     assert len(meh) == 1
     assert meh[0]['coordinate_piece']['seqid'] == 'Chr1:195000-199000'
     assert len(meh[0]['coordinate_piece']['sequence']) == 3899

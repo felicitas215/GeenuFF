@@ -28,22 +28,22 @@ nearest end before it or start after it, or toward the end of the sequence where
 A gene overlapping it is not a neighbour, sharing sequence with it rather than bounding it, so
 the flank is measured past it. A gene dropped for an overlap still counts as a neighbour.
 
-The flank reaches `min(int(10 * sqrt(gap)), midpoint of the gap)` bp into the gap, the midpoint
-rounded up in genomic coordinates on both strands. Where the midpoint binds (gaps below about
-400 bp), the flanks of two genes meet exactly, with no base masked twice or skipped; where the
-square root binds, they leave the middle of the gap unmasked, so sequence far enough from any
-gene stays usable as intergenic. Genes without a CDS do not bound a flank, as a transposon or
-lncRNA overlapping a coding gene would otherwise leave that gene no flank at all.
+The flank reaches `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap. Where the half-gap term
+binds (gaps up to about 400 bp), the flanks of two genes nearly meet, leaving at most one base
+between them in an odd gap; where the square root term binds, they leave the middle of the gap
+unmasked, so sequence far enough from any gene stays usable as intergenic. Genes without a CDS do
+not bound a flank, as a transposon or lncRNA overlapping a coding gene would otherwise leave that
+gene no flank at all.
 
-**To watch: masking in dense genomes.** Up to a gap of 400 bp the midpoint always binds
-(`10 * sqrt(gap) >= gap / 2` exactly there), so an erroneous gene masks half of every such gap
-next to it, however small, and a gap between two erroneous genes is masked entirely:
+**To watch: masking in dense genomes.** Up to a gap of about 400 bp the half-gap term binds, so an
+erroneous gene masks half of every such gap next to it, however small, and a gap between two
+erroneous genes is masked entirely, save at most one base:
 
 | gap    | flank per erroneous side | gap masked, one erroneous neighbour | gap masked, both erroneous |
 |--------|--------------------------|-------------------------------------|----------------------------|
 | 100 bp | 50 bp                    | 50 %                                | 100 %                      |
 | 400 bp | 200 bp                   | 50 %                                | 100 %                      |
-| 1 kb   | 316 bp                   | 32 %                                | 63 %                       |
+| 1 kb   | 310 bp                   | 31 %                                | 62 %                       |
 | 2.5 kb | 500 bp                   | 20 %                                | 40 %                       |
 | 10 kb  | 1000 bp                  | 10 %                                | 20 %                       |
 
@@ -51,10 +51,9 @@ Within one gap this rarely masks sequence that is clearly intergenic, 50-200 bp 
 typical UTR length. The risk is a bias: in compact genomes (fungi, many algae, gene-dense plant
 regions) the intergenic sequence left unmasked comes mostly from long gaps or gaps beside clean
 genes, so short intergenic stretches, typical there, are underrepresented in training. Errors
-masking a gene whole add to this, each taking both neighbouring gaps down to their midpoints. To
+masking a gene whole add to this, each taking both neighbouring gaps down to their middle. To
 check on real data: the share of intergenic base pairs masked, by gap size, on a dense and a
-sparse genome. Possible remedies are a share smaller than half the gap (giving up masks that meet
-exactly).
+sparse genome. A possible remedy is a share smaller than half the gap.
 
 | type                     | cause                                                   | masked                               |
 |--------------------------|---------------------------------------------------------|--------------------------------------|
@@ -66,7 +65,8 @@ exactly).
 | inframe_stop_codon       | a stop codon in frame before the end of the CDS         | whole gene and both flanks           |
 | truncated_intron         | the transcript line reaches past its outermost exon     | whole gene and both flanks           |
 | too_short_intron         | intron shorter than `min_intron_length` (default 20 bp) | whole gene and both flanks           |
-| overlapping_exons        | two exons of one transcript overlap                     | the transcript                       |
+| overlapping_exons        | two exon lines of one transcript overlap                | whole gene and both flanks           |
+| overlapping_cds          | two CDS lines of one transcript overlap                 | whole gene and both flanks           |
 | wrong_starting_phase     | phase of the first CDS piece in the file is not 0       | nothing, only recorded               |
 | super_loci_overlap_error | two coding genes share sequence                         | see below and `overlap_masking.md`   |
 
@@ -78,8 +78,11 @@ for a frameshift in the assembly that an annotation pipeline bridged and may or 
 Such a gene is masked whole together with the flank on both sides. Masking only part of it would
 leave a hole, whose edges read as transitions that are not there (see `overlap_masking.md`).
 
-Overlapping exons are a structure that cannot exist, so none of the labels inside the transcript
-can be trusted; for now only the transcript is masked. A wrong starting phase changes no label,
+Overlapping exon or CDS lines are a structure that cannot exist and most likely come from a wrong
+annotation, so the gene is masked whole together with the flank on both sides, and both ends of
+its transcript and CDS count as not biological. Nothing else is checked for such a transcript: the
+spliced CDS sequence the codon and frame checks read repeats the overlapping bases and is wrong,
+so whatever they reported would be wrong too. A wrong starting phase changes no label,
 as the importer sets every CDS phase itself whatever the file says, so it is recorded as a zero
 length error feature (see below). The file's phases of the other CDS pieces are not checked at
 all: they are never used, and a CDS that really leaves its frame is caught as truncated_cds.
@@ -149,6 +152,15 @@ coordinate system: count from 0, start inclusive, end exclusive.
 So, the "geenuff_cds, start", is at the A, of the ATG, AKA the first
 coding base pair; while in contrast, the "geenuff_cds, end" is
 after the stop-codon, AKA, the first non-coding bp.
+
+##### lines outside their sequence
+
+A transcript with an mRNA, exon or CDS line starting before position 1 or ending past the length
+of its sequence is left out entirely, and its gene is kept out of exports
+(`excluded_from_export = 'outside_sequence'`), counted in the import summary. Such lines come from
+an annotation of another assembly version, or from a gene crossing the origin of a circular
+molecule written with an end past its length. Its sequence cannot be read to check it or label
+it, and a line starting before the sequence could not even be stored.
 
 ##### reverse complement
 

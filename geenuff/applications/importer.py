@@ -32,9 +32,6 @@ NOT_MASKED = 0       # nothing wrong with it
 FLANK_MASKED = 1     # an edge is unknown, e.g. a missing UTR, but the coding sequence is correct
 MASKED_OUTRIGHT = 2  # the coding sequence itself is masked, so keeping the locus recovers nothing
 
-# a mask's flank reaches int(MASK_BUFFER_SQRT_FACTOR * sqrt(gap)) into a gap, at most to its middle
-MASK_BUFFER_SQRT_FACTOR = 10
-
 
 @dataclass(frozen=True)
 class Finding:
@@ -43,12 +40,11 @@ class Finding:
     extent is what the error masks: '5p' or '3p' the flank on that side of the locus, from
     handlers[0] outward; 'whole' the locus and both flanks; or an explicit (start, end) range,
     which is empty for an error that is only recorded. side is the end of every handler that is
-    not where the feature really ends, or None."""
+    not where the feature really ends ('5p', '3p' or 'both'), or None."""
     error_type: str
     extent: str | tuple[int, int]
     side: str | None = None
     handlers: tuple['FeatureImporter', ...] = ()
-
 
 
 # what each orm.SuperLocus.excluded_from_export value means, for the import summary
@@ -56,6 +52,7 @@ UNEXPORTED_REASONS = {
     types.UNPLACEABLE_STRAND: 'their transcript or its exon/CDS lines are not all on one '
                               'definite strand',
     types.UNPLACEABLE_COORDINATES: 'a line of theirs runs backwards, its start past its end',
+    types.OUTSIDE_SEQUENCE: 'a line of theirs starts before or ends past their sequence',
     types.OVERLAP_DROPPED: 'dropped so an overlapping partner could be kept whole (see below)',
 }
 
@@ -85,8 +82,10 @@ class ImportStatistics(object):
         # kept in full but never exported, counted per reason and keyed by the value stored in
         # orm.SuperLocus.excluded_from_export
         self.unexported_super_loci: defaultdict[str, int] = defaultdict(int)
-        # transcripts left out entirely, no line of theirs having a storable range
+        # transcripts left out entirely, no line of theirs having a storable range, or one lying
+        # partly outside their sequence
         self.unstorable_transcripts_dropped: int = 0
+        self.transcripts_outside_sequence_dropped: int = 0
         self.discontinuous_gene_ids_reused: int = 0
         self.gene_parented_duplicates_dropped: int = 0  # see OrganizedGFFEntryGroup._is_parented_to_super_locus
         self.gene_parented_features_reparented: int = 0  # same, but attached to the sole transcript instead
@@ -138,6 +137,8 @@ class ImportStatistics(object):
                 (self.longest_error_free_transcripts, 'of those selected with no error at all'),
                 (self.unstorable_transcripts_dropped, 'dropped, no line of theirs having a '
                                                       'storable range'),
+                (self.transcripts_outside_sequence_dropped, 'dropped, a line of theirs starting '
+                                                            'before or ending past their sequence'),
             ]),
             ('transcripts overlapping another transcript that will be exported on the same strand', [
                 (self.super_loci_overlapping_exported, 'transcripts overlap at least one other'),
@@ -285,6 +286,18 @@ class OrganizedGeenuffImporterGroup(object):
                        f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
                        f"'{sl_i.given_name}' will not be exported")
 
+    def _drop_transcript_outside_sequence(self, sl_i, t_id, line):
+        """Leaves a transcript out entirely because one of its lines starts before its sequence
+        or ends past it, which an annotation of another assembly version, or a gene crossing
+        the origin of a circular molecule written with an end past its length, both produce.
+        Such a line cannot be checked or labelled against the sequence, and one starting before
+        it cannot be stored at all; the locus it belongs to is kept out of exports."""
+        sl_i.excluded_from_export = types.OUTSIDE_SEQUENCE
+        self.controller.stats.transcripts_outside_sequence_dropped += 1
+        logger.warning(f"dropping transcript '{t_id}': its {line.type} runs from {line.start} to "
+                       f"{line.end}, outside its sequence of {self.coord.length} bp; super locus "
+                       f"'{sl_i.given_name}' will not be exported")
+
     def _parse_gff_entries(self, entries):
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
         sl = entries['super_locus']
@@ -331,6 +344,13 @@ class OrganizedGeenuffImporterGroup(object):
             t_id = t.get_ID()
             if t.start > t.end:
                 self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end)
+                continue
+            # GFF coordinates are 1-based and inclusive, so a line lies within its sequence from
+            # 1 up to the sequence length
+            outside = [line for line in [t] + t_entries['exons'] + t_entries['cds']
+                       if line.start < 1 or line.end > self.coord.length]
+            if outside:
+                self._drop_transcript_outside_sequence(sl_i, t_id, outside[0])
                 continue
             t_is_plus_strand = strand_or_none(t)
             # a transcript on neither strand cannot be placed, but its features are still kept,
@@ -394,6 +414,9 @@ class OrganizedGeenuffImporterGroup(object):
                 # from the boundary, as the old per-feature check did, would read into the
                 # intron and report a false MISSING_START/STOP_CODON in that case.
                 cds_seq = spliced_cds_sequence(self.coord.sequence, t_entries['cds'], t_is_plus_strand)
+                # the lines are sorted by start, so any overlap shows between neighbours
+                cds_lines = t_entries['cds']
+                overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
                                         types.GEENUFF_CDS,
@@ -407,6 +430,7 @@ class OrganizedGeenuffImporterGroup(object):
                                         has_inframe_stop=has_inframe_stop_codon(cds_seq),
                                         has_start_codon=cds_seq[:3] == START_CODON,
                                         has_stop_codon=cds_seq[-3:] in STOP_CODONS,
+                                        has_overlapping_pieces=overlapping_cds,
                                         score=t.score,
                                         source=t.source,
                                         controller=self.controller)
@@ -986,35 +1010,22 @@ class GFFErrorHandling(object):
         closest edge rather than the next locus in sort order matters where a long transcript
         encloses a shorter one: the shorter one need not end closest to whatever follows the long
         one. A transcript overlapping locus i is not a neighbour, sharing sequence with it rather
-        than bounding it, so the flank is measured past it.
-
-        A flank reaches min(_buffer_reach(gap), the midpoint of the gap) (see _midpoint)."""
+        than bounding it, so the flank is measured past it."""
         lo, hi = self._extents[i]
         lower, upper = self._sequence_bounds()
         j = bisect.bisect_right(self._ends, lo)
         previous_end = self._ends[j - 1] if j > 0 else lower
         j = bisect.bisect_left(self._starts, hi)
         next_start = self._starts[j] if j < len(self._starts) else upper
-        return (max(lo - self._buffer_reach(lo - previous_end), self._midpoint(previous_end, lo)),
-                min(hi + self._buffer_reach(next_start - hi), self._midpoint(hi, next_start)))
+        return lo - self._flank_reach(lo - previous_end), hi + self._flank_reach(next_start - hi)
 
     @staticmethod
-    def _buffer_reach(gap):
-        """The square root term of a flank, int(MASK_BUFFER_SQRT_FACTOR * sqrt(gap)). Nothing at
-        all where there is no gap, as between touching loci."""
+    def _flank_reach(gap):
+        """How far a flank reaches into a gap, min(gap // 2, int(sqrt(gap)) * 10). Nothing at all
+        where there is no gap, as between touching loci."""
         if gap <= 0:
             return 0
-        return int(MASK_BUFFER_SQRT_FACTOR * math.sqrt(gap))
-
-    def _midpoint(self, a, b):
-        """The midpoint of the gap from a to b (sign-normalised), rounded up in genomic
-        coordinates on both strands. Where the midpoint binds, the mask of the gene before the gap
-        ends exactly where that of the gene after it starts, so no base is masked twice or
-        skipped. On the minus strand rounding up in genomic coordinates is rounding down in
-        sign-normalised ones."""
-        if self.is_plus_strand:
-            return -(-(a + b) // 2)
-        return (a + b) // 2
+        return min(gap // 2, int(math.sqrt(gap)) * 10)
 
     def _decide_overlap_pair(self, i, j, extents):
         """Works out which locus of an overlapping pair is kept, and what is masked in place of
@@ -1161,6 +1172,19 @@ class GFFErrorHandling(object):
     def _find_errors(self, transcript):
         """Every error of a coding transcript, as a list of Finding."""
         cds, tf, introns = transcript['cds'], transcript['transcript_feature'], transcript['introns']
+        proper = [x for x in introns if not self._is_backwards(x)]
+        # overlapping exon lines (a backwards intron standing in for them) or overlapping CDS lines
+        # most likely come from a wrong annotation, so the locus is masked whole together with
+        # the flank on both sides. Nothing else is checked: the spliced CDS sequence the checks
+        # below rely on repeats the overlapping bases and is wrong
+        overlaps = []
+        if len(proper) < len(introns):
+            overlaps.append(types.OVERLAPPING_EXONS)
+        if cds.has_overlapping_pieces:
+            overlaps.append(types.OVERLAPPING_CDS)
+        if overlaps:
+            return [Finding(error_type, 'whole', 'both', (cds, tf)) for error_type in overlaps]
+
         found = []
         # a missing UTR leaves only where the transcript ends unknown, the CDS being sound
         if cds.start == tf.start:
@@ -1179,7 +1203,6 @@ class GFFErrorHandling(object):
             found.append(Finding(types.TRUNCATED_CDS, 'whole'))
         if cds.has_inframe_stop:
             found.append(Finding(types.INFRAME_STOP_CODON, 'whole'))
-        proper = [x for x in introns if not self._is_backwards(x)]
         min_length = self.controller.config['min_intron_length']
         if any(abs(x.end - x.start) < min_length for x in proper):  # cannot be spliced
             found.append(Finding(types.TOO_SHORT_INTRON, 'whole'))
@@ -1190,10 +1213,6 @@ class GFFErrorHandling(object):
             if intron.end == tf.end:
                 found.append(Finding(types.TRUNCATED_INTRON, 'whole', '3p', (intron,)))
 
-        # overlapping exons, a backwards intron standing in for them, are an impossible structure,
-        # so no label inside the transcript can be trusted
-        if len(proper) < len(introns):
-            found.append(Finding(types.OVERLAPPING_EXONS, (tf.start, tf.end)))
         # a starting phase in the file other than 0 is only recorded, the importer setting the
         # phase itself whatever the file says
         if cds.phase_5p != 0:
@@ -1225,9 +1244,9 @@ class GFFErrorHandling(object):
                     continue
                 for finding in transcript['findings']:
                     for handler in finding.handlers:
-                        if finding.side == '5p':
+                        if finding.side in ('5p', 'both'):
                             handler.start_is_biological_start = False
-                        else:
+                        if finding.side in ('3p', 'both'):
                             handler.end_is_biological_end = False
                     if isinstance(finding.extent, tuple):
                         self._add_error(i, transcript, *finding.extent, self.is_plus_strand,
@@ -1403,13 +1422,18 @@ class ImportController(object):
         try:
             self.add_gff(gff_path, clean=clean_gff)
             self.run_analyze()
-        except Exception as e:
+        except Exception:
             self.session.close()
-            part_path = f'{self.database_path}.partial'
-            shutil.move(self.database_path, part_path)
-            logger.error(f'Aborting due to error, attempt so far saved at {part_path} '
-                         f'for debugging purposes')
-            raise e
+            # the path may be given as an SQLAlchemy URL, and an in-memory database has no file
+            file_path = self.database_path.removeprefix('sqlite:///')
+            if os.path.isfile(file_path):
+                part_path = f'{file_path}.partial'
+                shutil.move(file_path, part_path)
+                logger.error(f'Aborting due to error, attempt so far saved at {part_path} '
+                             f'for debugging purposes')
+            else:
+                logger.error('Aborting due to error')
+            raise
         self.stats.log_summary(species)
 
     def add_sequences(self, seq_path, genome_args=None):
@@ -1635,6 +1659,7 @@ class FeatureImporter(Insertable):
                  has_inframe_stop=False,
                  has_start_codon=True,
                  has_stop_codon=True,
+                 has_overlapping_pieces=False,
                  score=None,
                  source=None):
         self.id = InsertCounterHolder.feature()
@@ -1654,6 +1679,7 @@ class FeatureImporter(Insertable):
         self.has_inframe_stop = has_inframe_stop  # only used for the INFRAME_STOP_CODON check
         self.has_start_codon = has_start_codon  # only used for the MISSING_START_CODON check
         self.has_stop_codon = has_stop_codon  # only used for the MISSING_STOP_CODON check
+        self.has_overlapping_pieces = has_overlapping_pieces  # only used for the OVERLAPPING_CDS check
         self.score = score
         self.source = source
         self.start_is_biological_start = True

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 UNWRITTEN_REASONS = {
     types.UNPLACEABLE_STRAND: 'their features are not all on one definite strand',
     types.UNPLACEABLE_COORDINATES: 'a line of theirs runs backwards, its start past its end',
+    types.OUTSIDE_SEQUENCE: 'a line of theirs starts before or ends past their sequence',
     types.OVERLAP_DROPPED: 'they gave way to an overlapping gene that was kept instead',
 }
 
@@ -21,7 +22,7 @@ class FilteredGff3ExportController(GeenuffExportController):
     """Writes a plain GFF3 file of one transcript per gene, the longest coding one, for comparing
     a Helixer prediction against the reference it was trained on.
 
-    By default it writes exactly what the h5 export would train on: only genes that reach that
+    By default, it writes exactly what the h5 export would train on: only genes that reach that
     export, and of those only the ones carrying no error feature at all. That is stricter than the
     h5 export itself, which still includes erroneous transcripts and merely masks them.
 

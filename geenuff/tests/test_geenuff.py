@@ -305,7 +305,7 @@ def test_import_intron_at_seq_end():
     # geenuff_transcript 559 - -1 (not/not biological start/end)
     # geenuff_cds 559 - -1 (y/not biological start/end)
     # geenuff_intron 49 - -1 (y/not biolical start/end)
-    # truncated_intron 881 - -1 and missing_stop_codon 881 - -1, the gene being partial and its
+    # truncated_intron 879 - -1 and missing_stop_codon 879 - -1, the gene being partial and its
     # CDS ending without a stop codon: the whole gene and the flank on both sides, the 3' one
     # having no room left before the sequence start
     for f in features:
@@ -322,10 +322,10 @@ def test_import_intron_at_seq_end():
     assert (transcript.start, transcript.end) == (559, -1)
     assert (cds.start, cds.end) == (559, -1)
     assert (intron.start, intron.end) == (49, -1)
-    # int(10 * sqrt(1040)) = 322 of the 1040bp (560-1599) between the gene and the end of the
+    # int(sqrt(1040)) * 10 = 320 of the 1040bp (560-1599) between the gene and the end of the
     # sequence, no gene lying that way to bound it
-    assert (missing_utr_5p.start, missing_utr_5p.end) == (881, 559)
-    assert whole_gene_errors == [(types.MISSING_STOP_CODON, 881, -1), (types.TRUNCATED_INTRON, 881, -1)]
+    assert (missing_utr_5p.start, missing_utr_5p.end) == (879, 559)
+    assert whole_gene_errors == [(types.MISSING_STOP_CODON, 879, -1), (types.TRUNCATED_INTRON, 879, -1)]
 
     # biological start / ends marked correctly
     assert (transcript.start_is_biological_start, transcript.end_is_biological_end) == (False, False)
@@ -436,14 +436,13 @@ def test_dummyloci_errors():
 
     # test case 1 - see gff file for more documentation
     # two identical error bars after cds for aligned exon/cds pair. Each reaches
-    # int(10 * sqrt(1199)) = 346 of the 1199bp gap to gene_no_ATG, short of its midpoint 1000:
-    # gene_empty and gene_non_coding lie between the two but have no CDS, so they do not bound
-    # a mask (see _buffered_span)
+    # int(sqrt(1199)) * 10 = 340 of the 1199bp gap to gene_no_ATG: gene_empty and gene_non_coding
+    # lie between the two but have no CDS, so they do not bound a mask (see _buffered_span)
     error = {
         'coord_id': coords[0].id,
         'is_plus_strand': True,
         'start': 120,
-        'end': 746,
+        'end': 740,
         'type': types.MISSING_UTR_3P
     }
     assert error_in_list(error, errors)
@@ -456,12 +455,12 @@ def test_dummyloci_errors():
         'type': types.MISSING_UTR_5P
     }
     assert error_in_list(error, errors)
-    # z1 has no start codon, masking the whole gene (0-400) and 346 of the 1199bp gap after it
+    # z1 has no start codon, masking the whole gene (0-400) and 340 of the 1199bp gap after it
     error = {
         'coord_id': coords[0].id,
         'is_plus_strand': True,
         'start': 0,
-        'end': 746,
+        'end': 740,
         'type': types.MISSING_START_CODON
     }
     assert error_in_list(error, errors)
@@ -469,12 +468,12 @@ def test_dummyloci_errors():
     # a premature stop codon; neither was designed on purpose, this is just what falls out of
     # the arbitrary dummy CDS boundaries chosen to test the other errors above. A wrong reading
     # frame masks the whole gene (0-400) and the flank on both sides: nothing lies before it,
-    # and 346 of the 1199bp gap to gene_no_ATG lie after it
+    # and 340 of the 1199bp gap to gene_no_ATG lie after it
     error = {
         'coord_id': coords[0].id,
         'is_plus_strand': True,
         'start': 0,
-        'end': 746,
+        'end': 740,
         'type': types.TRUNCATED_CDS
     }
     assert error_in_list(error, errors)
@@ -482,7 +481,7 @@ def test_dummyloci_errors():
         'coord_id': coords[0].id,
         'is_plus_strand': True,
         'start': 0,
-        'end': 746,
+        'end': 740,
         'type': types.INFRAME_STOP_CODON
     }
     assert error_in_list(error, errors)
@@ -491,7 +490,7 @@ def test_dummyloci_errors():
         'coord_id': coords[0].id,
         'is_plus_strand': True,
         'start': 0,
-        'end': 746,
+        'end': 740,
         'type': types.TRUNCATED_CDS
     }
     assert error_in_list(error, errors)
@@ -508,13 +507,13 @@ def test_dummyloci_errors():
     # assert error_in_list(error, errors)
 
     # test case 4 (test case 3 is without errors)
-    # the whole gene (1599-1800) with 346 of the same 1199bp gap as test case 1 before it and the
-    # 1bp left to the sequence end after it, the midpoint of that gap rounded up
+    # the whole gene (1599-1800) with 340 of the same 1199bp gap as test case 1 before it and
+    # none of the 1bp left to the sequence end after it, 1 // 2 being 0
     error = {
         'coord_id': coords[0].id,
         'is_plus_strand': True,
-        'start': 1253,
-        'end': 1801,
+        'start': 1259,
+        'end': 1800,
         'type': types.MISSING_START_CODON
     }
     assert error_in_list(error, errors)
@@ -522,12 +521,12 @@ def test_dummyloci_errors():
     #### Coordinate 1 ####
 
     # test case 5: x5's spliced CDS (40-151, 152-182) is 143bp, not a multiple of 3, masking the
-    # gene 0-300 and the 249bp gap to test case 6 up to its midpoint 425, rounded up
+    # gene 0-300 and 249 // 2 = 124 of the 249bp gap to test case 6
     error = {
         'coord_id': coords[1].id,
         'is_plus_strand': True,
         'start': 0,
-        'end': 425,
+        'end': 424,
         'type': types.TRUNCATED_CDS
     }
     assert error_in_list(error, errors)
@@ -541,14 +540,14 @@ def test_dummyloci_errors():
         'type': types.WRONG_PHASE_5P
     }
     assert error_in_list(error, errors)
-    # y6's 4bp intron cannot be spliced, masking the gene 549-750 with the gap before it from its
-    # midpoint 425, where test case 5's mask ends, and int(10 * sqrt(1005)) = 317 of the 1005bp
-    # left to the sequence end after it
+    # y6's 4bp intron cannot be spliced, masking the gene 549-750 with 124 of the 249bp gap before
+    # it, leaving base 424 between test case 5's mask and this one, and int(sqrt(1005)) * 10 =
+    # 310 of the 1005bp left to the sequence end after it
     error = {
         'coord_id': coords[1].id,
         'is_plus_strand': True,
         'start': 425,
-        'end': 1067,
+        'end': 1060,
         'type': types.TOO_SHORT_INTRON
     }
     assert error_in_list(error, errors)
@@ -557,41 +556,39 @@ def test_dummyloci_errors():
         'coord_id': coords[1].id,
         'is_plus_strand': True,
         'start': 425,
-        'end': 1067,
+        'end': 1060,
         'type': types.TRUNCATED_CDS
     }
     assert error_in_list(error, errors)
 
-    # test case 7, the 199bp gap (1548-1350) to test case 8 up to its midpoint, rounded up in
-    # genomic coordinates
+    # test case 7, 199 // 2 = 99 of the 199bp gap (1548-1350) to test case 8
     error = {
         'coord_id': coords[1].id,
         'is_plus_strand': False,
-        'start': 1449,
+        'start': 1448,
         'end': 1349,
         'type': types.MISSING_UTR_5P
     }
     assert error_in_list(error, errors)
 
-    # test case 8
+    # test case 8: x8's overlapping exon and CDS lines mask the whole gene (1749-1549) with 2 of
+    # the 5bp (1750-1754) to the end of the sequence before it and 99 of the 199bp (1548-1350) to
+    # test case 7 after it. Its CDS is not checked further, the spliced sequence repeating the
+    # overlapping bases, so its missing start codon is not reported
     error = {
         'coord_id': coords[1].id,
         'is_plus_strand': False,
-        # the whole gene (1749-1549) with the 5bp (1750-1754) to the end of the sequence before
-        # it up to their midpoint and the 199bp (1548-1350) to test case 7 after it up to theirs,
-        # where test case 7's mask ends, both rounded up in genomic coordinates
-        'start': 1752,
+        'start': 1751,
         'end': 1449,
-        'type': types.MISSING_START_CODON
+        'type': types.OVERLAPPING_EXONS
     }
     assert error_in_list(error, errors)
-    # x8's overlapping exons mask its whole transcript (mRNA 1550-1750)
     error = {
         'coord_id': coords[1].id,
         'is_plus_strand': False,
-        'start': 1749,
-        'end': 1548,
-        'type': types.OVERLAPPING_EXONS
+        'start': 1751,
+        'end': 1449,
+        'type': types.OVERLAPPING_CDS
     }
     assert error_in_list(error, errors)
 
@@ -770,12 +767,13 @@ def test_case_8():
     protein = Protein(given_name='x8.p', super_locus=sl)
     assert orm_object_in_list(protein, sl_objects)
 
+    # x8's overlapping exon and CDS lines leave no boundary of it trustworthy
     feature = Feature(given_name='x8',
                       type=types.GeenuffFeature.geenuff_transcript,
                       start=1749,
                       end=1548,
-                      start_is_biological_start=True,
-                      end_is_biological_end=True,
+                      start_is_biological_start=False,
+                      end_is_biological_end=False,
                       is_plus_strand=False,
                       phase=0,
                       coordinate=coords[1])
@@ -785,7 +783,7 @@ def test_case_8():
                       start=1724,
                       end=1573,
                       start_is_biological_start=False,
-                      end_is_biological_end=True,
+                      end_is_biological_end=False,
                       is_plus_strand=False,
                       phase=0,
                       coordinate=coords[1])
@@ -1086,19 +1084,19 @@ def test_overlapping_loci_in_a_chain_are_each_masked_whole():
     # each is masked over its own whole span (geneA 99-999, geneB 199-298, geneC 899-1100), not
     # over what it shares. Every one of them has its CDS flush against its transcript on both
     # ends, and each mask also runs on into the flank on both sides, toward the closest edge of a
-    # gene not overlapping it: geneA back to 50, the midpoint of the 99bp to the sequence start,
-    # and on to 1089, the midpoint of the 180bp to geneE, past geneC overlapping it. geneB,
-    # enclosed by geneA, reaches back to 100 and on to 543, int(10 * sqrt(601)) = 245 toward geneC
+    # gene not overlapping it: geneA back to 50, 49 of the 99bp to the sequence start, and on to
+    # 1089, 90 of the 180bp to geneE, past geneC overlapping it. geneB, enclosed by geneA,
+    # reaches back to 100 and on to 538, int(sqrt(601)) * 10 = 240 toward geneC
     assert overlap_masks_of('rnaA') == [(50, 1089)]
-    assert overlap_masks_of('rnaB') == [(100, 543)]
-    assert overlap_masks_of('rnaC') == [(654, 1140)]
+    assert overlap_masks_of('rnaB') == [(100, 538)]
+    assert overlap_masks_of('rnaC') == [(659, 1139)]
     # geneE sits inside a transcript-less 'gene' record: no genuine conflict, no mask
     assert overlap_masks_of('rnaE') == []
     # the same for the second chain: geneF, geneG and geneH overlap one another, so each reaches
     # back toward geneE's end (1250) and on toward geneI's start (7009)
-    assert overlap_masks_of('rnaF') == [(2061, 5448)]
-    assert overlap_masks_of('rnaG') == [(3385, 7005)]
-    assert overlap_masks_of('rnaH') == [(3430, 4512)]
+    assert overlap_masks_of('rnaF') == [(2069, 5440)]
+    assert overlap_masks_of('rnaG') == [(3389, 7004)]
+    assert overlap_masks_of('rnaH') == [(3439, 4510)]
     # geneI starts after geneG ends; directly adjacent or apart is not an overlap
     assert overlap_masks_of('rnaI') == []
 
@@ -1173,33 +1171,33 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
     assert excluded('geneCrossCoder') is None
     assert excluded('geneCrossGivesWay') == types.OVERLAP_DROPPED
     # geneCrossGivesWay lacks its 3' UTR, so the mask runs on past its own end (652) into the
-    # flank, to 726, the midpoint of the 147bp to geneOuter rounded up
-    assert overlap_masks_of('rnaCrossCoder') == [(399, 726)]
+    # flank, to 725, 73 of the 147bp to geneOuter
+    assert overlap_masks_of('rnaCrossCoder') == [(399, 725)]
 
     # nested: never decided, so both are masked over their whole length and the flank on both
-    # sides, measured past the partner. geneOuter (799-1399) from 726, the midpoint of the 147bp
-    # back to the dropped geneCrossGivesWay, to 1499, the midpoint of the 200bp to
-    # geneBothTruncatedLeft; geneInner (999-1200) from 826, the midpoint of the 347bp back to
-    # geneCrossGivesWay, to 1399, int(10 * sqrt(399)) = 199 of the 399bp to geneBothTruncatedLeft
+    # sides, measured past the partner. geneOuter (799-1399) from 726, 73 of the 147bp back to the
+    # dropped geneCrossGivesWay, to 1499, 100 of the 200bp to geneBothTruncatedLeft; geneInner
+    # (999-1200) from 826, 173 of the 347bp back to geneCrossGivesWay, to 1390,
+    # int(sqrt(399)) * 10 = 190 of the 399bp to geneBothTruncatedLeft
     assert excluded('geneOuter') is None and excluded('geneInner') is None
     assert overlap_masks_of('rnaOuter') == [(726, 1499)]
-    assert overlap_masks_of('rnaInner') == [(826, 1399)]
+    assert overlap_masks_of('rnaInner') == [(826, 1390)]
 
     # both are masked outright, so neither can be kept and both are masked over their whole length
     # and the flank on both sides, measured past the partner overlapping it: geneBothTruncatedLeft
-    # (1599-1899) from 1499, the midpoint of the 200bp to geneOuter, to 2122, 223 of the 500bp to
-    # geneCleanNoCds; geneBothTruncatedRight (1849-2149) from 1637, 212 of the 450bp back to
-    # geneOuter, to 2274, the midpoint of the 250bp to geneCleanNoCds
+    # (1599-1899) from 1499, 100 of the 200bp to geneOuter, to 2119, 220 of the 500bp to
+    # geneCleanNoCds; geneBothTruncatedRight (1849-2149) from 1639, 210 of the 450bp back to
+    # geneOuter, to 2274, 125 of the 250bp to geneCleanNoCds
     assert excluded('geneBothTruncatedLeft') is None and excluded('geneBothTruncatedRight') is None
-    assert overlap_masks_of('rnaBothTruncatedLeft') == [(1499, 2122)]
-    assert overlap_masks_of('rnaBothTruncatedRight') == [(1637, 2274)]
+    assert overlap_masks_of('rnaBothTruncatedLeft') == [(1499, 2119)]
+    assert overlap_masks_of('rnaBothTruncatedRight') == [(1639, 2274)]
 
     # the clean locus is kept although only the truncated one has CDS in the range they share. The
     # dropped geneTruncatedCoder is erroneous, so the mask over its overhang (2699-2950) runs on
-    # int(10 * sqrt(4350)) = 659 into the flank toward the end of the sequence
+    # int(sqrt(4350)) * 10 = 650 into the flank toward the end of the sequence
     assert excluded('geneCleanNoCds') is None
     assert excluded('geneTruncatedCoder') == types.OVERLAP_DROPPED
-    assert overlap_masks_of('rnaCleanNoCds') == [(2699, 3609)]
+    assert overlap_masks_of('rnaCleanNoCds') == [(2699, 3600)]
 
     assert controller.stats.overlap_pairs_resolved == 2
     assert controller.stats.overlap_loci_dropped == 2

@@ -71,7 +71,7 @@ are trusted.
 
 Where no gene lies that way at all, the end of the sequence stands in for one and the mask
 reaches part way toward it by the same rule. It does not run to the end. The flank reaches
-`min(int(10 * sqrt(gap)), midpoint of the gap)`, whose square root term grows slowly enough to be
+`min(gap // 2, int(sqrt(gap)) * 10)`, whose square root term grows slowly enough to be
 a ceiling in itself: a gene at the edge of a 10 Mb chromosome arm masks some 32 kb of it, not all
 10 Mb. One
 unannotated UTR on the last gene of a chromosome should not cost a whole telomere, and sequence
@@ -151,8 +151,9 @@ Damage is graded, not a yes/no:
 | flank masked    | the flank only, coding sequence still labelled | yes, below a clean gene |
 | masked outright | the coding sequence itself                     | no, nothing to recover  |
 
-*flank masked* is a missing UTR; *masked outright* (+ flank if applicable) is a missing start or stop codon, a truncated
-CDS, an in-frame stop codon, a truncated intron, a too short intron or overlapping exons. A wrong
+*flank masked* is a missing UTR; *masked outright* (gene plus the flank on both sides) is a missing
+start or stop codon, a truncated CDS, an in-frame stop codon, a truncated intron, a too short
+intron or overlapping exon or CDS lines. A wrong
 starting phase masks nothing and counts as none. A dropped gene graded anything but none gets
 the flank on the sides it sticks out past the kept gene (see the table in `spec_vs_gff.md`).
 
