@@ -8,7 +8,8 @@ from geenuff.base.so import (SOSequenceFeatures,
                              SOSuperLocusFeatures,
                              SOTranscriptFeatures,
                              SOCDSFeatures,
-                             SOExonFeatures)
+                             SOExonFeatures,
+                             SOUTRFeatures)
 ########
 # GFF
 ########
@@ -34,9 +35,10 @@ IgnorableGFFFeatures = make_enum('IgnorableGFFFeatures', TRANSCRIPTION_START_SIT
 # other useful features
 ExonLevel = join_to_enum('ExonLevel', SOExonFeatures)
 CDSLevel = join_to_enum('CDSLevel', SOCDSFeatures)
+UTRLevel = join_to_enum('UTRLevel', SOUTRFeatures)
 
 UsefulGFFFeatures = join_to_enum('UsefulGFFFeatures', SuperLocusAll, TranscriptLevel,
-                                 ExonLevel, CDSLevel)
+                                 ExonLevel, CDSLevel, UTRLevel)
 
 
 # we will need a list that can be ignored, so w/o things like exon and CDS, but that we can nevertheless
@@ -71,10 +73,12 @@ MISMATCHING_STRANDS = 'mismatching_strands'
 TRUNCATED_INTRON = 'truncated_intron'
 TRUNCATED_CDS = 'truncated_cds'
 INFRAME_STOP_CODON = 'inframe_stop_codon'
+FLOATING_CDS = 'floating_cds'  # CDS lines without a transcript line
+BEYOND_SEQUENCE_EDGE = 'beyond_sequence_edge'  # a coding transcript reaching past its sequence
 Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, EMPTY_SUPER_LOCUS, MISSING_START_CODON,
                    MISSING_STOP_CODON, WRONG_PHASE_5P, OVERLAPPING_EXONS, OVERLAPPING_CDS,
                    TOO_SHORT_INTRON, SL_OVERLAP_ERROR, MISMATCHING_STRANDS, TRUNCATED_INTRON,
-                   TRUNCATED_CDS, INFRAME_STOP_CODON)
+                   TRUNCATED_CDS, INFRAME_STOP_CODON, FLOATING_CDS, BEYOND_SEQUENCE_EDGE)
 
 # frequently used for lookups
 geenuff_error_type_values = [t.value for t in Errors]
@@ -85,7 +89,7 @@ geenuff_error_type_values = [t.value for t in Errors]
 # stay in the database either way.
 UNPLACEABLE_STRAND = 'unplaceable_strand'  # not on one definite strand, see docs/trans_splicing.md
 UNPLACEABLE_COORDINATES = 'unplaceable_coordinates'  # a line whose start runs past its end
-OUTSIDE_SEQUENCE = 'outside_sequence'  # a line starting before or ending past its sequence
+OUTSIDE_SEQUENCE = 'outside_sequence'  # a line past its sequence, no CDS line lying on it
 OVERLAP_DROPPED = 'overlap_dropped'  # gave way so an overlapping partner could be kept whole
 
 # of those, the reasons a locus cannot be written out at all, whatever it is written for: where

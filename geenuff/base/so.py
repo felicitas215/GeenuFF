@@ -3798,3 +3798,15 @@ SOCDSFeatures = make_enum("SOCDSFeatures",
                           CDS,
 )
 
+# the untranslated part of an exon; whole untranslated exons (e.g. noncoding_exon) are exon
+# features, and UTR_region is a region within a UTR rather than a piece of one
+SOUTRFeatures = make_enum("SOUTRFeatures",
+                          UTR,
+                          FIVE_PRIME_UTR,
+                          THREE_PRIME_UTR,
+                          INTERNAL_UTR,
+                          NONCODING_REGION_OF_EXON,
+                          FIVE_PRIME_CODING_EXON_NONCODING_REGION,
+                          THREE_PRIME_CODING_EXON_NONCODING_REGION,
+)
+

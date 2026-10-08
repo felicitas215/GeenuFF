@@ -1436,14 +1436,152 @@ def test_gff_grouper():
 
 def test_gff_grouper_leaves_out_genes_sharing_an_id():
     """gene1's ID is used by two gene lines, so which of them a transcript names is undecidable:
-    both are left out, with their transcripts and those transcripts' exon and CDS lines. Only
+    both are left out, with their transcripts and those transcripts' exon, CDS and UTR lines. Only
     gene2 remains."""
     gff_organizer = OrganizedGFFEntries('testdata/discontinuous_gene.gff3')
     gff_organizer.load_organized_entries()
     groups = gff_organizer.organized_entries['NC_TEST.1']
     assert [group['super_locus'].get_ID() for group in groups] == ['gene2']
     assert gff_organizer.stats.dropped_lines == {'shared_id': {'gene': 2},
-                                                 'parent_dropped': {'mRNA': 2, 'exon': 6, 'CDS': 6}}
+                                                 'parent_dropped': {'mRNA': 2, 'exon': 6, 'CDS': 6,
+                                                                    'five_prime_UTR': 2,
+                                                                    'three_prime_UTR': 2}}
+
+
+@pytest.fixture(scope='module')
+def grouping_organizer():
+    gff_organizer = OrganizedGFFEntries('testdata/grouping.gff3')
+    gff_organizer.load_organized_entries()
+    return gff_organizer
+
+
+def groups_by_gene_id(gff_organizer, seqid):
+    return {group['super_locus'].get_ID(): group for group in gff_organizer.organized_entries[seqid]}
+
+
+def test_transcripts_naming_a_missing_parent_share_a_gene_inferred_for_them(grouping_organizer):
+    """Transcripts naming the same Parent ID that matches no line become isoforms of one gene
+    inferred for them, spanning them all, on their strand where they agree on one and on none
+    otherwise. See testdata/grouping.gff3."""
+    groups = groups_by_gene_id(grouping_organizer, 'A')
+    missing, mixed = groups['missingGene'], groups['missingMixed']
+    gene = missing['super_locus']
+    assert (gene.start, gene.end, gene.strand) == (101, 300, '+')
+    assert {t.get_ID() for t in missing['transcripts']} == {'phantomA', 'phantomB'}
+    gene = mixed['super_locus']
+    assert (gene.start, gene.end, gene.strand) == (1401, 1600, None)
+    assert {t.get_ID() for t in mixed['transcripts']} == {'mixedPlus', 'mixedMinus'}
+    assert grouping_organizer.stats.genes_inferred_for_missing_parents == 2
+
+
+def test_an_exon_naming_several_transcripts_is_put_under_each(grouping_organizer):
+    """GFF3 allows several parents, as for an exon shared by isoforms. See
+    testdata/grouping.gff3."""
+    transcripts = groups_by_gene_id(grouping_organizer, 'A')['g3']['transcripts']
+    assert {t.get_ID(): [(e.start, e.end) for e in t_entries['exons']]
+            for t, t_entries in transcripts.items()} == {'iso1': [(901, 1100)], 'iso2': [(901, 1100)]}
+
+
+def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer):
+    """A gene without an ID, transcripts naming no parent, several genes or another transcript,
+    a transcript and an exon on another sequence than their parent, and every exon below a
+    transcript left out. g1 and g2 remain without transcripts, and nothing remains on sequence B.
+    See testdata/grouping.gff3."""
+    groups = groups_by_gene_id(grouping_organizer, 'A')
+    assert set(groups) == {'missingGene', 'missingMixed', 'g1', 'g2', 'g3'}
+    assert not groups['g1']['transcripts'] and not groups['g2']['transcripts']
+    assert 'B' not in grouping_organizer.organized_entries
+    assert grouping_organizer.stats.dropped_lines == {
+        'no_id': {'gene': 1},
+        'no_parent': {'mRNA': 1},
+        'several_genes': {'mRNA': 1},
+        'parent_not_gene': {'mRNA': 1},
+        'other_sequence': {'mRNA': 1, 'exon': 1},
+        'parent_dropped': {'exon': 3},
+    }
+
+
+@pytest.fixture(scope='module')
+def cds_without_transcript_controller():
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/cds_without_transcript.fa', 'testdata/cds_without_transcript.gff3',
+                          clean_gff=True)
+    return controller
+
+
+def transcripts_by_name(controller):
+    return {t.given_name: t for t in controller.session.query(Transcript)}
+
+
+def feature_ranges(transcript, feature_type):
+    return [(f.start, f.end) for f in transcript.transcript_pieces[0].features if f.type.value == feature_type]
+
+
+def test_exons_are_built_from_the_cds_and_utr_lines_of_a_transcript_without_exon_lines(
+        cds_without_transcript_controller):
+    """Touching UTR and CDS lines form one exon, so tA's only intron lies between its two CDS
+    lines and its UTRs are not missing. See testdata/cds_without_transcript.gff3."""
+    transcripts = transcripts_by_name(cds_without_transcript_controller)
+    assert feature_ranges(transcripts['tA'], types.GEENUFF_INTRON) == [(150, 200)]
+    assert feature_ranges(transcripts['tA'], types.GEENUFF_TRANSCRIPT) == [(100, 300)]
+    assert feature_ranges(transcripts['tA'], types.GEENUFF_CDS) == [(120, 230)]
+    assert not {f.type.value for f in transcripts['tA'].transcript_pieces[0].features} & set(
+        types.geenuff_error_type_values)
+
+
+def test_cds_lines_without_a_transcript_line_are_masked_whole(cds_without_transcript_controller):
+    """CDS lines naming a gene without transcripts, a parent matching no line or no parent each get
+    a transcript spanning them, selected for export and masked over at least that span, under the
+    gene they name or one made for them. See testdata/cds_without_transcript.gff3."""
+    transcripts = transcripts_by_name(cds_without_transcript_controller)
+    spans = {'floating_geneC': (920, 1030), 'floating_ghostT': (1200, 1230),
+             'floating_cds-lost': (1300, 1340), 'floating_CHR:1371-1380': (1370, 1380)}
+    for name, (start, end) in spans.items():
+        assert transcripts[name].longest
+        assert feature_ranges(transcripts[name], types.GEENUFF_TRANSCRIPT) == [(start, end)]
+        masks = feature_ranges(transcripts[name], types.FLOATING_CDS)
+        assert len(masks) == 1 and masks[0][0] <= start and masks[0][1] >= end
+    assert transcripts['floating_geneC'].super_locus.given_name == 'geneC'
+    genes = {sl.given_name for sl in cds_without_transcript_controller.session.query(SuperLocus)}
+    assert genes == {'geneA', 'geneB', 'geneC', 'floating_gene_ghostT', 'floating_gene_cds-lost',
+                     'floating_gene_CHR:1371-1380'}
+    assert cds_without_transcript_controller.stats.floating_cds_transcripts == 4
+    assert cds_without_transcript_controller.stats.floating_cds_genes == 3
+
+
+def test_lines_without_a_transcript_line_that_are_not_masked_are_left_out(cds_without_transcript_controller):
+    """Lines naming a gene that has a transcript, exon and UTR lines naming a parent matching no
+    line, and CDS lines to be masked together that lie on opposite strands. geneB keeps rnaB1
+    alone. See testdata/cds_without_transcript.gff3."""
+    assert cds_without_transcript_controller.stats.dropped_lines == {
+        'gene_parented_duplicate': {'CDS': 1},
+        'gene_parented': {'CDS': 2, 'five_prime_UTR': 1},
+        'unknown_parent': {'three_prime_UTR': 1, 'exon': 1},
+        'floating_cds_unplaceable': {'CDS': 2},
+    }
+    gene_b = cds_without_transcript_controller.session.query(SuperLocus).filter_by(given_name='geneB').one()
+    assert [t.given_name for t in gene_b.transcripts] == ['rnaB1']
+
+
+def test_coding_transcripts_past_a_sequence_edge_are_clipped_and_masked_whole():
+    """A coding transcript reaching past its sequence keeps the part on it, selected for export
+    and masked over at least that part; one with no CDS line on the sequence is left out with its
+    gene. See testdata/sequence_edge.gff3."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/sequence_edge.fa', 'testdata/sequence_edge.gff3', clean_gff=True)
+    transcripts = transcripts_by_name(controller)
+
+    for name, span, cds in [('tStart', (0, 60), (10, 50)), ('tEdge', (100, 200), (120, 200))]:
+        assert transcripts[name].longest
+        assert feature_ranges(transcripts[name], types.GEENUFF_TRANSCRIPT) == [span]
+        assert feature_ranges(transcripts[name], types.GEENUFF_CDS) == [cds]
+        masks = feature_ranges(transcripts[name], types.BEYOND_SEQUENCE_EDGE)
+        assert len(masks) == 1 and masks[0][0] <= span[0] and masks[0][1] >= span[1]
+    assert 'tGone' not in transcripts
+    gene_gone = controller.session.query(SuperLocus).filter_by(given_name='geneGone').one()
+    assert gene_gone.excluded_from_export == types.OUTSIDE_SEQUENCE
+    assert controller.stats.transcripts_outside_sequence_dropped == 1
+    assert controller.stats.errors[types.BEYOND_SEQUENCE_EDGE] == 2
 
 
 # section: types

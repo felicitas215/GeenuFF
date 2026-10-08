@@ -1,0 +1,43 @@
+##gff-version 3
+##sequence-region CHR 1 1600
+# Cases of a transcript without exon lines and of CDS lines without a transcript line (see
+# OrganizedGFFEntries._place_pieces), with the outcome each is expected to have. The CDS of tA,
+# rnaB1, cds-B2, geneC and ghostT start with ATG and end with TAA, the sequence being C elsewhere,
+# so that a mask on them comes from their lacking a transcript line alone.
+#
+# tA has no exon lines, as in Phytozome: its exons are built from its UTR and CDS lines, the
+# touching ones joined, 101-150 and 201-300
+CHR	test	gene	101	300	.	+	.	ID=geneA
+CHR	test	mRNA	101	300	.	+	.	ID=tA;Parent=geneA
+CHR	test	five_prime_UTR	101	120	.	+	.	ID=tA.five_prime_UTR.1;Parent=tA
+CHR	test	CDS	121	150	.	+	0	ID=tA.CDS.1;Parent=tA
+CHR	test	CDS	201	230	.	+	0	ID=tA.CDS.2;Parent=tA
+CHR	test	three_prime_UTR	231	300	.	+	.	ID=tA.three_prime_UTR.1;Parent=tA
+# geneB has a transcript, so the lines naming geneB are left out: cds-B1-echo duplicates rnaB1's
+# CDS, cds-B2 and the UTR line do not
+CHR	test	gene	401	700	.	+	.	ID=geneB
+CHR	test	mRNA	401	700	.	+	.	ID=rnaB1;Parent=geneB
+CHR	test	exon	401	700	.	+	.	Parent=rnaB1
+CHR	test	CDS	421	480	.	+	0	ID=cds-B1;Parent=rnaB1
+CHR	test	CDS	421	450	.	+	0	ID=cds-B2;Parent=geneB
+CHR	test	CDS	501	560	.	+	0	ID=cds-B2;Parent=geneB
+CHR	test	CDS	421	480	.	+	0	ID=cds-B1-echo;Parent=geneB
+CHR	test	five_prime_UTR	401	420	.	+	.	Parent=geneB
+# geneC has no transcript, only CDS lines naming it: they are masked by a transcript under geneC
+# spanning 921-1030
+CHR	test	gene	901	1100	.	+	.	ID=geneC
+CHR	test	CDS	921	950	.	+	0	ID=isoC-1;Parent=geneC
+CHR	test	CDS	1001	1030	.	+	0	ID=isoC-2;Parent=geneC
+# ghostT matches no line: its CDS is masked by a transcript in a gene made for it (flank included), its UTR left out
+CHR	test	CDS	1201	1230	.	+	0	ID=cds-ghostT;Parent=ghostT
+CHR	test	three_prime_UTR	1231	1260	.	+	.	Parent=ghostT
+# CDS lines naming no parent: the two sharing the ID cds-lost are masked together, spanning
+# 1301-1340, the one without an ID on its own
+CHR	test	CDS	1301	1310	.	+	0	ID=cds-lost
+CHR	test	CDS	1331	1340	.	+	0	ID=cds-lost
+CHR	test	CDS	1371	1380	.	+	0	.
+# ghostMixed matches no line, and its CDS lines lie on opposite strands: left out
+CHR	test	CDS	1401	1410	.	+	0	Parent=ghostMixed
+CHR	test	CDS	1421	1430	.	-	0	Parent=ghostMixed
+# ghostX matches no line and is named by no CDS line: its exon is left out
+CHR	test	exon	1501	1530	.	+	.	Parent=ghostX

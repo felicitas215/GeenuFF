@@ -60,11 +60,16 @@ DROPPED_LINE_REASONS = {
                  'which one a child names is undecidable',
     'several_genes': 'transcript lines naming more than one gene as their parent',
     'parent_not_gene': 'transcript lines naming another transcript as their parent',
-    'no_parent': 'transcript, exon and CDS lines naming no parent',
-    'unknown_parent': 'exon/CDS lines whose parent matches no line',
-    'gene_parented_duplicate': "exon/CDS lines naming a gene as their parent and duplicating a "
-                               "line of one of that gene's transcripts",
-    'gene_parented': 'exon/CDS lines naming a gene instead of a transcript as their parent',
+    'no_parent': 'transcript, exon and UTR lines naming no parent (CDS lines naming none are masked)',
+    'unknown_parent': 'exon and UTR lines naming a parent that matches no line (CDS lines doing so '
+                      'are masked)',
+    'gene_parented_duplicate': 'exon, UTR and CDS lines whose parent is a gene with transcripts, '
+                               'duplicating a line of one of those transcripts',
+    'gene_parented': 'exon, UTR and CDS lines whose parent is a gene with transcripts, duplicating no '
+                     'line of them, and exon and UTR lines whose parent is a gene without transcripts '
+                     '(CDS lines doing so are masked)',
+    'floating_cds_unplaceable': 'CDS lines to be masked together that lie on different sequences or '
+                                'strands, or on another sequence or strand than the gene they name',
     'parent_dropped': 'lines whose parent was left out',
     'other_sequence': 'lines on another sequence than their parent',
 }
@@ -89,6 +94,13 @@ class ImportStatistics(object):
         # genes inferred for a Parent ID of transcripts that names no line in the file, one per
         # such ID, shared by every transcript naming it
         self.genes_inferred_for_missing_parents: int = 0
+        # CDS lines without a transcript line are masked by a transcript made for them, in a gene
+        # made for them unless they name a gene without transcripts (see
+        # OrganizedGFFEntries._place_floating_cds)
+        self.floating_cds_transcripts: int = 0
+        self.floating_cds_genes: int = 0
+        # transcripts with CDS lines but no exon lines, their exons built from their CDS and UTR lines
+        self.transcripts_with_exons_built: int = 0
         # GFF lines left out while grouping, keyed by a DROPPED_LINE_REASONS key and then by GFF
         # type; a line with several parents counts once per parent it is left out for
         self.dropped_lines: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -97,7 +109,8 @@ class ImportStatistics(object):
         # orm.SuperLocus.excluded_from_export
         self.unexported_super_loci: defaultdict[str, int] = defaultdict(int)
         # transcripts left out entirely, no line of theirs having a storable range, or one lying
-        # partly outside their sequence
+        # partly outside their sequence with no CDS line on it; a coding one is clipped instead and
+        # masked whole, counted among the errors as beyond_sequence_edge
         self.unstorable_transcripts_dropped: int = 0
         self.transcripts_outside_sequence_dropped: int = 0
         self.backwards_errors_removed: int = 0  # from overlapping super loci, see _remove_backwards_errors
@@ -139,23 +152,30 @@ class ImportStatistics(object):
                         + self.overlap_loci_in_chains)
         sections = [
             ('loci', [
-                (self.total_super_loci, 'genes imported, the inferred ones below included'),
+                (self.total_super_loci, 'genes imported, the inferred and made ones below included'),
                 (self.coding_super_loci, 'of them with a coding transcript'),
                 (self.empty_super_loci, 'of them with no transcript under them'),
                 (self.genes_inferred_for_missing_parents, 'genes inferred for a Parent ID of '
                                                           'transcripts naming no line'),
+                (self.floating_cds_genes, 'genes made to mask CDS lines naming no parent or a parent '
+                                          'matching no line'),
                 (self.unstranded_super_loci, "gene lines on neither strand, e.g. '.' or NCBI's '?'"),
             ] + [(count, f'genes kept but never exported: {UNEXPORTED_REASONS[reason]}')
                  for reason, count in sorted(self.unexported_super_loci.items())]),
             ('transcripts', [
-                (self.total_transcripts, 'transcripts in the file'),
+                (self.total_transcripts, 'transcripts imported, the made ones below included'),
                 (self.total_coding_transcripts, 'of them with a CDS'),
+                (self.floating_cds_transcripts, 'made to mask CDS lines without a transcript line, '
+                                                'masked whole as floating_cds'),
+                (self.transcripts_with_exons_built, 'with exons built from their CDS and UTR lines, '
+                                                    'having no exon lines'),
                 (self.longest_transcripts, 'selected for export, one per locus that will be exported'),
                 (self.longest_error_free_transcripts, 'of those selected with no error at all'),
                 (self.unstorable_transcripts_dropped, 'dropped, no line of theirs having a '
                                                       'storable range'),
                 (self.transcripts_outside_sequence_dropped, 'dropped, a line of theirs starting '
-                                                            'before or ending past their sequence'),
+                                                            'before or ending past their sequence '
+                                                            'and no CDS line on it'),
             ]),
             ('transcripts overlapping another transcript that will be exported on the same strand', [
                 (self.super_loci_overlapping_exported, f'transcripts overlap at least one other, in '
@@ -268,6 +288,7 @@ class OrganizedGeenuffImporterGroup(object):
                 'introns': [intron_importer1, intron_importer2, ...],
                 'errors': [],  # errors are filled in later
                 'detected_error_types': set(),  # every error type found, see _add_error
+                'mask_whole': None,  # or the error type it is masked whole for, nothing else checked
                 'findings': [...],  # coding transcripts only, see GFFErrorHandling._find_errors
             },
             ...
@@ -297,12 +318,27 @@ class OrganizedGeenuffImporterGroup(object):
                        f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
                        f"'{sl_i.given_name}' will not be exported")
 
+    def _clip_to_sequence(self, t, t_entries):
+        """Clips a transcript reaching past an edge of its sequence to the part on it, leaving out
+        its exon and CDS lines wholly beyond. Returns False, changing nothing, where no CDS line
+        of it lies on the sequence."""
+        length = self.coord.length
+        on_sequence = [line for line in t_entries['cds'] if line.end >= 1 and line.start <= length]
+        if not on_sequence:
+            return False
+        t_entries['cds'] = on_sequence
+        t_entries['exons'] = [line for line in t_entries['exons'] if line.end >= 1 and line.start <= length]
+        for line in [t] + t_entries['exons'] + t_entries['cds']:
+            line.start, line.end = max(line.start, 1), min(line.end, length)
+        return True
+
     def _drop_transcript_outside_sequence(self, sl_i, t_id, line):
-        """Leaves a transcript out entirely because one of its lines starts before its sequence
-        or ends past it, which an annotation of another assembly version, or a gene crossing
-        the origin of a circular molecule written with an end past its length, both produce.
-        Such a line cannot be checked or labelled against the sequence, and one starting before
-        it cannot be stored at all; the locus it belongs to is kept out of exports."""
+        """Leaves a transcript with no CDS line on its sequence out entirely because one of its
+        lines starts before its sequence or ends past it, which an annotation of another assembly
+        version, or a gene crossing the origin of a circular molecule written with an end past
+        its length, both produce. Such a line cannot be checked or labelled against the sequence,
+        and one starting before it cannot be stored at all; the locus it belongs to is kept out
+        of exports."""
         sl_i.excluded_from_export = types.OUTSIDE_SEQUENCE
         self.controller.stats.transcripts_outside_sequence_dropped += 1
         logger.warning(f"dropping transcript '{t_id}': its {line.type} runs from {line.start} to "
@@ -348,7 +384,11 @@ class OrganizedGeenuffImporterGroup(object):
                                                                   controller=self.controller)
         for t, t_entries in entries['transcripts'].items():
             stats.total_transcripts += 1
-            t_importers = {'errors': [], 'detected_error_types': set()}
+            stats.floating_cds_transcripts += t_entries['floating']
+            stats.transcripts_with_exons_built += t_entries['exons_built']
+            # masked whole without further checks, see GFFErrorHandling._find_errors
+            t_importers = {'errors': [], 'detected_error_types': set(),
+                           'mask_whole': types.FLOATING_CDS if t_entries['floating'] else None}
             t_id = t.get_ID()
             if t.start > t.end:
                 self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end)
@@ -358,8 +398,10 @@ class OrganizedGeenuffImporterGroup(object):
             outside = [line for line in [t] + t_entries['exons'] + t_entries['cds']
                        if line.start < 1 or line.end > self.coord.length]
             if outside:
-                self._drop_transcript_outside_sequence(sl_i, t_id, outside[0])
-                continue
+                if not self._clip_to_sequence(t, t_entries):
+                    self._drop_transcript_outside_sequence(sl_i, t_id, outside[0])
+                    continue
+                t_importers['mask_whole'] = types.BEYOND_SEQUENCE_EDGE
             t_is_plus_strand = strand_or_none(t)
             # a transcript on neither strand cannot be placed, but its features are still kept,
             # on the gene's strand, rather than dropped; where it codes, the locus is marked
@@ -407,7 +449,8 @@ class OrganizedGeenuffImporterGroup(object):
                     logger.debug(f"coding transcript '{t_id}' is not on a single definite strand; "
                                  f"super locus '{sl.get_ID()}' will not be exported")
                 # create protein handler
-                protein_id = self._get_protein_id_from_cds_list(t_entries['cds'])
+                # floating CDS lines masked together can name several proteins or none
+                protein_id = t_id if t_entries['floating'] else self._get_protein_id_from_cds_list(t_entries['cds'])
                 p_i = ProteinImporter(given_name=protein_id,
                                       super_locus_id=sl_i.id,
                                       controller=self.controller)
@@ -612,18 +655,17 @@ class OrganizedGFFEntryGroup(object):
     corresponding OrganizedGeenuffImporterGroup. Does not perform error checking, which happens
     later.
 
-    The entries are organised in the following way, exons and CDS sorted by start:
+    The entries are organised in the following way, exons, CDS and UTRs sorted by start:
 
     entries = {
         'super_locus' = super_locus_entry,
         'transcripts' = {
             transcript_entry1: {
                 'exons': [ordered_exon_entry1, ordered_exon_entry2, ...],
-                'cds': [ordered_cds_entry1, ordered_cds_entry2, ...]
-            },
-            transcript_entry2: {
-                'exons': [ordered_exon_entry1, ordered_exon_entry2, ...],
-                'cds': [ordered_cds_entry1, ordered_cds_entry2, ...]
+                'cds': [ordered_cds_entry1, ordered_cds_entry2, ...],
+                'utrs': [ordered_utr_entry1, ordered_utr_entry2, ...],
+                'exons_built': False,  # True where the exons were built from CDS and UTR lines
+                'floating': False,  # True for one made only to mask CDS lines without a transcript line
             },
             ...
         }
@@ -671,7 +713,7 @@ class OrganizedGFFEntries(object):
                 genes.append(entry)
             elif in_enum_values(entry.type, types.TranscriptLevel):
                 transcripts.append(entry)
-            elif in_enum_values(entry.type, types.ExonLevel) or in_enum_values(entry.type, types.CDSLevel):
+            elif self._piece_key(entry) is not None:
                 pieces.append(entry)
             else:
                 logger.debug(f'ignoring {entry.type} at {entry.seqid}:{entry.start}-{entry.end}')
@@ -687,10 +729,47 @@ class OrganizedGFFEntries(object):
 
         self.organized_entries = {}
         for group in groups.values():
-            for t_entries in group['transcripts'].values():
-                for key in ['exons', 'cds']:
+            for t, t_entries in group['transcripts'].items():
+                for key in ['exons', 'cds', 'utrs']:
                     t_entries[key].sort(key=lambda e: e.start)
+                if t_entries['cds'] and not t_entries['exons']:
+                    t_entries['exons'] = self._built_exons(t, t_entries)
+                    t_entries['exons_built'] = True
             self.organized_entries.setdefault(group['super_locus'].seqid, []).append(group)
+
+    @staticmethod
+    def _piece_key(entry):
+        """Where an exon, CDS or UTR line goes among its transcript's lines, None for other lines."""
+        for level, key in [(types.ExonLevel, 'exons'), (types.CDSLevel, 'cds'), (types.UTRLevel, 'utrs')]:
+            if in_enum_values(entry.type, level):
+                return key
+        return None
+
+    @staticmethod
+    def _new_t_entries(floating=False):
+        """The lines of one transcript; floating is True for one made only to mask CDS lines
+        without a transcript line, see _place_floating_cds."""
+        return {'exons': [], 'cds': [], 'utrs': [], 'exons_built': False, 'floating': floating}
+
+    def _line(self, seqid, feature_type, start, end, strand, attributes):
+        """A GFF line made by GeenuFF itself, for a gene, transcript or exon the file lacks."""
+        line = gffhelper.GFFObject(f'{seqid}\tGeenuFF\t{feature_type}\t{start}\t{end}\t.\t'
+                                   f'{strand or "."}\t.\t{attributes}')
+        self._clean_entry(line)
+        return line
+
+    def _built_exons(self, t, t_entries):
+        """Exons for a transcript with CDS lines but no exon lines, built from its CDS and UTR lines:
+        pieces that touch, such as a UTR ending right before the CDS starts, form one exon.
+        Overlapping pieces stay apart, so that the overlap is found as an error."""
+        exons = []
+        for piece in sorted(t_entries['cds'] + t_entries['utrs'], key=lambda e: e.start):
+            if exons and piece.start == exons[-1].end + 1:
+                exons[-1].end = piece.end
+            else:
+                exons.append(self._line(piece.seqid, 'exon', piece.start, piece.end, piece.strand,
+                                        f'Parent={t.get_ID()}'))
+        return exons
 
     @staticmethod
     def _id_of(entry):
@@ -740,7 +819,7 @@ class OrganizedGFFEntries(object):
                 named_missing_parent[parents[0]].append(t)
                 continue
             if reason is None:
-                groups[parents[0]]['transcripts'][t] = {'exons': [], 'cds': []}
+                groups[parents[0]]['transcripts'][t] = self._new_t_entries()
             else:
                 self._drop(t, reason)
                 dropped_ids.add(t_id)
@@ -753,32 +832,35 @@ class OrganizedGFFEntries(object):
                     dropped_ids.add(t.get_ID())
             members = [t for t in members if t.seqid == seqid]
             groups[parent_id] = {'super_locus': self._inferred_gene(parent_id, members),
-                                 'transcripts': {t: {'exons': [], 'cds': []} for t in members}}
+                                 'transcripts': {t: self._new_t_entries() for t in members}}
             self.stats.genes_inferred_for_missing_parents += 1
 
     def _inferred_gene(self, gene_id, transcripts):
         """A gene line for transcripts naming a Parent ID that matches no line, spanning them all,
         on their strand where they agree on one and on none otherwise."""
         strands = {t.strand for t in transcripts}
-        strand = strands.pop() if len(strands) == 1 and None not in strands else '.'
-        line = (f'{transcripts[0].seqid}\tGeenuFF\tgene\t{min(t.start for t in transcripts)}\t'
-                f'{max(t.end for t in transcripts)}\t.\t{strand}\t.\tID={gene_id}')
-        gene = gffhelper.GFFObject(line)
-        self._clean_entry(gene)
-        return gene
+        strand = strands.pop() if len(strands) == 1 else None
+        return self._line(transcripts[0].seqid, 'gene', min(t.start for t in transcripts),
+                          max(t.end for t in transcripts), strand, f'ID={gene_id}')
 
     def _place_pieces(self, pieces, groups, dropped_ids):
-        """Puts every exon and CDS line under each transcript it names, several being allowed.
-        One naming a gene is left out, whether or not it duplicates a line of one of that gene's
-        transcripts: it could equally belong to an isoform given no transcript line of its own."""
+        """Puts every exon, CDS and UTR line under each transcript it names, several being allowed.
+        An exon or UTR line naming a gene is left out, whether or not it duplicates a line of one
+        of that gene's transcripts: it could equally belong to an isoform the file gives no
+        transcript line of its own. CDS lines without a transcript line are masked instead (see
+        _place_floating_cds), unless they name a gene that has transcripts."""
         transcripts = {t.get_ID(): (t, t_entries) for group in groups.values()
                        for t, t_entries in group['transcripts'].items()}
-        gene_parented = []
+        gene_parented, floating = [], defaultdict(list)
         for piece in pieces:
-            key = 'exons' if in_enum_values(piece.type, types.ExonLevel) else 'cds'
+            key = self._piece_key(piece)
             parents = piece.get_Parent() or []
             if not parents:
-                self._drop(piece, 'no_parent')
+                if key == 'cds':
+                    name = self._id_of(piece) or f'{piece.seqid}:{piece.start}-{piece.end}'
+                    floating[('no_parent', name)].append(piece)
+                else:
+                    self._drop(piece, 'no_parent')
             for parent_id in parents:
                 if parent_id in transcripts:
                     t, t_entries = transcripts[parent_id]
@@ -787,9 +869,14 @@ class OrganizedGFFEntries(object):
                     else:
                         t_entries[key].append(piece)
                 elif parent_id in groups:
-                    gene_parented.append((piece, key, parent_id))
+                    if key == 'cds' and not groups[parent_id]['transcripts']:
+                        floating[('gene', parent_id)].append(piece)
+                    else:
+                        gene_parented.append((piece, key, parent_id))
                 elif parent_id in dropped_ids:
                     self._drop(piece, 'parent_dropped')
+                elif key == 'cds':
+                    floating[('unknown_parent', parent_id)].append(piece)
                 else:
                     self._drop(piece, 'unknown_parent')
 
@@ -800,6 +887,32 @@ class OrganizedGFFEntries(object):
                             for t_entries in groups[gene_id]['transcripts'].values()
                             for other in t_entries[key])
             self._drop(piece, 'gene_parented_duplicate' if duplicate else 'gene_parented')
+        self._place_floating_cds(floating, groups)
+
+    def _place_floating_cds(self, floating, groups):
+        """CDS lines without a transcript line: naming a gene without transcripts or a parent that
+        matches no line, grouped by that parent's ID; or naming no parent, grouped only where they
+        share an identical ID (e.g. NCBI), each on its own otherwise. What they code is unknown,
+        but some gene was annotated there, so each group
+        gets a transcript spanning it that is masked whole (see GFFErrorHandling._find_errors),
+        under the gene it names or a gene made for it. A group is left out if its lines lie on
+        different sequences or strands, or on another sequence or strand than the gene they name."""
+        for (kind, name), lines in floating.items():
+            gene = groups[name]['super_locus'] if kind == 'gene' else None
+            places = {(line.seqid, line.strand) for line in lines + ([gene] if gene else [])}
+            if len(places) > 1:
+                for line in lines:
+                    self._drop(line, 'floating_cds_unplaceable')
+                continue
+            gene_id = name if gene else f'floating_gene_{name}'
+            t = self._line(lines[0].seqid, 'mRNA', min(line.start for line in lines),
+                           max(line.end for line in lines), lines[0].strand,
+                           f'ID=floating_{name};Parent={gene_id}')
+            if gene is None:
+                groups[gene_id] = {'super_locus': self._inferred_gene(gene_id, [t]), 'transcripts': {}}
+                self.stats.floating_cds_genes += 1
+            t_entries = groups[gene_id]['transcripts'][t] = self._new_t_entries(floating=True)
+            t_entries['cds'] = lines
 
     def _useful_gff_entries(self):
         skipable = [x.value for x in types.IgnorableGFFFeatures]
@@ -1158,6 +1271,10 @@ class GFFErrorHandling(object):
     def _find_errors(self, transcript):
         """Every error of a coding transcript, as a list of Finding."""
         cds, tf, introns = transcript['cds'], transcript['transcript_feature'], transcript['introns']
+        # made only to mask CDS lines without a transcript line, or cut off by its sequence's edge:
+        # nothing else about it is known
+        if transcript['mask_whole']:
+            return [Finding(transcript['mask_whole'], 'whole', 'both', (cds, tf))]
         proper = [x for x in introns if not self._is_backwards(x)]
         # overlapping exon lines (a backwards intron standing in for them) or overlapping CDS lines
         # most likely come from a wrong annotation, so the locus is masked whole together with

@@ -1,0 +1,20 @@
+##gff-version 3
+##sequence-region CHR 1 200
+# Transcripts reaching past an edge of their 200 bp sequence, with the outcome each is expected to
+# have (see OrganizedGeenuffImporterGroup._clip_to_sequence).
+#
+# tStart starts before the sequence: clipped to 1-60 and masked whole
+CHR	test	gene	0	60	.	+	.	ID=geneStart
+CHR	test	mRNA	0	60	.	+	.	ID=tStart;Parent=geneStart
+CHR	test	exon	0	60	.	+	.	Parent=tStart
+CHR	test	CDS	11	50	.	+	0	Parent=tStart
+# tEdge ends past the sequence: clipped to 101-200, its CDS to 121-200, and masked whole
+CHR	test	gene	101	260	.	+	.	ID=geneEdge
+CHR	test	mRNA	101	260	.	+	.	ID=tEdge;Parent=geneEdge
+CHR	test	exon	101	260	.	+	.	Parent=tEdge
+CHR	test	CDS	121	240	.	+	0	Parent=tEdge
+# tGone's CDS lies wholly past the sequence: left out, and geneGone kept out of exports
+CHR	test	gene	190	300	.	-	.	ID=geneGone
+CHR	test	mRNA	190	300	.	-	.	ID=tGone;Parent=geneGone
+CHR	test	exon	190	300	.	-	.	Parent=tGone
+CHR	test	CDS	201	290	.	-	0	Parent=tGone

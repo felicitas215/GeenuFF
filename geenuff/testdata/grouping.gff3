@@ -1,0 +1,38 @@
+##gff-version 3
+##sequence-region A 1 2000
+##sequence-region B 1 2000
+# Cases of grouping GFF lines into genes by their ID and Parent attributes (see
+# OrganizedGFFEntries.load_organized_entries), with the outcome each is expected to have.
+#
+# phantomA and phantomB name missingGene, which matches no line: they share a gene inferred for
+# them, spanning 101-300 on the plus strand. phantomC names it too, but on sequence B, so it is
+# left out with its exon
+A	test	mRNA	101	200	.	+	.	ID=phantomA;Parent=missingGene
+A	test	exon	101	200	.	+	.	Parent=phantomA
+A	test	mRNA	151	300	.	+	.	ID=phantomB;Parent=missingGene
+A	test	exon	151	300	.	+	.	Parent=phantomB
+B	test	mRNA	101	200	.	+	.	ID=phantomC;Parent=missingGene
+B	test	exon	101	200	.	+	.	Parent=phantomC
+# mixedPlus and mixedMinus name missingMixed, which matches no line, on opposite strands: the gene
+# inferred for them is on neither strand
+A	test	mRNA	1401	1500	.	+	.	ID=mixedPlus;Parent=missingMixed
+A	test	mRNA	1451	1600	.	-	.	ID=mixedMinus;Parent=missingMixed
+# parentless names no parent: left out with its exon
+A	test	mRNA	401	500	.	+	.	ID=parentless
+A	test	exon	401	500	.	+	.	Parent=parentless
+# twoGenes names two genes: left out with its exon, g1 and g2 remaining without transcripts
+A	test	gene	601	800	.	+	.	ID=g1
+A	test	gene	601	800	.	+	.	ID=g2
+A	test	mRNA	601	800	.	+	.	ID=twoGenes;Parent=g1,g2
+A	test	exon	601	800	.	+	.	Parent=twoGenes
+# the exon names both isoforms of g3 and is put under each; underTranscript names a transcript
+# instead of a gene and is left out
+A	test	gene	901	1100	.	+	.	ID=g3
+A	test	mRNA	901	1100	.	+	.	ID=iso1;Parent=g3
+A	test	mRNA	901	1100	.	+	.	ID=iso2;Parent=g3
+A	test	exon	901	1100	.	+	.	Parent=iso1,iso2
+A	test	mRNA	901	1000	.	+	.	ID=underTranscript;Parent=iso1
+# a gene line without an ID: left out
+A	test	gene	1201	1300	.	+	.	Name=noIdGene
+# an exon naming iso1 on sequence B: left out
+B	test	exon	901	1000	.	+	.	Parent=iso1
