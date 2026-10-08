@@ -64,7 +64,7 @@ class SuperLocus(Base):
     # why this locus is left out of exports, NULL where it is exported normally. Its features are
     # kept either way: the annotation is recorded as given, and only what a consumer is handed
     # depends on this. Set where there is no honest way to export the locus at all, rather than
-    # where something about it is merely wrong, which is what error features are for.
+    # where something about it is merely wrong, which is what errors and their masks are for.
     excluded_from_export = Column(String, index=True)
     # things SuperLocus can have a lot of
     transcripts = relationship('Transcript', back_populates='super_locus')
@@ -92,9 +92,9 @@ association_protein_to_feature = Table('association_protein_to_feature', Base.me
 # the wider record of the annotation's geometry and carries no judgement about whether either
 # locus is usable. Loci with no CDS under them take no part, a bare gene line or a non-coding
 # gene not being something this can say anything about.
-# The masking counterpart is the super_loci_overlap_error feature, written only where two
-# exported genes collide (see docs/overlap_masking.md), so consumers that mask from error
-# features never see this table.
+# The masking counterpart is the geenuff_mask feature of a kept gene, with its
+# super_loci_overlap_error, written only where two exported genes collide (see
+# docs/overlap_masking.md), so consumers that mask from geenuff_mask features never see this table.
 # Both ids are listed, so all overlaps of one locus are
 # `WHERE super_locus_id = X OR partner_id = X`.
 super_locus_overlap = Table('super_locus_overlap', Base.metadata,
@@ -129,11 +129,31 @@ class Transcript(Base):
     proteins = relationship('Protein', secondary=association_transcript_to_protein,
                             back_populates='transcripts')
 
+    errors = relationship('TranscriptError', back_populates='transcript')
+
     def __repr__(self):
         return '<Transcript, {}, "{}" of type {}, with {} pieces>'.format(self.id,
                                                                           self.given_name,
                                                                           self.type,
                                                                           len(self.transcript_pieces))
+
+
+class TranscriptError(Base):
+    """One error type found for a transcript. Where it is masked is not recorded per error: all
+    errors of a transcript are merged into its geenuff_mask features."""
+    __tablename__ = 'transcript_error'
+
+    id = Column(Integer, primary_key=True)
+    transcript_id = Column(Integer, ForeignKey('transcript.id'), nullable=False, index=True)
+    transcript = relationship('Transcript', back_populates='errors')
+    type = Column(Enum(types.Errors), nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('transcript_id', 'type', name='unique_error_per_transcript'),
+    )
+
+    def __repr__(self):
+        return f'<TranscriptError {self.id}, transcript {self.transcript_id}: {self.type.value}>'
 
 
 class TranscriptPiece(Base):

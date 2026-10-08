@@ -23,7 +23,7 @@ class FilteredGff3ExportController(GeenuffExportController):
     a Helixer prediction against the reference it was trained on.
 
     By default, it writes exactly what the h5 export would train on: only genes that reach that
-    export, and of those only the ones carrying no error feature at all. That is stricter than the
+    export, and of those only the ones with no error recorded at all. That is stricter than the
     h5 export itself, which still includes erroneous transcripts and merely masks them.
 
     With include_erroneous it writes every gene that can be written at all, whatever is wrong with
@@ -77,11 +77,7 @@ class FilteredGff3ExportController(GeenuffExportController):
 
     @staticmethod
     def _is_error_free(transcript: Transcript) -> bool:
-        for piece in transcript.transcript_pieces:
-            for feature in piece.features:
-                if feature.type.value in types.geenuff_error_type_values:
-                    return False
-        return True
+        return not transcript.errors
 
     def _write_transcript(self, handle_out: TextIO, transcript: Transcript) -> None:
         range_maker = RangeMaker(transcript)

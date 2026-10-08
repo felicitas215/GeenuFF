@@ -12,7 +12,7 @@ Writes a plain GFF3 of one transcript per gene, the longest coding one, for comp
 prediction against the reference it was trained on.
 
 By default, it writes exactly what the h5 export trains on: only genes that reach that export, and
-of those only the ones carrying no error feature at all.
+of those only the ones with no error recorded at all.
 
 `--include-erroneous` writes every gene that can be written at all, whatever is wrong with it,
 which is the set to compare against when the question is what Helixer predicted per gene rather
@@ -54,7 +54,7 @@ aggregate. It takes `--species`, `--seqid` and `--strand`, optionally narrowed b
 for indented output.
 
 Unlike the others this is a reading tool rather than an export: it is the quickest way to see
-every feature GeenuFF built for a locus, error features included, when a summary count says
+every feature GeenuFF built for a locus, geenuff_mask features included, when a summary count says
 something is wrong but not what.
 
 ## summarize_geenuff_db.py

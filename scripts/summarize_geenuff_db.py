@@ -14,7 +14,6 @@ from collections import defaultdict
 from geenuff.base import types
 from geenuff.applications.importer import UNEXPORTED_REASONS
 
-ERROR_TYPES = tuple(types.geenuff_error_type_values)
 TRANSCRIPT_TYPE = types.GEENUFF_TRANSCRIPT
 CDS_TYPE = types.GEENUFF_CDS
 # an overlap-dropped locus was still part of the sweep at import time, an unplaceable one was not
@@ -99,25 +98,23 @@ def report(con: sqlite3.Connection, out: list[Entry]) -> None:
            JOIN association_transcript_piece_to_feature a ON a.transcript_piece_id = tp.id
            JOIN feature f ON f.id = a.feature_id WHERE f.type = ?""", (CDS_TYPE,))}
     n_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
-    placeholders = ','.join('?' * len(ERROR_TYPES))
+    error_table = has_table(con, 'transcript_error')
     exported = list(con.execute(
-        f"""SELECT t.id, COUNT(f.id)
+        f"""SELECT t.id,
+                   {'(SELECT COUNT(*) FROM transcript_error e WHERE e.transcript_id = t.id)'
+                    if error_table else 'NULL'}
             FROM transcript t
             JOIN super_locus sl ON sl.id = t.super_locus_id
-            LEFT JOIN transcript_piece tp ON tp.transcript_id = t.id
-            LEFT JOIN association_transcript_piece_to_feature a
-                ON a.transcript_piece_id = tp.id
-            LEFT JOIN feature f ON f.id = a.feature_id AND f.type IN ({placeholders})
             WHERE t.longest = 1
-              {'AND sl.excluded_from_export IS NULL' if excluded_column else ''}
-            GROUP BY t.id""", ERROR_TYPES))
+              {'AND sl.excluded_from_export IS NULL' if excluded_column else ''}"""))
 
     out.append('transcripts:')
     out.append((n_transcripts, 'transcripts in the database'))
     out.append((len(coding), 'of them with a CDS'))
     out.append((len(exported), 'selected for export, one per locus that will be exported'))
-    out.append((sum(1 for _, n_errors in exported if not n_errors),
-                'of those selected with no error at all'))
+    if error_table:
+        out.append((sum(1 for _, n_errors in exported if not n_errors),
+                    'of those selected with no error at all'))
 
     if has_table(con, 'super_locus_overlap'):
         pairs = con.execute('SELECT COUNT(*) FROM super_locus_overlap').fetchone()[0]
@@ -138,12 +135,8 @@ def report(con: sqlite3.Connection, out: list[Entry]) -> None:
                 'pairs where neither gene could be kept, so both are masked'))
     out.append((len(chained), 'pairs left alone, one of the two overlapping a further gene'))
 
-    errors = list(con.execute(
-        f"""SELECT f.type, COUNT(DISTINCT t.id) FROM feature f
-            JOIN association_transcript_piece_to_feature a ON a.feature_id = f.id
-            JOIN transcript_piece tp ON tp.id = a.transcript_piece_id
-            JOIN transcript t ON t.id = tp.transcript_id
-            WHERE f.type IN ({placeholders}) GROUP BY f.type ORDER BY f.type""", ERROR_TYPES))
+    errors = list(con.execute('SELECT type, COUNT(*) FROM transcript_error GROUP BY type ORDER BY type')
+                  ) if error_table else []
     if errors:
         out.append('errors, counted once per transcript they occur in:')
         out += [(count, error_type) for error_type, count in errors]
@@ -172,8 +165,6 @@ def main(args: argparse.Namespace) -> None:
                  'belonging to a transcript-less gene, or as an isoform with no transcript line',
                  'lines skipped for a feature type GeenuFF has no use for'):
         print(f'    - {line}')
-    print('\n  errors are counted from the features stored, so one whose masked range came out\n'
-          '  empty still counts, but one discarded for running backwards does not')
 
 
 if __name__ == '__main__':

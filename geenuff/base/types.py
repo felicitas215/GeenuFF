@@ -55,10 +55,13 @@ AllKnownGFFFeatures = join_to_enum('AllKnownGFFFeatures', IgnorableGFFFeatures, 
 GEENUFF_TRANSCRIPT = 'geenuff_transcript'
 GEENUFF_CDS = 'geenuff_cds'
 GEENUFF_INTRON = 'geenuff_intron'
+# a range not to be trained on, all errors of its transcript merged into it (see orm.TranscriptError
+# for which errors those are)
+GEENUFF_MASK = 'geenuff_mask'
 GeenuffSequenceFeature = make_enum('GeenuffSequenceFeature', GEENUFF_TRANSCRIPT, GEENUFF_CDS,
-                                   GEENUFF_INTRON)
+                                   GEENUFF_INTRON, GEENUFF_MASK)
 
-# Geenuff error types
+# Geenuff error types, recorded per transcript in orm.TranscriptError without a range of their own
 MISSING_UTR_5P = 'missing_utr_5p'
 MISSING_UTR_3P = 'missing_utr_3p'
 EMPTY_SUPER_LOCUS = 'empty_super_locus'
@@ -80,9 +83,6 @@ Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, EMPTY_SUPER_LOCUS, 
                    TOO_SHORT_INTRON, SL_OVERLAP_ERROR, MISMATCHING_STRANDS, TRUNCATED_INTRON,
                    TRUNCATED_CDS, INFRAME_STOP_CODON, FLOATING_CDS, BEYOND_SEQUENCE_EDGE)
 
-# frequently used for lookups
-geenuff_error_type_values = [t.value for t in Errors]
-
 # Reasons a super locus is left out of exports (orm.SuperLocus.excluded_from_export). Kept apart
 # from the error types above and deliberately not in the Errors enum: an error marks a range as
 # unreliable, while these say there is no honest way to export the locus at all. Its features
@@ -98,4 +98,4 @@ OVERLAP_DROPPED = 'overlap_dropped'  # gave way so an overlapping partner could 
 # consumer holding one label per base pair cannot take.
 unrepresentable_reasons = (UNPLACEABLE_STRAND, UNPLACEABLE_COORDINATES, OUTSIDE_SEQUENCE)
 
-GeenuffFeature = join_to_enum('GeenuffFeature', GeenuffSequenceFeature, Errors)
+GeenuffFeature = join_to_enum('GeenuffFeature', GeenuffSequenceFeature)

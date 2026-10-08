@@ -13,7 +13,7 @@ from geenuff.base import orm
 from geenuff.base import types
 from geenuff.base import helpers
 from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, TranscriptPiece, SuperLocus,
-                              Protein)
+                              Protein, TranscriptError)
 from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from geenuff.applications.importer import ImportController, InsertCounterHolder, OrganizedGFFEntries
 from geenuff.applications.exporter import GeenuffExportController
@@ -303,22 +303,19 @@ def test_import_intron_at_seq_end():
     # because the transcript continues to the end, this is in fact an unambiguous intron,
     # albeit with end is biological end being false
     # should produce
-    # missing_utr_5p 1600 - -559
     # geenuff_transcript 559 - -1 (not/not biological start/end)
     # geenuff_cds 559 - -1 (y/not biological start/end)
     # geenuff_intron 49 - -1 (y/not biolical start/end)
-    # truncated_intron 879 - -1 and missing_stop_codon 879 - -1, the gene being partial and its
-    # CDS ending without a stop codon: the whole gene and the flank on both sides, the 3' one
-    # having no room left before the sequence start
-    for f in features:
-        print(f)
-    assert len(features) == 6
+    # errors missing_utr_5p and missing_utr_3p, the CDS spanning the whole transcript, and
+    # truncated_intron and missing_stop_codon, the gene being partial and its CDS ending without a
+    # stop codon: the whole gene and the flank on both sides is masked, the 3' one having no room
+    # left before the sequence start, taking in the 5' flank of missing_utr_5p, so one
+    # geenuff_mask 879 - -1
+    assert len(features) == 4
     transcript = [f for f in features if f.type.value == types.GEENUFF_TRANSCRIPT][0]
     cds = [f for f in features if f.type.value == types.GEENUFF_CDS][0]
     intron = [f for f in features if f.type.value == types.GEENUFF_INTRON][0]
-    missing_utr_5p = [f for f in features if f.type.value == types.MISSING_UTR_5P][0]
-    whole_gene_errors = sorted((f.type.value, f.start, f.end) for f in features
-                               if f.type.value in (types.TRUNCATED_INTRON, types.MISSING_STOP_CODON))
+    mask = [f for f in features if f.type.value == types.GEENUFF_MASK][0]
 
     # coordinates
     assert (transcript.start, transcript.end) == (559, -1)
@@ -326,8 +323,10 @@ def test_import_intron_at_seq_end():
     assert (intron.start, intron.end) == (49, -1)
     # int(sqrt(1040)) * 10 = 320 of the 1040bp (560-1599) between the gene and the end of the
     # sequence, no gene lying that way to bound it
-    assert (missing_utr_5p.start, missing_utr_5p.end) == (879, 559)
-    assert whole_gene_errors == [(types.MISSING_STOP_CODON, 879, -1), (types.TRUNCATED_INTRON, 879, -1)]
+    assert (mask.start, mask.end) == (879, -1)
+    t = controller.session.query(Transcript).one()
+    assert error_types(t) == {types.MISSING_UTR_5P, types.MISSING_UTR_3P, types.TRUNCATED_INTRON,
+                              types.MISSING_STOP_CODON}
 
     # biological start / ends marked correctly
     assert (transcript.start_is_biological_start, transcript.end_is_biological_end) == (False, False)
@@ -344,15 +343,21 @@ def hanging_intron_session():
     return controller.session
 
 
+def error_types(transcript):
+    """The error types recorded for a transcript."""
+    return {e.type.value for e in transcript.errors}
+
+
 def transcript_features(session, given_name):
     """{feature type: sorted (start, end, start_is_biological_start, end_is_biological_end)} of
-    one transcript."""
+    one transcript, with its error types under 'errors'."""
     transcript = session.query(Transcript).filter_by(given_name=given_name).one()
     features = defaultdict(list)
     for f in transcript.transcript_pieces[0].features:
         features[f.type.value].append((f.start, f.end, f.start_is_biological_start,
                                        f.end_is_biological_end))
-    return {feature_type: sorted(found) for feature_type, found in features.items()}
+    return {feature_type: sorted(found) for feature_type, found in features.items()} | {
+        'errors': error_types(transcript)}
 
 
 def test_a_transcript_starting_in_an_intron_is_masked_whole(hanging_intron_session):
@@ -364,7 +369,8 @@ def test_a_transcript_starting_in_an_intron_is_masked_whole(hanging_intron_sessi
         types.GEENUFF_TRANSCRIPT: [(233, 566, False, True)],
         types.GEENUFF_CDS: [(259, 501, True, True)],
         types.GEENUFF_INTRON: [(233, 244, False, True), (279, 350, True, True)],
-        types.TRUNCATED_INTRON: [(117, 766, True, True)],
+        types.GEENUFF_MASK: [(117, 766, True, True)],
+        'errors': {types.TRUNCATED_INTRON},
     }
 
 
@@ -377,8 +383,8 @@ def test_a_cds_flush_with_a_first_exon_after_a_hanging_intron_runs_to_the_transc
         types.GEENUFF_TRANSCRIPT: [(233, 566, False, True)],
         types.GEENUFF_CDS: [(233, 501, False, True)],
         types.GEENUFF_INTRON: [(233, 244, False, True), (279, 350, True, True)],
-        types.MISSING_UTR_5P: [(117, 233, True, True)],
-        types.TRUNCATED_INTRON: [(117, 766, True, True)],
+        types.GEENUFF_MASK: [(117, 766, True, True)],
+        'errors': {types.MISSING_UTR_5P, types.TRUNCATED_INTRON},
     }
 
 
@@ -392,8 +398,8 @@ def test_a_cds_flush_with_a_last_exon_before_a_hanging_intron_runs_to_the_transc
         types.GEENUFF_TRANSCRIPT: [(300, 700, True, False)],
         types.GEENUFF_CDS: [(320, 700, True, False)],
         types.GEENUFF_INTRON: [(400, 470, True, True), (654, 700, True, False)],
-        types.MISSING_UTR_3P: [(700, 850, True, True)],
-        types.TRUNCATED_INTRON: [(150, 850, True, True)],
+        types.GEENUFF_MASK: [(150, 850, True, True)],
+        'errors': {types.MISSING_UTR_3P, types.TRUNCATED_INTRON},
     }
 
 
@@ -477,190 +483,59 @@ def test_fasta_import():
 
 
 def test_dummyloci_errors():
-    """Tests if all errors generated for dummyloci{.gff|.fa} are correct"""
-
-    def error_in_list(error, error_list):
-        """searches for the error in a list. removes the error if found.
-        error should be a dict and error list a list of orm objects"""
-        for e in error_list[:]:  # make a copy at each iteration so we avoid weird errors
-            if (error['coord_id'] == e.coordinate.id and error['is_plus_strand'] == e.is_plus_strand
-                    and error['start'] == e.start and error['end'] == e.end
-                    and error['type'] == e.type.value):
-                error_list.remove(e)
-                return True
-        return False
-
+    """The errors recorded for each transcript of dummyloci{.gff|.fa}, and the ranges they mask,
+    merged into one geenuff_mask feature where they meet. Transcripts not listed have neither."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/dummyloci.fa', 'testdata/dummyloci.gff', clean_gff=True)
-    error_types = [t.value for t in types.Errors]
-    errors = controller.session.query(Feature).filter(Feature.type.in_(error_types)).all()
-    coords = controller.session.query(Coordinate).all()
 
-    # test case 1 - see gff file for more documentation
-    # two identical error bars after cds for aligned exon/cds pair. Each reaches
-    # int(sqrt(1199)) * 10 = 340 of the 1199bp gap to gene_no_ATG: gene_empty and gene_non_coding
-    # lie between the two but have no CDS, so they do not bound a mask (see _buffered_span)
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 120,
-        'end': 740,
-        'type': types.MISSING_UTR_3P
+    expected = {
+        # test case 1 - see gff file for more documentation. Every mask reaches int(sqrt(1199)) * 10
+        # = 340 of the 1199bp gap to gene_no_ATG: gene_empty and gene_non_coding lie between the two
+        # but have no CDS, so they do not bound a mask (see _buffered_span)
+        # x1's CDS ends where the transcript ends: the 3' flank from the CDS end
+        'x1': ({types.MISSING_UTR_3P}, [(120, 740)]),
+        # y1's spliced CDS (11-21, 111-120, 201-301) is 122bp (not a multiple of 3) and contains
+        # a premature stop codon; neither was designed on purpose, this is just what falls out of
+        # the arbitrary dummy CDS boundaries chosen to test the other errors above. A wrong reading
+        # frame masks the whole gene (0-400) and the flank on both sides: nothing lies before it
+        'y1': ({types.TRUNCATED_CDS, types.INFRAME_STOP_CODON}, [(0, 740)]),
+        # z1's CDS is the whole transcript, has no start codon, and its single 10bp piece (111-120)
+        # is not a multiple of 3, masking the whole gene, which takes in both missing UTR flanks
+        'z1': ({types.MISSING_UTR_5P, types.MISSING_UTR_3P, types.MISSING_START_CODON,
+                types.TRUNCATED_CDS}, [(0, 740)]),
+        # test case 4 (test cases 2 and 3 are without errors): the whole gene (1599-1800) with 340
+        # of the same 1199bp gap as test case 1 before it and none of the 1bp left to the sequence
+        # end after it, 1 // 2 being 0
+        'y4': ({types.MISSING_START_CODON}, [(1259, 1800)]),
+        # test case 5: x5's spliced CDS (40-151, 152-182) is 143bp, not a multiple of 3, masking the
+        # gene 0-300 and 249 // 2 = 124 of the 249bp gap to test case 6
+        'x5': ({types.TRUNCATED_CDS}, [(0, 424)]),
+        # test case 6: x6's starting phase is only recorded, the importer setting the phase itself
+        'x6': ({types.WRONG_PHASE_5P}, []),
+        # y6's 4bp intron cannot be spliced and its spliced CDS (525-575, 580-600, 700-725) is
+        # 98bp, masking the gene 549-750 with 124 of the 249bp gap before it, leaving base 424
+        # between test case 5's mask and this one, and int(sqrt(1005)) * 10 = 310 of the 1005bp
+        # left to the sequence end after it
+        'y6': ({types.TOO_SHORT_INTRON, types.TRUNCATED_CDS}, [(425, 1060)]),
+        # test case 7, 199 // 2 = 99 of the 199bp gap (1548-1350) to test case 8
+        'x7': ({types.MISSING_UTR_5P}, [(1448, 1349)]),
+        # test case 8: x8's overlapping exon and CDS lines mask the whole gene (1749-1549) with 2 of
+        # the 5bp (1750-1754) to the end of the sequence before it and 99 of the 199bp (1548-1350)
+        # to test case 7 after it. Its CDS is not checked further, the spliced sequence repeating
+        # the overlapping bases, so its missing start codon is not reported
+        'x8': ({types.OVERLAPPING_EXONS, types.OVERLAPPING_CDS}, [(1751, 1449)]),
     }
-    assert error_in_list(error, errors)
-    assert error_in_list(error, errors)
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 0,
-        'end': 110,
-        'type': types.MISSING_UTR_5P
-    }
-    assert error_in_list(error, errors)
-    # z1 has no start codon, masking the whole gene (0-400) and 340 of the 1199bp gap after it
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 0,
-        'end': 740,
-        'type': types.MISSING_START_CODON
-    }
-    assert error_in_list(error, errors)
-    # y1's spliced CDS (11-21, 111-120, 201-301) is 122bp (not a multiple of 3) and contains
-    # a premature stop codon; neither was designed on purpose, this is just what falls out of
-    # the arbitrary dummy CDS boundaries chosen to test the other errors above. A wrong reading
-    # frame masks the whole gene (0-400) and the flank on both sides: nothing lies before it,
-    # and 340 of the 1199bp gap to gene_no_ATG lie after it
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 0,
-        'end': 740,
-        'type': types.TRUNCATED_CDS
-    }
-    assert error_in_list(error, errors)
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 0,
-        'end': 740,
-        'type': types.INFRAME_STOP_CODON
-    }
-    assert error_in_list(error, errors)
-    # z1's single 10bp CDS piece (111-120) is likewise not a multiple of 3
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 0,
-        'end': 740,
-        'type': types.TRUNCATED_CDS
-    }
-    assert error_in_list(error, errors)
-
-    # test case 2
-    # we don't currently test for that in order to have all errors attached to a transcript
-    # error = {
-        # 'coord_id': coords[0].id,
-        # 'is_plus_strand': True,
-        # 'start': 499,
-        # 'end': 1099,
-        # 'type': types.EMPTY_SUPER_LOCUS
-    # }
-    # assert error_in_list(error, errors)
-
-    # test case 4 (test case 3 is without errors)
-    # the whole gene (1599-1800) with 340 of the same 1199bp gap as test case 1 before it and
-    # none of the 1bp left to the sequence end after it, 1 // 2 being 0
-    error = {
-        'coord_id': coords[0].id,
-        'is_plus_strand': True,
-        'start': 1259,
-        'end': 1800,
-        'type': types.MISSING_START_CODON
-    }
-    assert error_in_list(error, errors)
-
-    #### Coordinate 1 ####
-
-    # test case 5: x5's spliced CDS (40-151, 152-182) is 143bp, not a multiple of 3, masking the
-    # gene 0-300 and 249 // 2 = 124 of the 249bp gap to test case 6
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': True,
-        'start': 0,
-        'end': 424,
-        'type': types.TRUNCATED_CDS
-    }
-    assert error_in_list(error, errors)
-
-    # test case 6, only recorded at x6's CDS start, the importer setting the phase itself
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': True,
-        'start': 524,
-        'end': 524,
-        'type': types.WRONG_PHASE_5P
-    }
-    assert error_in_list(error, errors)
-    # y6's 4bp intron cannot be spliced, masking the gene 549-750 with 124 of the 249bp gap before
-    # it, leaving base 424 between test case 5's mask and this one, and int(sqrt(1005)) * 10 =
-    # 310 of the 1005bp left to the sequence end after it
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': True,
-        'start': 425,
-        'end': 1060,
-        'type': types.TOO_SHORT_INTRON
-    }
-    assert error_in_list(error, errors)
-    # y6's spliced CDS (525-575, 580-600, 700-725) is 98bp, not a multiple of 3, masking the same
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': True,
-        'start': 425,
-        'end': 1060,
-        'type': types.TRUNCATED_CDS
-    }
-    assert error_in_list(error, errors)
-
-    # test case 7, 199 // 2 = 99 of the 199bp gap (1548-1350) to test case 8
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': False,
-        'start': 1448,
-        'end': 1349,
-        'type': types.MISSING_UTR_5P
-    }
-    assert error_in_list(error, errors)
-
-    # test case 8: x8's overlapping exon and CDS lines mask the whole gene (1749-1549) with 2 of
-    # the 5bp (1750-1754) to the end of the sequence before it and 99 of the 199bp (1548-1350) to
-    # test case 7 after it. Its CDS is not checked further, the spliced sequence repeating the
-    # overlapping bases, so its missing start codon is not reported
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': False,
-        'start': 1751,
-        'end': 1449,
-        'type': types.OVERLAPPING_EXONS
-    }
-    assert error_in_list(error, errors)
-    error = {
-        'coord_id': coords[1].id,
-        'is_plus_strand': False,
-        'start': 1751,
-        'end': 1449,
-        'type': types.OVERLAPPING_CDS
-    }
-    assert error_in_list(error, errors)
-
-    # test that we don't have any errors we don't expect
-    assert not errors
+    found = {}
+    for t in controller.session.query(Transcript):
+        errors, masks = error_types(t), feature_ranges(t, types.GEENUFF_MASK)
+        if errors or masks:
+            found[t.given_name] = (errors, masks)
+    assert found == expected
 
 
 def test_case_1():
     """Confirm the existence of all features of test case 1 of dummyloci.gff except
-    for error features, which are tested in test_dummyloci_errors().
+    for mask features, which are tested in test_dummyloci_errors().
     Does not test the exact ids or exactly matching object relationships."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/dummyloci.fa', 'testdata/dummyloci.gff', clean_gff=True)
@@ -676,9 +551,8 @@ def test_case_1():
 
     # confirm exisistence of all objects where things could go wrong
     # above db level and one piece has to exist for the sl_h.features query to work
-    error_values = [f.value for f in types.Errors]
-    sl_h_features_wo_errors = [f for f in sl_h.features if f.type.value not in error_values]
-    sl_objects = list(sl_h_features_wo_errors) + sl_h.data.transcripts + sl_h.data.proteins
+    sl_h_features_wo_masks = [f for f in sl_h.features if f.type.value != types.GEENUFF_MASK]
+    sl_objects = list(sl_h_features_wo_masks) + sl_h.data.transcripts + sl_h.data.proteins
 
     # first transcript
     transcript = Transcript(given_name='x1', type=types.TranscriptLevel.mRNA, super_locus=sl)
@@ -814,13 +688,8 @@ def test_case_8():
 
     coords = query(Coordinate).all()
 
-    error_values = [f.value for f in types.Errors]
-    sl_h_features_wo_errors = [f for f in sl_h.features if f.type.value not in error_values]
-    print('erroneous features added')
-    for f in sl_h.features:
-        if f.type.value in error_values:
-            print(f)
-    sl_objects = list(sl_h_features_wo_errors) + sl_h.data.transcripts + sl_h.data.proteins
+    sl_h_features_wo_masks = [f for f in sl_h.features if f.type.value != types.GEENUFF_MASK]
+    sl_objects = list(sl_h_features_wo_masks) + sl_h.data.transcripts + sl_h.data.proteins
 
     # first transcript
     transcript = Transcript(given_name='x8', type=types.TranscriptLevel.mRNA, super_locus=sl)
@@ -962,7 +831,7 @@ def test_trans_spliced_gene_strand_not_crashing_and_excluded_from_export():
 def test_filtered_gff3_export_writes_only_longest_error_free_transcripts(tmp_path):
     """FilteredGff3ExportController.write_filtered_gff3 must reproduce exactly the gene
     models old Helixer's h5 export draws from (longest transcript per locus), further
-    restricted to ones with zero error features at all. The coordinates/phases it
+    restricted to ones with no error recorded at all. The coordinates/phases it
     writes back out must exactly round-trip the original GFF3 input."""
     db_path = str(tmp_path / 'filtered_gff3.sqlite3')
     out_path = str(tmp_path / 'filtered.gff3')
@@ -1079,9 +948,8 @@ def test_exon_and_cds_lines_naming_a_gene_are_left_out_not_glued_onto_a_transcri
 
     assert controller.stats.dropped_lines == {'gene_parented_duplicate': {'exon': 3},
                                               'gene_parented': {'exon': 2, 'CDS': 1}}
-    error_types = {e.type.value for e in controller.session.query(Feature).filter(
-        Feature.type.in_([types.GeenuffFeature(t) for t in types.geenuff_error_type_values]))}
-    assert types.OVERLAPPING_EXONS not in error_types
+    found = {e.type.value for e in controller.session.query(TranscriptError)}
+    assert types.OVERLAPPING_EXONS not in found
 
     # rna2's own two real exons are untouched by the dropped gene-parented duplicates
     rna2 = controller.session.query(Transcript).filter_by(given_name='rna2').one()
@@ -1128,30 +996,25 @@ def test_overlapping_loci_in_a_chain_are_each_masked_whole():
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/overlapping_loci_chain.fa',
                           'testdata/overlapping_loci_chain.gff3', clean_gff=True)
-
-    def overlap_masks_of(given_name):
-        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
-        return sorted((f.start, f.end) for p in transcript.transcript_pieces for f in p.features
-                      if f.type.value == types.SL_OVERLAP_ERROR)
+    session = controller.session
 
     # each is masked over its own whole span (geneA 99-999, geneB 199-298, geneC 899-1100), not
     # over what it shares. Every one of them has its CDS flush against its transcript on both
     # ends, and each mask also runs on into the flank on both sides, toward the closest edge of a
-    # gene not overlapping it: geneA back to 50, 49 of the 99bp to the sequence start, and on to
-    # 1089, 90 of the 180bp to geneE, past geneC overlapping it. geneB, enclosed by geneA,
-    # reaches back to 100 and on to 538, int(sqrt(601)) * 10 = 240 toward geneC
-    assert overlap_masks_of('rnaA') == [(50, 1089)]
-    assert overlap_masks_of('rnaB') == [(100, 538)]
-    assert overlap_masks_of('rnaC') == [(659, 1139)]
-    # geneE sits inside a transcript-less 'gene' record: no genuine conflict, no mask
-    assert overlap_masks_of('rnaE') == []
-    # the same for the second chain: geneF, geneG and geneH overlap one another, so each reaches
-    # back toward geneE's end (1250) and on toward geneI's start (7009)
-    assert overlap_masks_of('rnaF') == [(2069, 5440)]
-    assert overlap_masks_of('rnaG') == [(3389, 7004)]
-    assert overlap_masks_of('rnaH') == [(3439, 4510)]
-    # geneI starts after geneG ends; directly adjacent or apart is not an overlap
-    assert overlap_masks_of('rnaI') == []
+    # gene not overlapping it, which takes in the flanks masked for the missing UTRs: geneA back
+    # to 50, 49 of the 99bp to the sequence start, and on to 1089, 90 of the 180bp to geneE, past
+    # geneC overlapping it. geneB, enclosed by geneA, reaches back to 100 and on to 538,
+    # int(sqrt(601)) * 10 = 240 toward geneC
+    for name, mask in [('rnaA', (50, 1089)), ('rnaB', (100, 538)), ('rnaC', (659, 1139)),
+                       # the same for the second chain: geneF, geneG and geneH overlap one another,
+                       # so each reaches back toward geneE's end (1250) and on toward geneI's start
+                       ('rnaF', (2069, 5440)), ('rnaG', (3389, 7004)), ('rnaH', (3439, 4510))]:
+        assert types.SL_OVERLAP_ERROR in errors_of(session, name)
+        assert masks_of(session, name) == [mask]
+    # geneE sits inside a transcript-less 'gene' record: no genuine conflict. geneI starts after
+    # geneG ends; directly adjacent or apart is not an overlap
+    for name in ['rnaE', 'rnaI']:
+        assert types.SL_OVERLAP_ERROR not in errors_of(session, name)
 
 
 def test_features_on_an_unplaceable_strand_are_kept_but_never_exported(tmp_path):
@@ -1179,9 +1042,9 @@ def test_features_on_an_unplaceable_strand_are_kept_but_never_exported(tmp_path)
         # nothing is dropped: the transcript and its CDS are in the database either way
         assert {types.GEENUFF_TRANSCRIPT, types.GEENUFF_CDS} <= {f.type.value for f in features}
         # and nothing is invented for them either, neither a mask nor an intron standing in for
-        # the exons that could not be placed
-        assert not [f for f in features
-                    if f.type.value in types.geenuff_error_type_values + [types.GEENUFF_INTRON]]
+        # the exons that could not be placed, nor an error
+        assert not [f for f in features if f.type.value in (types.GEENUFF_MASK, types.GEENUFF_INTRON)]
+        assert not errors_of(controller.session, rna)
         assert excluded(gene) == types.UNPLACEABLE_STRAND
 
     # only the ordinary gene is exported: the two above are excluded outright, and the non-coding
@@ -1210,31 +1073,35 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
     controller.add_genome('testdata/overlapping_loci_pairs.fa',
                           'testdata/overlapping_loci_pairs.gff3', clean_gff=True)
 
+    session = controller.session
+
     def excluded(given_name):
         return controller.session.query(SuperLocus).filter_by(given_name=given_name).one() \
                          .excluded_from_export
 
-    def overlap_masks_of(given_name):
-        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
-        return sorted((f.start, f.end) for p in transcript.transcript_pieces for f in p.features
-                      if f.type.value == types.SL_OVERLAP_ERROR)
+    # every gene here gets super_loci_overlap_error, the kept one of a resolved pair as well
+    for name in ['rnaCrossCoder', 'rnaOuter', 'rnaInner', 'rnaBothTruncatedLeft',
+                 'rnaBothTruncatedRight', 'rnaCleanNoCds']:
+        assert types.SL_OVERLAP_ERROR in errors_of(session, name)
 
     # crossing: the longer CDS is kept and only the partner's overhang is masked; the kept locus
     # itself carries no mask over the range they share
     assert excluded('geneCrossCoder') is None
     assert excluded('geneCrossGivesWay') == types.OVERLAP_DROPPED
     # geneCrossGivesWay lacks its 3' UTR, so the mask runs on past its own end (652) into the
-    # flank, to 725, 73 of the 147bp to geneOuter
-    assert overlap_masks_of('rnaCrossCoder') == [(399, 725)]
+    # flank, to 725, 73 of the 147bp to geneOuter. geneCrossCoder (99-399) lacks both UTRs: its 5'
+    # flank 50-99, 49 of the 99bp to the sequence start, and its 3' flank, 200 of the 400bp to
+    # geneOuter, which the overhang takes in
+    assert masks_of(session, 'rnaCrossCoder') == [(50, 99), (399, 725)]
 
     # nested: never decided, so both are masked over their whole length and the flank on both
-    # sides, measured past the partner. geneOuter (799-1399) from 726, 73 of the 147bp back to the
-    # dropped geneCrossGivesWay, to 1499, 100 of the 200bp to geneBothTruncatedLeft; geneInner
-    # (999-1200) from 826, 173 of the 347bp back to geneCrossGivesWay, to 1390,
-    # int(sqrt(399)) * 10 = 190 of the 399bp to geneBothTruncatedLeft
+    # sides, measured past the partner, taking in the flanks of their missing UTRs. geneOuter
+    # (799-1399) from 726, 73 of the 147bp back to the dropped geneCrossGivesWay, to 1499, 100 of
+    # the 200bp to geneBothTruncatedLeft; geneInner (999-1200) from 826, 173 of the 347bp back to
+    # geneCrossGivesWay, to 1390, int(sqrt(399)) * 10 = 190 of the 399bp to geneBothTruncatedLeft
     assert excluded('geneOuter') is None and excluded('geneInner') is None
-    assert overlap_masks_of('rnaOuter') == [(726, 1499)]
-    assert overlap_masks_of('rnaInner') == [(826, 1390)]
+    assert masks_of(session, 'rnaOuter') == [(726, 1499)]
+    assert masks_of(session, 'rnaInner') == [(826, 1390)]
 
     # both are masked outright, so neither can be kept and both are masked over their whole length
     # and the flank on both sides, measured past the partner overlapping it: geneBothTruncatedLeft
@@ -1242,15 +1109,16 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
     # geneCleanNoCds; geneBothTruncatedRight (1849-2149) from 1639, 210 of the 450bp back to
     # geneOuter, to 2274, 125 of the 250bp to geneCleanNoCds
     assert excluded('geneBothTruncatedLeft') is None and excluded('geneBothTruncatedRight') is None
-    assert overlap_masks_of('rnaBothTruncatedLeft') == [(1499, 2119)]
-    assert overlap_masks_of('rnaBothTruncatedRight') == [(1639, 2274)]
+    assert masks_of(session, 'rnaBothTruncatedLeft') == [(1499, 2119)]
+    assert masks_of(session, 'rnaBothTruncatedRight') == [(1639, 2274)]
 
     # the clean locus is kept although only the truncated one has CDS in the range they share. The
     # dropped geneTruncatedCoder is erroneous, so the mask over its overhang (2699-2950) runs on
-    # int(sqrt(4350)) * 10 = 650 into the flank toward the end of the sequence
+    # int(sqrt(4350)) * 10 = 650 into the flank toward the end of the sequence. geneCleanNoCds
+    # (2399-2699) lacks its 5' UTR: its 5' flank, 125 of the 250bp back to geneBothTruncatedRight
     assert excluded('geneCleanNoCds') is None
     assert excluded('geneTruncatedCoder') == types.OVERLAP_DROPPED
-    assert overlap_masks_of('rnaCleanNoCds') == [(2699, 3600)]
+    assert masks_of(session, 'rnaCleanNoCds') == [(2274, 2399), (2699, 3600)]
 
     assert controller.stats.overlap_pairs_resolved == 2
     assert controller.stats.overlap_loci_dropped == 2
@@ -1271,10 +1139,15 @@ def excluded_from_export(session, given_name):
     return session.query(SuperLocus).filter_by(given_name=given_name).one().excluded_from_export
 
 
-def error_ranges(session, given_name, error_type):
+def masks_of(session, given_name):
+    """The geenuff_mask ranges of one transcript."""
     transcript = session.query(Transcript).filter_by(given_name=given_name).one()
-    return sorted((f.start, f.end) for p in transcript.transcript_pieces for f in p.features
-                  if f.type.value == error_type)
+    return feature_ranges(transcript, types.GEENUFF_MASK)
+
+
+def errors_of(session, given_name):
+    """The error types recorded for one transcript."""
+    return error_types(session.query(Transcript).filter_by(given_name=given_name).one())
 
 
 def test_a_too_short_intron_keeps_a_locus_from_being_kept_in_an_overlap(overlap_grading_session):
@@ -1285,7 +1158,8 @@ def test_a_too_short_intron_keeps_a_locus_from_being_kept_in_an_overlap(overlap_
     session = overlap_grading_session
     assert excluded_from_export(session, 'geneShortIntron') == types.OVERLAP_DROPPED
     assert excluded_from_export(session, 'geneClean') is None
-    assert error_ranges(session, 'rnaClean', types.SL_OVERLAP_ERROR) == [(100, 1200)]
+    assert errors_of(session, 'rnaClean') == {types.SL_OVERLAP_ERROR}
+    assert masks_of(session, 'rnaClean') == [(100, 1200)]
 
 
 def test_a_wrong_starting_phase_does_not_count_against_a_locus(overlap_grading_session):
@@ -1295,7 +1169,9 @@ def test_a_wrong_starting_phase_does_not_count_against_a_locus(overlap_grading_s
     session = overlap_grading_session
     assert excluded_from_export(session, 'genePhaseLong') is None
     assert excluded_from_export(session, 'geneCleanShort') == types.OVERLAP_DROPPED
-    assert error_ranges(session, 'rnaPhaseLong', types.WRONG_PHASE_5P) == [(300, 300)]
+    assert errors_of(session, 'rnaPhaseLong') == {types.WRONG_PHASE_5P, types.SL_OVERLAP_ERROR}
+    # what the clean, dropped geneCleanShort covers beyond it is masked, but nothing for the phase
+    assert masks_of(session, 'rnaPhaseLong') == [(1400, 2200)]
 
 
 def test_overlapping_coding_locus_pairs_are_recorded_without_masking():
@@ -1318,18 +1194,16 @@ def test_overlapping_coding_locus_pairs_are_recorded_without_masking():
                      ('geneG', 'geneH'): (3949, 3960)}
     # the transcript-less geneD_te_like is in no pair, and leaves geneE unmasked
     assert not any('geneD_te_like' in pair or 'geneE' in pair for pair in pairs)
-    transcript = controller.session.query(Transcript).filter_by(given_name='rnaE').one()
-    assert not [f for p in transcript.transcript_pieces for f in p.features
-                if f.type.value == types.SL_OVERLAP_ERROR]
+    assert types.SL_OVERLAP_ERROR not in errors_of(controller.session, 'rnaE')
     # geneI overlaps nothing, so it is in no pair either
     assert not any('geneI' in pair for pair in pairs)
 
 
 def test_missing_utr_errors_of_a_nested_gene_are_still_counted():
     """A gene nested inside another has no unclaimed sequence to extend a missing-UTR mask
-    into, so _error_border_mark yields a zero-length range there. The finding is still counted
-    in the import statistics, which are tallied from the error types detected rather than from
-    the error features that ended up with a range worth inserting (see clean_and_insert)."""
+    into, so its range comes out empty there. The finding is still counted in the import
+    statistics, which are tallied from the error types detected rather than from what ended up
+    masked (see clean_and_insert)."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/overlapping_loci_chain.fa',
                           'testdata/overlapping_loci_chain.gff3', clean_gff=True)
@@ -1362,8 +1236,8 @@ def test_cds_starting_phase_is_reset_not_trusted():
         Feature.type == types.GeenuffFeature.geenuff_cds).one()
     assert cds.phase == 0  # not the file's (wrong) phase of 1
 
-    wrong_phase_errors = controller.session.query(Feature).filter(
-        Feature.type == types.GeenuffFeature.wrong_starting_phase).all()
+    wrong_phase_errors = controller.session.query(TranscriptError).filter(
+        TranscriptError.type == types.Errors.wrong_starting_phase).all()
     assert len(wrong_phase_errors) == 1
 
 
@@ -1379,8 +1253,9 @@ def test_codon_split_by_an_intron_is_not_reported_as_missing():
     assert controller.stats.total_coding_transcripts == 3
     assert controller.stats.longest_error_free_transcripts == 3
     assert not controller.stats.errors
+    assert not controller.session.query(TranscriptError).all()
     assert not controller.session.query(Feature).filter(
-        Feature.type.in_(types.geenuff_error_type_values)).all()
+        Feature.type == types.GeenuffFeature.geenuff_mask).all()
 
 
 def test_codon_split_by_an_intron_is_still_reported_when_absent():
@@ -1391,15 +1266,10 @@ def test_codon_split_by_an_intron_is_still_reported_when_absent():
     controller.add_genome('testdata/split_codon_absent.fa',
                           'testdata/split_codon_absent.gff3', clean_gff=True)
 
-    def errors_of(given_name):
-        transcript = controller.session.query(Transcript).filter_by(given_name=given_name).one()
-        return sorted(f.type.value for p in transcript.transcript_pieces for f in p.features
-                      if f.type.value in types.geenuff_error_type_values)
-
     # the genome reads ATG over the first gene's CDS boundary and TGA over the second's, but
     # both of those codons are half intron, so neither survives into the transcript
-    assert errors_of('rnaNoStart') == [types.MISSING_START_CODON]
-    assert errors_of('rnaNoStop') == [types.MISSING_STOP_CODON]
+    assert errors_of(controller.session, 'rnaNoStart') == {types.MISSING_START_CODON}
+    assert errors_of(controller.session, 'rnaNoStop') == {types.MISSING_STOP_CODON}
     assert controller.stats.errors == {types.MISSING_START_CODON: 1, types.MISSING_STOP_CODON: 1}
 
 
@@ -1521,8 +1391,8 @@ def test_exons_are_built_from_the_cds_and_utr_lines_of_a_transcript_without_exon
     assert feature_ranges(transcripts['tA'], types.GEENUFF_INTRON) == [(150, 200)]
     assert feature_ranges(transcripts['tA'], types.GEENUFF_TRANSCRIPT) == [(100, 300)]
     assert feature_ranges(transcripts['tA'], types.GEENUFF_CDS) == [(120, 230)]
-    assert not {f.type.value for f in transcripts['tA'].transcript_pieces[0].features} & set(
-        types.geenuff_error_type_values)
+    assert not error_types(transcripts['tA'])
+    assert not feature_ranges(transcripts['tA'], types.GEENUFF_MASK)
 
 
 def test_cds_lines_without_a_transcript_line_are_masked_whole(cds_without_transcript_controller):
@@ -1535,7 +1405,8 @@ def test_cds_lines_without_a_transcript_line_are_masked_whole(cds_without_transc
     for name, (start, end) in spans.items():
         assert transcripts[name].longest
         assert feature_ranges(transcripts[name], types.GEENUFF_TRANSCRIPT) == [(start, end)]
-        masks = feature_ranges(transcripts[name], types.FLOATING_CDS)
+        assert error_types(transcripts[name]) == {types.FLOATING_CDS}
+        masks = feature_ranges(transcripts[name], types.GEENUFF_MASK)
         assert len(masks) == 1 and masks[0][0] <= start and masks[0][1] >= end
     assert transcripts['floating_geneC'].super_locus.given_name == 'geneC'
     genes = {sl.given_name for sl in cds_without_transcript_controller.session.query(SuperLocus)}
@@ -1571,7 +1442,8 @@ def test_coding_transcripts_past_a_sequence_edge_are_clipped_and_masked_whole():
         assert transcripts[name].longest
         assert feature_ranges(transcripts[name], types.GEENUFF_TRANSCRIPT) == [span]
         assert feature_ranges(transcripts[name], types.GEENUFF_CDS) == [cds]
-        masks = feature_ranges(transcripts[name], types.BEYOND_SEQUENCE_EDGE)
+        assert error_types(transcripts[name]) == {types.BEYOND_SEQUENCE_EDGE}
+        masks = feature_ranges(transcripts[name], types.GEENUFF_MASK)
         assert len(masks) == 1 and masks[0][0] <= span[0] and masks[0][1] >= span[1]
     assert 'tGone' not in transcripts
     gene_gone = controller.session.query(SuperLocus).filter_by(given_name='geneGone').one()
@@ -1594,10 +1466,9 @@ def test_a_cds_missing_only_its_stop_codon_gets_the_one_after_it():
                 'tNoStop': (320, 350), 'tFrame': (420, 449)}
     assert {name: feature_ranges(t, types.GEENUFF_CDS)[0] for name, t in transcripts.items()} == expected
     for name in ['tPlus', 'tSplit', 'tMinus']:
-        assert not {f.type.value for f in transcripts[name].transcript_pieces[0].features} & set(
-            types.geenuff_error_type_values)
-    assert feature_ranges(transcripts['tNoStop'], types.MISSING_STOP_CODON)
-    assert feature_ranges(transcripts['tFrame'], types.TRUNCATED_CDS)
+        assert not error_types(transcripts[name])
+    assert types.MISSING_STOP_CODON in error_types(transcripts['tNoStop'])
+    assert types.TRUNCATED_CDS in error_types(transcripts['tFrame'])
     assert controller.stats.stop_codons_recovered == 3
 
 

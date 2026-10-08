@@ -95,7 +95,7 @@ and definite bounds, so "something is annotated here that cannot be interpreted"
 bounded statement about them. That is the honest mask, if one were wanted.
 
 It cannot be written today, though, and the reason is worth knowing: excluding a locus removes
-**all** of its features from the export, error features included, so an excluded gene cannot
+**all** of its features from the export, geenuff_mask features included, so an excluded gene cannot
 carry a mask. Masking the pieces would need a third state between exported and excluded, one
 where a locus contributes its masks but not its annotation. That does not exist.
 

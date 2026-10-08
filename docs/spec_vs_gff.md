@@ -10,13 +10,18 @@ identical.
 * geenuff_transcript: range of pre-mRNA / unspliced transcript
 * geenuff_cds: range between the start and stop codon (ignoring introns)
 * geenuff_intron / trans intron: range between a donor and acceptor splice site
+* geenuff_mask: range not to be trained on, everything the errors of its transcript mask merged
+  into as few ranges as possible
 
 ##### error types:
 These do not exist in a gff, but are used in geenuff to denote things
 that might be ambiguous or unknown about a gene model. 
 
 Currently, errors are assigned when any obvious gene model inconsistency
-is encountered during gff parsing. Only coding transcripts are checked. If gff format were not
+is encountered during gff parsing. Only coding transcripts are checked. Each error type found is
+recorded once per transcript in the `transcript_error` table, without a range of its own; what
+the errors mask is worked out once per transcript and stored as its geenuff_mask features. The
+table below gives what each error contributes to that mask. If gff format were not
 used as an intermediary and gene annotation was performed and stored directly in a geenuff
 structured database, all the errors could be assigned more precise ranges for any ambiguity.
 
@@ -55,22 +60,22 @@ masking a gene whole add to this, each taking both neighbouring gaps down to the
 check on real data: the share of intergenic base pairs masked, by gap size, on a dense and a
 sparse genome. A possible remedy is a share smaller than half the gap.
 
-| type                     | cause                                                   | masked                               |
-|--------------------------|---------------------------------------------------------|--------------------------------------|
-| missing_utr_5p           | CDS starts where the transcript starts                  | 5' flank, up to the CDS start        |
-| missing_utr_3p           | CDS ends where the transcript ends                      | 3' flank, from the CDS end           |
-| missing_start_codon      | spliced CDS does not begin with ATG                     | whole gene and both flanks           |
-| missing_stop_codon       | spliced CDS does not end with a stop codon              | whole gene and both flanks           |
-| truncated_cds            | spliced CDS length is not a multiple of 3               | whole gene and both flanks           |
-| inframe_stop_codon       | a stop codon in frame before the end of the CDS         | whole gene and both flanks           |
-| truncated_intron         | the transcript line reaches past its outermost exon     | whole gene and both flanks           |
-| too_short_intron         | full intron shorter than `min_intron_length` (20 bp)    | whole gene and both flanks           |
-| overlapping_exons        | two exon lines of one transcript overlap                | whole gene and both flanks           |
-| overlapping_cds          | two CDS lines of one transcript overlap                 | whole gene and both flanks           |
-| floating_cds             | CDS lines without a transcript line (see grouping)      | whole gene and both flanks           |
-| beyond_sequence_edge     | coding transcript reaching past its sequence            | whole gene, as clipped, and both flanks |
-| wrong_starting_phase     | phase of the first CDS piece in the file is not 0       | nothing, only recorded               |
-| super_loci_overlap_error | two coding genes share sequence                         | see below and `overlap_masking.md`   |
+| type                     | cause                                                | masked                                  |
+|--------------------------|------------------------------------------------------|-----------------------------------------|
+| missing_utr_5p           | CDS starts where the transcript starts               | 5' flank, up to the CDS start           |
+| missing_utr_3p           | CDS ends where the transcript ends                   | 3' flank, from the CDS end              |
+| missing_start_codon      | spliced CDS does not begin with ATG                  | whole gene and both flanks              |
+| missing_stop_codon       | spliced CDS does not end with a stop codon           | whole gene and both flanks              |
+| truncated_cds            | spliced CDS length is not a multiple of 3            | whole gene and both flanks              |
+| inframe_stop_codon       | a stop codon in frame before the end of the CDS      | whole gene and both flanks              |
+| truncated_intron         | the transcript line reaches past its outermost exon  | whole gene and both flanks              |
+| too_short_intron         | full intron shorter than `min_intron_length` (20 bp) | whole gene and both flanks              |
+| overlapping_exons        | two exon lines of one transcript overlap             | whole gene and both flanks              |
+| overlapping_cds          | two CDS lines of one transcript overlap              | whole gene and both flanks              |
+| floating_cds             | CDS lines without a transcript line (see grouping)   | whole gene and both flanks              |
+| beyond_sequence_edge     | coding transcript reaching past its sequence         | whole gene, as clipped, and both flanks |
+| wrong_starting_phase     | phase of the first CDS piece in the file is not 0    | nothing, only recorded                  |
+| super_loci_overlap_error | two coding genes share sequence                      | see below and `overlap_masking.md`      |
 
 A missing UTR leaves only where the transcript ends unknown; the CDS itself is sound and stays
 labelled. Every other error masking a flank means the CDS boundaries cannot be trusted: a missing
@@ -88,36 +93,35 @@ its transcript and CDS count as not biological. No further checks are applied to
 transcript: concatenating overlapping CDS pieces duplicates the bases they share, so the
 reconstructed coding sequence, on which the codon and reading-frame checks operate, is incorrect.
 A wrong starting phase changes no label,
-as the importer sets every CDS phase itself whatever the file says, so it is recorded as a zero
-length error feature (see below). The file's phases of the other CDS pieces are not checked at
+as the importer sets every CDS phase itself whatever the file says, so it is only recorded and
+masks nothing (see below). The file's phases of the other CDS pieces are not checked at
 all: they are never used, and a CDS that really leaves its frame is caught as truncated_cds.
 
 ###### super_loci_overlap_error is positioned differently:
-Unlike the types above, it is not extended into a flank of its own, and it marks
+Unlike the types above, what it masks is not extended into a flank of its own, and it marks
 sequence two genes both claim rather than anything wrong with one gene. Every shared base
 carries two mutually exclusive true labels (e.g. CDS for one gene and intron or UTR for the
-other), which a one-class-per-base consumer cannot represent.
+other), which a one-class-per-base consumer cannot represent. It is recorded for the exported
+transcript only, its range having been worked out from that transcript's span.
 
 Of two crossing genes the better one is exported whole and its partner is left out of exports
-altogether; the error then covers what that partner occupied beyond the kept gene. Where both
+altogether; the kept gene's mask then covers what that partner occupied beyond it. Where both
 are masked outright for their own errors, or one lies inside the other, both genes are exported
-and each is covered over its whole length and the flank on both sides. Only genes with a CDS
+and each is masked over its whole length and the flank on both sides. Only genes with a CDS
 take part, so a coding gene annotated inside a transposable-element or other non-coding record
 is not masked for it. Every overlapping pair of coding genes is recorded without masking in the
 `super_locus_overlap` table as well. See `overlap_masking.md` for both records, the rules
 deciding which gene is kept, and how this has changed.
 
-###### zero length error features:
-An error feature whose start equals its end masks nothing (consumers apply an error over
-`[start, end)`), but still records that the error was found. This happens where an error type
-that would normally be extended into a flank has no unclaimed sequence to
-extend into, e.g. the missing 5' UTR of a gene nested inside another gene: the neighbouring
-locus already reaches past the boundary the mask would start from, so the range available for
-it is empty. The finding is real and the correct amount to mask is zero, so the feature is
-kept rather than dropped, which also keeps it visible to consumers that treat any error
-feature as disqualifying (e.g. the filtered GFF3 export). The import statistics count error
-types as they are detected, so they agree with these features rather than with the subset
-that masks a non-empty range.
+###### errors masking nothing:
+An error is recorded for its transcript whether or not it masks anything. Besides a wrong
+starting phase, this happens where an error that would normally be extended into a flank has no
+unclaimed sequence to extend into, e.g. the missing 5' UTR of a gene nested inside another gene:
+the neighbouring locus already reaches past the boundary the mask would start from, so the range
+available for it is empty. The finding is real and the correct amount to mask is zero, so it
+adds nothing to the transcript's geenuff_mask features but still counts wherever errors are
+counted: in the import statistics, and in the filtered GFF3 export, which writes only
+transcripts with no error at all.
 
 ##### start_is_biological_start and end_is_biological_end:
 When `True`, these attributes mean the start and end attributes

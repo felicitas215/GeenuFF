@@ -22,16 +22,17 @@ A more extensive description can be found [here](https://weberlab-hhu.github.io/
 
 GeenuFF is the annotation store [Helixer](https://github.com/usadellab/Helixer) trains from.
 Importing a GFF3 file here does the interpreting: gene models are checked, repaired where that
-can be done unambiguously, and whatever stays ambiguous is recorded as an error feature marking
-the range it covers. Helixer then reads one transcript per gene through
-`GeenuffExportController.genome_query` and turns it into its per-base-pair matrices, where those
-error features become the mask that keeps unreliable annotation out of training.
+can be done unambiguously, and whatever stays ambiguous is recorded as an error of its transcript,
+everything a transcript's errors cover being merged into its geenuff_mask features. Helixer then
+reads one transcript per gene through `GeenuffExportController.genome_query` and turns it into its
+per-base-pair matrices, where those geenuff_mask features keep unreliable annotation out of
+training.
 
 That split is deliberate: the database holds the annotation as given, and nothing is deleted for
 being wrong. Which parts of it a consumer is handed, and which are masked, is decided on the way
 out. Two pieces of that are worth reading before relying on the output:
 
-* [docs/spec_vs_gff.md](docs/spec_vs_gff.md): how GeenuFF's features differ from a GFF3's, the error types, and what a zero length error feature means
+* [docs/spec_vs_gff.md](docs/spec_vs_gff.md): how GeenuFF's features differ from a GFF3's, the error types, what each of them masks, and errors that mask nothing
 * [docs/overlap_masking.md](docs/overlap_masking.md): what happens where two genes claim the same sequence, which of them is kept, and why
 * [docs/trans_splicing.md](docs/trans_splicing.md): why a gene whose pieces sit on different strands is stored but never exported, and why nothing is masked in its place
 * [docs/scripts.md](docs/scripts.md): what each script in `scripts/` reads out of a database

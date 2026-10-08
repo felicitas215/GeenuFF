@@ -18,12 +18,12 @@ of them writes a CDS, intron or UTR label anywhere, so none of them can collide 
 
 ## The two records
 
-|               | `super_locus_overlap` table        | `super_loci_overlap_error` feature                    |
-|---------------|------------------------------------|-------------------------------------------------------|
-| covers        | every pair of coding genes         | only pairs of exported genes                          |
-| measured over | every coding transcript a gene has | the one transcript it exports                         |
-| masks         | nothing                            | the range it covers                                   |
-| written for   | consumers other than Helixer       | consumers labelling one class per base (i.e. Helixer) |
+|               | `super_locus_overlap` table        | `super_loci_overlap_error`                                         |
+|---------------|------------------------------------|--------------------------------------------------------------------|
+| covers        | every pair of coding genes         | only pairs of exported genes                                       |
+| measured over | every coding transcript a gene has | the one transcript it exports                                      |
+| masks         | nothing                            | its range, merged into that transcript's geenuff_mask features     |
+| written for   | consumers other than Helixer       | consumers labelling one class per base (i.e. Helixer)              |
 
 The table is the wider record and carries no judgement about whether either gene is usable. All
 overlaps of one gene are `WHERE super_locus_id = X OR partner_id = X`.
