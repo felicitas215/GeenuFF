@@ -1,4 +1,6 @@
 import os
+import copy
+import itertools
 import bisect
 import math
 import logging
@@ -60,6 +62,8 @@ DROPPED_LINE_REASONS = {
                  'which one a child names is undecidable',
     'several_genes': 'transcript lines naming more than one gene as their parent',
     'parent_not_gene': 'transcript lines naming another transcript as their parent',
+    'missing_parent_unplaceable': 'transcript lines naming a parent that matches no line, where the '
+                                  'transcripts naming it lie on different sequences or strands',
     'no_parent': 'transcript, exon and UTR lines naming no parent (CDS lines naming none are masked)',
     'unknown_parent': 'exon and UTR lines naming a parent that matches no line (CDS lines doing so '
                       'are masked)',
@@ -101,6 +105,9 @@ class ImportStatistics(object):
         self.floating_cds_genes: int = 0
         # transcripts with CDS lines but no exon lines, their exons built from their CDS and UTR lines
         self.transcripts_with_exons_built: int = 0
+        # CDS missing only their stop codon, as in GFF3 converted from GTF, extended by the stop codon
+        # after them; GTF itself is not read
+        self.stop_codons_recovered: int = 0
         # GFF lines left out while grouping, keyed by a DROPPED_LINE_REASONS key and then by GFF
         # type; a line with several parents counts once per parent it is left out for
         self.dropped_lines: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -169,6 +176,9 @@ class ImportStatistics(object):
                                                 'masked whole as floating_cds'),
                 (self.transcripts_with_exons_built, 'with exons built from their CDS and UTR lines, '
                                                     'having no exon lines'),
+                (self.stop_codons_recovered, 'with the stop codon after their CDS added to it, the '
+                                             'CDS missing only that, as in GFF3 converted from GTF '
+                                             '(GTF itself is not read)'),
                 (self.longest_transcripts, 'selected for export, one per locus that will be exported'),
                 (self.longest_error_free_transcripts, 'of those selected with no error at all'),
                 (self.unstorable_transcripts_dropped, 'dropped, no line of theirs having a '
@@ -318,6 +328,37 @@ class OrganizedGeenuffImporterGroup(object):
                        f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
                        f"'{sl_i.given_name}' will not be exported")
 
+    @staticmethod
+    def _cds_extended_by_a_codon(t_entries, is_plus_strand):
+        """Copies of a transcript's CDS lines extended by the 3 bases following them along its
+        exons, possibly across an intron, or None where fewer are left. Used to recover the stop
+        codon GTF leaves out of the CDS, in GFF3 converted from GTF; GTF itself is not read."""
+        cds = t_entries['cds']
+        if is_plus_strand:
+            following = (p for exon in t_entries['exons']
+                         for p in range(max(exon.start, cds[-1].end + 1), exon.end + 1))
+        else:
+            following = (p for exon in reversed(t_entries['exons'])
+                         for p in range(min(exon.end, cds[0].start - 1), exon.start - 1, -1))
+        following = list(itertools.islice(following, 3))
+        # fewer bases are left in the transcript, or overlapping exons repeat one
+        if len(set(following)) < 3:
+            return None
+
+        pieces = [copy.copy(c) for c in cds]
+        # outward from the CDS, each base extends the piece it touches or, past an intron, starts one
+        for p in following:
+            touching = next((c for c in pieces if (c.end + 1 if is_plus_strand else c.start - 1) == p), None)
+            if touching is None:
+                touching = copy.copy(cds[-1] if is_plus_strand else cds[0])
+                touching.start = touching.end = p
+                pieces.append(touching)
+            elif is_plus_strand:
+                touching.end = p
+            else:
+                touching.start = p
+        return sorted(pieces, key=lambda c: c.start)
+
     def _clip_to_sequence(self, t, t_entries):
         """Clips a transcript reaching past an edge of its sequence to the part on it, leaving out
         its exon and CDS lines wholly beyond. Returns False, changing nothing, where no CDS line
@@ -465,6 +506,21 @@ class OrganizedGeenuffImporterGroup(object):
                 # from the boundary, as the old per-feature check did, would read into the
                 # intron and report a false MISSING_START/STOP_CODON in that case.
                 cds_seq = spliced_cds_sequence(self.coord.sequence, t_entries['cds'], t_is_plus_strand)
+                is_truncated = len(cds_seq) % 3 != 0
+                has_inframe_stop = has_inframe_stop_codon(cds_seq)
+                has_stop_codon = cds_seq[-3:] in STOP_CODONS
+                # GTF leaves the stop codon out of the CDS, and GFF3 converted from GTF can keep it
+                # that way (GTF itself is not read). Where it alone is missing, the CDS being
+                # whole codons without any stop codon, and the next codon is one, it is added:
+                # translation ends there whatever the file says. The other checks above hold for
+                # the extended CDS as well
+                if not (t_importers['mask_whole'] or is_truncated or has_inframe_stop or has_stop_codon):
+                    extended = self._cds_extended_by_a_codon(t_entries, t_is_plus_strand)
+                    if extended is not None:
+                        extended_seq = spliced_cds_sequence(self.coord.sequence, extended, t_is_plus_strand)
+                        if extended_seq[-3:] in STOP_CODONS:
+                            t_entries['cds'], cds_seq, has_stop_codon = extended, extended_seq, True
+                            stats.stop_codons_recovered += 1
                 # the lines are sorted by start, so any overlap shows between neighbours
                 cds_lines = t_entries['cds']
                 overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))
@@ -477,10 +533,10 @@ class OrganizedGeenuffImporterGroup(object):
                                         # -> same value in both phase conventions, Helixer later
                                         # computes the phases from the starting phase
                                         phase=0,
-                                        is_truncated=len(cds_seq) % 3 != 0,
-                                        has_inframe_stop=has_inframe_stop_codon(cds_seq),
+                                        is_truncated=is_truncated,
+                                        has_inframe_stop=has_inframe_stop,
                                         has_start_codon=cds_seq[:3] == START_CODON,
-                                        has_stop_codon=cds_seq[-3:] in STOP_CODONS,
+                                        has_stop_codon=has_stop_codon,
                                         has_overlapping_pieces=overlapping_cds,
                                         score=t.score,
                                         source=t.source,
@@ -801,7 +857,8 @@ class OrganizedGFFEntries(object):
 
     def _place_transcripts(self, transcripts_by_id, groups, dropped_ids):
         """Puts every transcript under the one gene it names. The transcripts naming one Parent ID
-        that matches no line share a gene inferred for them, spanning them all (see _inferred_gene)."""
+        that matches no line share a gene inferred for them, spanning them all (see _inferred_gene),
+        unless they lie on different sequences or strands, which leaves them all out."""
         named_missing_parent = defaultdict(list)
         for t_id, t in transcripts_by_id.items():
             parents = t.get_Parent() or []
@@ -825,23 +882,20 @@ class OrganizedGFFEntries(object):
                 dropped_ids.add(t_id)
 
         for parent_id, members in named_missing_parent.items():
-            seqid = members[0].seqid
-            for t in members:
-                if t.seqid != seqid:
-                    self._drop(t, 'other_sequence')
+            if len({(t.seqid, t.strand) for t in members}) > 1:
+                for t in members:
+                    self._drop(t, 'missing_parent_unplaceable')
                     dropped_ids.add(t.get_ID())
-            members = [t for t in members if t.seqid == seqid]
+                continue
             groups[parent_id] = {'super_locus': self._inferred_gene(parent_id, members),
                                  'transcripts': {t: self._new_t_entries() for t in members}}
             self.stats.genes_inferred_for_missing_parents += 1
 
     def _inferred_gene(self, gene_id, transcripts):
-        """A gene line for transcripts naming a Parent ID that matches no line, spanning them all,
-        on their strand where they agree on one and on none otherwise."""
-        strands = {t.strand for t in transcripts}
-        strand = strands.pop() if len(strands) == 1 else None
+        """A gene line for transcripts on one sequence and strand that the file gives none,
+        spanning them all."""
         return self._line(transcripts[0].seqid, 'gene', min(t.start for t in transcripts),
-                          max(t.end for t in transcripts), strand, f'ID={gene_id}')
+                          max(t.end for t in transcripts), transcripts[0].strand, f'ID={gene_id}')
 
     def _place_pieces(self, pieces, groups, dropped_ids):
         """Puts every exon, CDS and UTR line under each transcript it names, several being allowed.

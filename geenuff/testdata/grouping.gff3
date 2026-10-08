@@ -5,16 +5,19 @@
 # OrganizedGFFEntries.load_organized_entries), with the outcome each is expected to have.
 #
 # phantomA and phantomB name missingGene, which matches no line: they share a gene inferred for
-# them, spanning 101-300 on the plus strand. phantomC names it too, but on sequence B, so it is
-# left out with its exon
+# them, spanning 101-300 on the plus strand
 A	test	mRNA	101	200	.	+	.	ID=phantomA;Parent=missingGene
 A	test	exon	101	200	.	+	.	Parent=phantomA
 A	test	mRNA	151	300	.	+	.	ID=phantomB;Parent=missingGene
 A	test	exon	151	300	.	+	.	Parent=phantomB
-B	test	mRNA	101	200	.	+	.	ID=phantomC;Parent=missingGene
+# phantomC and phantomD name missingSplit, which matches no line, on sequences B and A: both are
+# left out with their exons
+B	test	mRNA	101	200	.	+	.	ID=phantomC;Parent=missingSplit
 B	test	exon	101	200	.	+	.	Parent=phantomC
-# mixedPlus and mixedMinus name missingMixed, which matches no line, on opposite strands: the gene
-# inferred for them is on neither strand
+A	test	mRNA	1701	1800	.	+	.	ID=phantomD;Parent=missingSplit
+A	test	exon	1701	1800	.	+	.	Parent=phantomD
+# mixedPlus and mixedMinus name missingMixed, which matches no line, on opposite strands: both are
+# left out
 A	test	mRNA	1401	1500	.	+	.	ID=mixedPlus;Parent=missingMixed
 A	test	mRNA	1451	1600	.	-	.	ID=mixedMinus;Parent=missingMixed
 # parentless names no parent: left out with its exon

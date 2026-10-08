@@ -1,0 +1,33 @@
+##gff-version 3
+##sequence-region CHR 1 500
+# CDS lacking their stop codon, as in GFF3 converted from GTF (GTF itself is not read), with the
+# outcome each is expected to have (see OrganizedGeenuffImporterGroup._cds_extended_by_a_codon).
+# Each CDS starts with ATG, the sequence being C wherever no codon is named below.
+#
+# tPlus's CDS ends at 50, TAA following at 51-53: extended to 21-53
+CHR	test	gene	11	100	.	+	.	ID=gPlus
+CHR	test	mRNA	11	100	.	+	.	ID=tPlus;Parent=gPlus
+CHR	test	exon	11	100	.	+	.	Parent=tPlus
+CHR	test	CDS	21	50	.	+	0	Parent=tPlus
+# tSplit's CDS ends at 148, TA at 149-150 and A at 181 across the intron: extended to 122-150 and
+# 181-181
+CHR	test	gene	111	200	.	+	.	ID=gSplit
+CHR	test	mRNA	111	200	.	+	.	ID=tSplit;Parent=gSplit
+CHR	test	exon	111	150	.	+	.	Parent=tSplit
+CHR	test	exon	181	200	.	+	.	Parent=tSplit
+CHR	test	CDS	122	148	.	+	0	Parent=tSplit
+# tMinus's CDS ends at 241 on the minus strand, TAA following at 240-238: extended to 238-270
+CHR	test	gene	211	300	.	-	.	ID=gMinus
+CHR	test	mRNA	211	300	.	-	.	ID=tMinus;Parent=gMinus
+CHR	test	exon	211	300	.	-	.	Parent=tMinus
+CHR	test	CDS	241	270	.	-	0	Parent=tMinus
+# tNoStop's CDS is followed by CCC: left as it is, missing its stop codon
+CHR	test	gene	311	400	.	+	.	ID=gNoStop
+CHR	test	mRNA	311	400	.	+	.	ID=tNoStop;Parent=gNoStop
+CHR	test	exon	311	400	.	+	.	Parent=tNoStop
+CHR	test	CDS	321	350	.	+	0	Parent=tNoStop
+# tFrame's CDS is 29 bp, no whole number of codons, so the TAA after it is not taken: left as it is
+CHR	test	gene	411	500	.	+	.	ID=gFrame
+CHR	test	mRNA	411	500	.	+	.	ID=tFrame;Parent=gFrame
+CHR	test	exon	411	500	.	+	.	Parent=tFrame
+CHR	test	CDS	421	449	.	+	0	Parent=tFrame

@@ -1460,18 +1460,13 @@ def groups_by_gene_id(gff_organizer, seqid):
 
 
 def test_transcripts_naming_a_missing_parent_share_a_gene_inferred_for_them(grouping_organizer):
-    """Transcripts naming the same Parent ID that matches no line become isoforms of one gene
-    inferred for them, spanning them all, on their strand where they agree on one and on none
-    otherwise. See testdata/grouping.gff3."""
-    groups = groups_by_gene_id(grouping_organizer, 'A')
-    missing, mixed = groups['missingGene'], groups['missingMixed']
+    """Transcripts naming the same Parent ID that matches no line, all on one sequence and strand,
+    become isoforms of one gene inferred for them, spanning them all. See testdata/grouping.gff3."""
+    missing = groups_by_gene_id(grouping_organizer, 'A')['missingGene']
     gene = missing['super_locus']
     assert (gene.start, gene.end, gene.strand) == (101, 300, '+')
     assert {t.get_ID() for t in missing['transcripts']} == {'phantomA', 'phantomB'}
-    gene = mixed['super_locus']
-    assert (gene.start, gene.end, gene.strand) == (1401, 1600, None)
-    assert {t.get_ID() for t in mixed['transcripts']} == {'mixedPlus', 'mixedMinus'}
-    assert grouping_organizer.stats.genes_inferred_for_missing_parents == 2
+    assert grouping_organizer.stats.genes_inferred_for_missing_parents == 1
 
 
 def test_an_exon_naming_several_transcripts_is_put_under_each(grouping_organizer):
@@ -1484,11 +1479,11 @@ def test_an_exon_naming_several_transcripts_is_put_under_each(grouping_organizer
 
 def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer):
     """A gene without an ID, transcripts naming no parent, several genes or another transcript,
-    a transcript and an exon on another sequence than their parent, and every exon below a
-    transcript left out. g1 and g2 remain without transcripts, and nothing remains on sequence B.
-    See testdata/grouping.gff3."""
+    transcripts naming one missing parent on different sequences or strands, an exon on another
+    sequence than its parent, and every exon below a transcript left out. g1 and g2 remain without
+    transcripts, and nothing remains on sequence B. See testdata/grouping.gff3."""
     groups = groups_by_gene_id(grouping_organizer, 'A')
-    assert set(groups) == {'missingGene', 'missingMixed', 'g1', 'g2', 'g3'}
+    assert set(groups) == {'missingGene', 'g1', 'g2', 'g3'}
     assert not groups['g1']['transcripts'] and not groups['g2']['transcripts']
     assert 'B' not in grouping_organizer.organized_entries
     assert grouping_organizer.stats.dropped_lines == {
@@ -1496,8 +1491,9 @@ def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer
         'no_parent': {'mRNA': 1},
         'several_genes': {'mRNA': 1},
         'parent_not_gene': {'mRNA': 1},
-        'other_sequence': {'mRNA': 1, 'exon': 1},
-        'parent_dropped': {'exon': 3},
+        'missing_parent_unplaceable': {'mRNA': 4},
+        'other_sequence': {'exon': 1},
+        'parent_dropped': {'exon': 4},
     }
 
 
@@ -1582,6 +1578,27 @@ def test_coding_transcripts_past_a_sequence_edge_are_clipped_and_masked_whole():
     assert gene_gone.excluded_from_export == types.OUTSIDE_SEQUENCE
     assert controller.stats.transcripts_outside_sequence_dropped == 1
     assert controller.stats.errors[types.BEYOND_SEQUENCE_EDGE] == 2
+
+
+def test_a_cds_missing_only_its_stop_codon_gets_the_one_after_it():
+    """GTF leaves the stop codon out of the CDS, and GFF3 converted from GTF can keep it that way
+    (GTF itself is not read). A CDS of whole codons without any stop codon is extended by the next
+    3 bases of its exons where they are a stop codon, also across an intron and on the minus
+    strand; it is left as it is where they are none or its frame is off. See
+    testdata/stop_codon.gff3."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/stop_codon.fa', 'testdata/stop_codon.gff3', clean_gff=True)
+    transcripts = transcripts_by_name(controller)
+
+    expected = {'tPlus': (20, 53), 'tSplit': (121, 181), 'tMinus': (269, 236),
+                'tNoStop': (320, 350), 'tFrame': (420, 449)}
+    assert {name: feature_ranges(t, types.GEENUFF_CDS)[0] for name, t in transcripts.items()} == expected
+    for name in ['tPlus', 'tSplit', 'tMinus']:
+        assert not {f.type.value for f in transcripts[name].transcript_pieces[0].features} & set(
+            types.geenuff_error_type_values)
+    assert feature_ranges(transcripts['tNoStop'], types.MISSING_STOP_CODON)
+    assert feature_ranges(transcripts['tFrame'], types.TRUNCATED_CDS)
+    assert controller.stats.stop_codons_recovered == 3
 
 
 # section: types

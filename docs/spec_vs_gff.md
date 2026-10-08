@@ -164,6 +164,10 @@ Lines starting before position 1 or ending past the length of their sequence com
 
 A coding transcript with such an mRNA, exon or CDS line is clipped to the part on the sequence, its exon and CDS lines wholly beyond being left out, and masked whole with both flanks (`beyond_sequence_edge`): where it ends is unknown, and its CDS cannot be checked. A transcript with no CDS line on the sequence is left out entirely, and its gene is kept out of exports (`excluded_from_export = 'outside_sequence'`), counted in the import summary. Trans-spliced genes, written with a start past their end or on no definite strand, stay out of exports unmasked (see docs/trans_splicing.md): whether and where the intron between their parts lies is unknown.
 
+##### stop codons left out of the CDS
+
+GTF writes the stop codon as a line of its own and leaves it out of the CDS, and GFF3 converted from GTF can keep it that way. Where a CDS is whole (no inframe stop, truncation, ...), only the stop codon is missing and the next 3 bases along the transcript's exons are a stop codon, the CDS is extended by them, across an intron if need be: translation ends there whatever the file says. Only these 3 bases are read; a stop codon further on would make a longer protein than the file annotates. The start codon is not recovered, GTF counting it as part of the CDS, so a missing one is likely a legit errror. The import summary counts the CDS extended, so a file converted from GTF shows as such.
+
 ##### grouping lines into genes
 
 Lines are grouped into genes by their `ID` and `Parent` attributes, whatever their order in the
@@ -180,7 +184,8 @@ line below a line left out goes with it.
   ignored.
 - A transcript names exactly one gene. One naming no parent, several genes or another transcript
   is left out. Transcripts naming a `Parent` that matches no line share a gene inferred for them,
-  spanning them all.
+  spanning them all. If they lie on different sequences or strands, they are all left out: which of
+  them belong together cannot be told.
 - An exon, CDS or UTR line is put under every transcript it names. One naming a gene that has transcripts is left out, whether or not it duplicates a line of one of that gene's transcripts: it could equally belong to an isoform the file gives no transcript line of its own. An exon or UTR line naming no parent, a gene without transcripts or a `Parent` that matches no line is left out as well.
 - CDS lines without a transcript line are not turned into gene models: which lines make up one CDS, and its exons and UTRs, would have to be guessed from IDs that every source writes differently. They are masked instead (`floating_cds`), so that the sequence some gene was annotated in is not taught as intergenic. This covers CDS lines naming no parent (grouped by a shared `ID`, else one by one), a `Parent` that matches no line (grouped by it) and a gene without transcripts (grouped by the gene). Each group gets a transcript spanning it, under its gene or one made for it, that is masked whole with both flanks. A group is left out if its lines lie on different sequences or strands, or, for CDS lines naming a gene, on another sequence or strand than the gene. Whether CDS lines are masked depends on their gene alone: CDS lines naming a gene that has a transcript, whatever its quality, are left out unmasked, the gene's transcripts deciding the region; a gene with nothing but CDS lines is as good as a gene line over floating CDS lines, so they are masked. Overlaps with other genes are settled like those of any gene masked outright (see the overlap rules above). A file with many such lines is badly formatted, and the counts in the import summary show it.
 - A transcript with CDS lines but no exon lines gets exons built from its CDS and
