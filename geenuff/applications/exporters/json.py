@@ -136,6 +136,8 @@ class TranscriptJsonable(TranscriptHandlerBase, ToJsonable):
         out["type"] = self.data.type.value
         out["is_fully_contained"] = self.is_fully_contained(coordinate, start, end, is_plus_strand)
         out["overlaps"] = self.overlaps(coordinate, start, end, is_plus_strand)
+        # what they mask is merged into the transcript's geenuff_mask features
+        out["errors"] = sorted(e.type.value for e in self.data.errors)
         out["features"] = [fh.to_jsonable(fh.data, coordinate, start, end, is_plus_strand, self.data)
                            for fh in self.feature_handlers]
         return out

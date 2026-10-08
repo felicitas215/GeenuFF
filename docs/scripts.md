@@ -19,7 +19,9 @@ which is the set to compare against when the question is what Helixer predicted 
 than how it did on sound ones. Genes dropped from the h5 export for overlapping another are
 included: nothing is wrong with them beyond sharing sequence, which a GFF3 holds without trouble.
 Only genes whose features cannot be placed are left out either way, and the log says how many and
-why (see `overlap_masking.md` and `trans_splicing.md`).
+why (see `overlap_masking.md` and `trans_splicing.md`). The mRNA line of an erroneous transcript
+names its error types, e.g. `geenuff_errors=missing_utr_5p,truncated_cds`, and that of a gene
+dropped from the h5 export for an overlap the reason, `geenuff_excluded=overlap_dropped`.
 
 ## dump_to_fasta.py
 
@@ -54,8 +56,8 @@ aggregate. It takes `--species`, `--seqid` and `--strand`, optionally narrowed b
 for indented output.
 
 Unlike the others this is a reading tool rather than an export: it is the quickest way to see
-every feature GeenuFF built for a locus, geenuff_mask features included, when a summary count says
-something is wrong but not what.
+every feature GeenuFF built for a locus, geenuff_mask features included, and every transcript's
+error types, when a summary count says something is wrong but not what.
 
 ## summarize_geenuff_db.py
 

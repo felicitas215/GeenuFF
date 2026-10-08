@@ -103,7 +103,7 @@ def orm_object_in_list(obj, obj_list):
 
 ### The actual tests ###
 def test_annogenome2coordinate_relation():
-    """Check if everything is consistent when we add an Genome and a Coordinate
+    """Check if everything is consistent when we add a Genome and a Coordinate
     to the db. Also check for correct deletion behavior.
     """
     sess = mk_memory_session()
@@ -206,8 +206,7 @@ def test_feature_has_its_things():
     sess.add_all([f, c])
     sess.commit()
 
-    assert f.source is None
-    assert f.score is None
+    assert (f.source, f.score) == (None, None)
     # test feature with
     f1 = Feature(coordinate=c,
                  start=3,
@@ -800,7 +799,7 @@ def test_non_coding_intron():
 def test_trans_spliced_gene_strand_not_crashing_and_excluded_from_export():
     """A '?' strand (NCBI's convention for trans-spliced genes) must not crash the importer:
     the gene is still saved as its own super locus, but with no transcripts under it, so
-    'transcript.longest' never becomes True for it and it is excluded from the export query
+    'transcript.longest' never becomes True for it, and it is excluded from the export query
     that both h5 export and masking rely on (see GeenuffExportController._genome_query)."""
     db_path = 'testdata/trans_spliced.sqlite3'
     if os.path.exists(db_path):
@@ -1093,6 +1092,9 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
     # flank 50-99, 49 of the 99bp to the sequence start, and its 3' flank, 200 of the 400bp to
     # geneOuter, which the overhang takes in
     assert masks_of(session, 'rnaCrossCoder') == [(50, 99), (399, 725)]
+    # the dropped gene's own error is recorded, but masks nothing, its features reaching no export
+    assert errors_of(session, 'rnaCrossGivesWay') == {types.MISSING_UTR_3P}
+    assert masks_of(session, 'rnaCrossGivesWay') == []
 
     # nested: never decided, so both are masked over their whole length and the flank on both
     # sides, measured past the partner, taking in the flanks of their missing UTRs. geneOuter
@@ -1119,6 +1121,12 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
     assert excluded('geneCleanNoCds') is None
     assert excluded('geneTruncatedCoder') == types.OVERLAP_DROPPED
     assert masks_of(session, 'rnaCleanNoCds') == [(2274, 2399), (2699, 3600)]
+    # geneTruncatedCoder's CDS is its whole transcript, 301bp and without codons
+    assert errors_of(session, 'rnaTruncatedCoder') == {
+        types.MISSING_UTR_5P, types.MISSING_UTR_3P, types.MISSING_START_CODON,
+        types.MISSING_STOP_CODON, types.TRUNCATED_CDS}
+    # the import statistics count exported genes only: the two of pair 3, not geneTruncatedCoder
+    assert controller.stats.errors[types.TRUNCATED_CDS] == 2
 
     assert controller.stats.overlap_pairs_resolved == 2
     assert controller.stats.overlap_loci_dropped == 2

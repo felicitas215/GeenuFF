@@ -1378,10 +1378,19 @@ class GFFErrorHandling(object):
         given up to overlapping loci, into its geenuff_mask features."""
         for i, group in enumerate(self.groups):
             sign = 1 if self.is_plus_strand else -1
-            # a locus that is not exported at all is not analysed either, and gets no mask: where
+            reason = group['super_locus'].excluded_from_export
+            # a locus dropped for an overlap was checked like any other, so its errors are recorded,
+            # but it gets no mask, its features reaching no export, and no count in the import
+            # statistics (see clean_and_insert)
+            if reason == types.OVERLAP_DROPPED:
+                for transcript in group['transcripts']:
+                    for finding in transcript.get('findings', []):
+                        transcript['detected_error_types'].add(finding.error_type)
+                continue
+            # a locus excluded for any other reason is not analysed at all, and gets no mask: where
             # its features belong is exactly what is unknown about it, so any mask would be
             # guesswork, either covering the wrong strand or covering sequence that is fine
-            if group['super_locus'].excluded_from_export is not None:
+            if reason is not None:
                 continue
 
             # the case of no transcript for a super locus

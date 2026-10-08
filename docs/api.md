@@ -176,6 +176,7 @@ similar to, I'm sure there's mistakes) the following format:
                        "given_name": str,
                        "is_fully_contained": bool,
                        "overlaps": bool,
+                       "errors": [str, ...] (the error types found, see spec_vs_gff.md),
                        "features": [{"id": int,
                                      "given_name": str,
                                      "seqid": str,

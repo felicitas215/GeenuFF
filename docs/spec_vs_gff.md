@@ -123,6 +123,11 @@ adds nothing to the transcript's geenuff_mask features but still counts wherever
 counted: in the import statistics, and in the filtered GFF3 export, which writes only
 transcripts with no error at all.
 
+A gene dropped from exports for an overlap has its errors recorded as well, masking nothing, its
+features reaching no export. The import statistics count exported genes only, so its errors are
+not among them. They are included for brevity, i.e. finding out why the specific gene was dropped
+in favour of its partner.
+
 ##### start_is_biological_start and end_is_biological_end:
 When `True`, these attributes mean the start and end attributes
 of a feature correspond to a meaningful biological transition.

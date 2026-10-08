@@ -30,7 +30,9 @@ class FilteredGff3ExportController(GeenuffExportController):
     it, which is the set to compare against when the question is what Helixer predicted per gene
     rather than how it did on sound ones. Only genes that cannot be written are left out then, and
     a gene dropped for overlapping another is not one of them: nothing is wrong with it beyond
-    sharing sequence, which a GFF3 holds without trouble (see types.unrepresentable_reasons)."""
+    sharing sequence, which a GFF3 holds without trouble (see types.unrepresentable_reasons).
+    The mRNA line of an erroneous transcript names its error types in a geenuff_errors attribute,
+    and that of a gene kept out of the h5 export the reason in a geenuff_excluded attribute."""
 
     def write_filtered_gff3(self, file_out: str | None, include_erroneous: bool = False) -> None:
         handle_out = self._as_file_handle(file_out)
@@ -95,11 +97,19 @@ class FilteredGff3ExportController(GeenuffExportController):
         gene_id = transcript.super_locus.given_name or f'gene{transcript.super_locus_id}'
         mrna_id = transcript.given_name or f'mRNA{transcript.id}'
 
+        # what is wrong with the transcript, absent where nothing is
+        mrna_attributes = f'ID={mrna_id};Parent={gene_id}'
+        errors = sorted(e.type.value for e in transcript.errors)
+        if errors:
+            mrna_attributes += f';geenuff_errors={",".join(errors)}'
+        if transcript.super_locus.excluded_from_export is not None:
+            mrna_attributes += f';geenuff_excluded={transcript.super_locus.excluded_from_export}'
+
         tx_start, tx_end = geenuff_to_gff_start_end(tx_feature.start, tx_feature.end, is_plus_strand)
         handle_out.write(self._gff_line(seqid, source, 'gene', tx_start, tx_end, score, strand,
                                         '.', f'ID={gene_id}'))
         handle_out.write(self._gff_line(seqid, source, 'mRNA', tx_start, tx_end, score, strand,
-                                        '.', f'ID={mrna_id};Parent={gene_id}'))
+                                        '.', mrna_attributes))
 
         exons = [group.ranges[0] for group in range_maker.exonic_ranges()]
         for i, exon in enumerate(exons, start=1):
