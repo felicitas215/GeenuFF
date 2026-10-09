@@ -827,11 +827,11 @@ def test_trans_spliced_gene_strand_not_crashing_and_excluded_from_export():
             os.remove(db_path)
 
 
-def test_filtered_gff3_export_writes_only_longest_error_free_transcripts(tmp_path):
+def test_filtered_gff3_export_writes_only_longest_labelled_transcripts(tmp_path):
     """FilteredGff3ExportController.write_filtered_gff3 must reproduce exactly the gene
-    models old Helixer's h5 export draws from (longest transcript per locus), further
-    restricted to ones with no error recorded at all. The coordinates/phases it
-    writes back out must exactly round-trip the original GFF3 input."""
+    models old Helixer's h5 export gives labels from (longest transcript per locus, not masked
+    whole). The coordinates/phases it writes back out must exactly round-trip the original GFF3
+    input."""
     db_path = str(tmp_path / 'filtered_gff3.sqlite3')
     out_path = str(tmp_path / 'filtered.gff3')
     controller = ImportController(database_path=db_path)
@@ -844,8 +844,8 @@ def test_filtered_gff3_export_writes_only_longest_error_free_transcripts(tmp_pat
     with open(out_path) as f:
         lines = [line.rstrip('\n') for line in f if not line.startswith('#')]
 
-    # only gene2's transcript is both coding and error-free; the trans-spliced locus has
-    # no transcript at all and is absent entirely
+    # only gene2's transcript is coding and labelled; the trans-spliced locus has no transcript
+    # at all and is absent entirely
     feature_types = [line.split('\t')[2] for line in lines]
     assert feature_types == ['gene', 'mRNA', 'exon', 'CDS']
     for line in lines:
@@ -880,10 +880,13 @@ def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path,
             return {line.split('ID=')[1].strip() for line in handle
                     if line.split('\t')[2:3] == ['gene']}
 
-    # every gene in this file lacks a UTR, so the default export writes none of them; with
-    # include_erroneous all eight come through, geneCrossGivesWay and geneTruncatedCoder among
+    # the default export writes the genes the h5 export gives labels from: geneCrossCoder and
+    # geneCleanNoCds, kept in their overlaps and with only the flanks of missing UTRs and the
+    # overhang of the gene dropped in their favour masked; the others are masked whole or dropped.
+    # With include_erroneous all eight come through, geneCrossGivesWay and geneTruncatedCoder among
     # them although both were dropped from the h5 export for overlapping a gene that was kept
-    assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', False) == set()
+    assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', False) == {
+        'geneCrossCoder', 'geneCleanNoCds'}
     assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', True) == {
         'geneCrossCoder', 'geneCrossGivesWay', 'geneOuter', 'geneInner', 'geneBothTruncatedLeft',
         'geneBothTruncatedRight', 'geneCleanNoCds', 'geneTruncatedCoder'}
@@ -946,7 +949,10 @@ def test_exon_and_cds_lines_naming_a_gene_are_left_out_not_glued_onto_a_transcri
                           'testdata/gene_parented_duplicate_exons.gff3', clean_gff=True)
 
     assert controller.stats.dropped_lines == {'gene_parented_duplicate': {'exon': 3},
-                                              'gene_parented': {'exon': 2, 'CDS': 1}}
+                                              'gene_parented': {'exon': 2},
+                                              'gene_parented_cds': {'CDS': 1}}
+    # gene3's CDS line, counted per gene, duplicating no CDS line of its transcript
+    assert (controller.stats.gene_parented_cds_genes, controller.stats.gene_parented_cds_duplicates) == (1, 0)
     found = {e.type.value for e in controller.session.query(TranscriptError)}
     assert types.OVERLAPPING_EXONS not in found
 
@@ -1314,16 +1320,17 @@ def test_gff_grouper():
 
 def test_gff_grouper_leaves_out_genes_sharing_an_id():
     """gene1's ID is used by two gene lines, so which of them a transcript names is undecidable:
-    both are left out, with their transcripts and those transcripts' exon, CDS and UTR lines. Only
-    gene2 remains."""
+    both are left out, with their transcripts and those transcripts' exon, CDS and UTR lines, all
+    counted under shared_id, the two coding transcripts among them as lost. Only gene2 remains."""
     gff_organizer = OrganizedGFFEntries('testdata/discontinuous_gene.gff3')
     gff_organizer.load_organized_entries()
     groups = gff_organizer.organized_entries['NC_TEST.1']
     assert [group['super_locus'].get_ID() for group in groups] == ['gene2']
-    assert gff_organizer.stats.dropped_lines == {'shared_id': {'gene': 2},
-                                                 'parent_dropped': {'mRNA': 2, 'exon': 6, 'CDS': 6,
-                                                                    'five_prime_UTR': 2,
-                                                                    'three_prime_UTR': 2}}
+    assert gff_organizer.stats.dropped_lines == {'shared_id': {'gene': 2}}
+    assert gff_organizer.stats.dropped_lines_below == {'shared_id': {'mRNA': 2, 'exon': 6, 'CDS': 6,
+                                                                     'five_prime_UTR': 2,
+                                                                     'three_prime_UTR': 2}}
+    assert gff_organizer.stats.coding_transcripts_dropped == {'shared_id': 2}
 
 
 @pytest.fixture(scope='module')
@@ -1358,8 +1365,9 @@ def test_an_exon_naming_several_transcripts_is_put_under_each(grouping_organizer
 def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer):
     """A gene without an ID, transcripts naming no parent, several genes or another transcript,
     transcripts naming one missing parent on different sequences or strands, an exon on another
-    sequence than its parent, and every exon below a transcript left out. g1 and g2 remain without
-    transcripts, and nothing remains on sequence B. See testdata/grouping.gff3."""
+    sequence than its parent, and every exon below a transcript left out, counted under the reason
+    its transcript was left out for. g1 and g2 remain without transcripts, and nothing remains on
+    sequence B. See testdata/grouping.gff3."""
     groups = groups_by_gene_id(grouping_organizer, 'A')
     assert set(groups) == {'missingGene', 'g1', 'g2', 'g3'}
     assert not groups['g1']['transcripts'] and not groups['g2']['transcripts']
@@ -1371,7 +1379,12 @@ def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer
         'parent_not_gene': {'mRNA': 1},
         'missing_parent_unplaceable': {'mRNA': 4},
         'other_sequence': {'exon': 1},
-        'parent_dropped': {'exon': 4},
+    }
+    # parentless's, twoGenes's, phantomC's and phantomD's exons
+    assert grouping_organizer.stats.dropped_lines_below == {
+        'no_parent': {'exon': 1},
+        'several_genes': {'exon': 1},
+        'missing_parent_unplaceable': {'exon': 2},
     }
 
 
@@ -1427,13 +1440,16 @@ def test_cds_lines_without_a_transcript_line_are_masked_whole(cds_without_transc
 def test_lines_without_a_transcript_line_that_are_not_masked_are_left_out(cds_without_transcript_controller):
     """Lines naming a gene that has a transcript, exon and UTR lines naming a parent matching no
     line, and CDS lines to be masked together that lie on opposite strands. geneB keeps rnaB1
-    alone. See testdata/cds_without_transcript.gff3."""
-    assert cds_without_transcript_controller.stats.dropped_lines == {
-        'gene_parented_duplicate': {'CDS': 1},
-        'gene_parented': {'CDS': 2, 'five_prime_UTR': 1},
+    alone; its three CDS lines are counted per gene, one of them, cds-B1-echo, duplicating rnaB1's
+    CDS. See testdata/cds_without_transcript.gff3."""
+    stats = cds_without_transcript_controller.stats
+    assert stats.dropped_lines == {
+        'gene_parented_cds': {'CDS': 3},
+        'gene_parented': {'five_prime_UTR': 1},
         'unknown_parent': {'three_prime_UTR': 1, 'exon': 1},
         'floating_cds_unplaceable': {'CDS': 2},
     }
+    assert (stats.gene_parented_cds_genes, stats.gene_parented_cds_duplicates) == (1, 1)
     gene_b = cds_without_transcript_controller.session.query(SuperLocus).filter_by(given_name='geneB').one()
     assert [t.given_name for t in gene_b.transcripts] == ['rnaB1']
 

@@ -29,7 +29,7 @@ represent the biological processes, as well as technical limitations.
 In particular, the abstraction layer of transcribed_pieces can be used
 to group and organize features
 encoding a transcript that originates from multiple unrelated genomic loci.
-Thus geenuff can encode a transcript split across two scaffolds in a 
+Thus, geenuff can encode a transcript split across two scaffolds in a 
 fragmented genome assembly, or it can encode a transcript processed
 via trans-splicing that truly derives from two (or more) loci.
 
@@ -109,7 +109,7 @@ in cases where one has less-than perfect information.
 For example, lets assume we want to encode a partial gene model;
 we know from homology comparison to other species and the truncated
 mapping of RNAseq reads that we are missing at least the first exon.
-With gff-like formats one can either include the exons one knows, 
+With gff-like formats one can either include the exons one knows 
 which will erroneously _imply_ the transcription start site is located
 where one actually has an acceptor splice site; or one can skip
 the gene model entirely, which will erroneous _imply_ that the whole
@@ -167,9 +167,9 @@ end_is_biological_end=True
 
 # further, if we want to indicate our lack of knowledge on the region
 # before (perhaps we don't know for sure if this is an intron or an assembly
-# error); we can add an error mask feature (by choosing our specific error as "type") 
-to indicate our uncertainty. e.g. 
-[    missing_utr_5p    )
+# error); we can record the error for the transcript (e.g. missing_utr_5p) and add a
+# geenuff_mask feature over the region to indicate our uncertainty. e.g.
+[    geenuff_mask      )
 ^                      ^
 start                  end
 ```
@@ -380,7 +380,8 @@ otherwise resemble features from a gff
 
 * they occur on a sequence (foreign key to coordinates)
 * they have a position (start and end)
-* they have a type, e.g. {geenuff_transcript, geenuff_cds, geenuff_intron, various error types...}
+* they have a type, e.g. {geenuff_transcript, geenuff_cds, geenuff_intron, geenuff_mask}; the
+error types a transcript has are recorded per transcript instead (transcript_error)
 * they have a start_is_biological_start and end_is_biological_end which indicates whether 
 start and end mark the biologically meaningful transition or just the edge of what we know.
 * they have a boolean indicator is_plus_strand.
@@ -402,7 +403,7 @@ coding range can only "start" or "end" inside a transcript, but non-intronic reg
 All features assigned to a transcribed_piece must have the same value for "is_plus_strand".
 
 If a feature has a False value for <>\_is_biological\_<>  attribute, these should occur at the edge
-of the piece, or be accompanied by a feature of with an error type to mask the ambiguous area.
+of the piece, or be accompanied by a geenuff_mask feature masking the ambiguous area.
 
 ###### protein
 Each Protein object basically just points to one protein's worth of "geenuff_cds" 
@@ -423,8 +424,8 @@ Each TranscriptPiece should have a single "geenuff_transcript"
 feature covering its whole range;
 that is the most 5' part of the piece should be at the _start_ from the
 "geenuff_transcript" feature and the most 3' part of the piece at the _end_.
-The exception is error type features, which may be associated with the piece,
-but excede this range.
+The exception is geenuff_mask features, which may be associated with the piece,
+but exceed this range.
 
 transcribed_piece has a many2one relationship with transcript.
 
@@ -433,7 +434,7 @@ the 'position' attribute of the transcript_piece.
 
 ###### transcript
 Transcript objects ultimately define what should be interpreted together
-to produce the final biological molecule (e.g. pre-mRNA, mRNA, protein, etc..).
+to produce the final biological molecule (e.g. pre-mRNA, mRNA, protein, etc.).
 
 They consist of one or more transcript_pieces (which can be ordered 5' to 3' by sorting 'position'
 in ascending order). The features
@@ -442,6 +443,6 @@ and their features sorted, a transcript can be read 5'-3' and the information
 of interest (beit the whole transcript range, the spice sites, the start codon, etc..)
 can be extracted as necessary. 
 
-Example logic for interpreting a transcript is can be found in
+Example logic for interpreting a transcript is can be found
 in `geenuff.applications.exporter.RangeMaker`.
 

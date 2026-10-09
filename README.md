@@ -1,6 +1,7 @@
 # GeenuFF
 
-Schema and API for a relational db that encodes gene models in an explicit, structured, and robust fashion.
+Schema and API for a relational db that encodes gene models in an explicit, structured,
+and robust fashion.
 
 ## beta disclaimer
 
@@ -32,9 +33,12 @@ That split is deliberate: the database holds the annotation as given, and nothin
 being wrong. Which parts of it a consumer is handed, and which are masked, is decided on the way
 out. Two pieces of that are worth reading before relying on the output:
 
-* [docs/spec_vs_gff.md](docs/spec_vs_gff.md): how GeenuFF's features differ from a GFF3's, the error types, what each of them masks, and errors that mask nothing
-* [docs/overlap_masking.md](docs/overlap_masking.md): what happens where two genes claim the same sequence, which of them is kept, and why
-* [docs/trans_splicing.md](docs/trans_splicing.md): why a gene whose pieces sit on different strands is stored but never exported, and why nothing is masked in its place
+* [docs/spec_vs_gff.md](docs/spec_vs_gff.md): how GeenuFF's features differ from a GFF3's, the
+  error types, what each of them masks, and errors that mask nothing
+* [docs/overlap_masking.md](docs/overlap_masking.md): what happens where two genes claim the same
+  sequence, which of them is kept, and why
+* [docs/trans_splicing.md](docs/trans_splicing.md): why a gene whose pieces sit on different strands
+  is stored but never exported, and why nothing is masked in its place
 * [docs/scripts.md](docs/scripts.md): what each script in `scripts/` reads out of a database
 
 ## Install

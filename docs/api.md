@@ -126,9 +126,9 @@ you can look at `RangeMaker` from `geenuff.applications.exporter`.export_group
 ## gff3 output
 look at `geenuff.applications.exporters.gff3` (class `FilteredGff3ExportController`)
 
-Writes back a plain GFF3 file with just the longest, fully error-free, CDS-containing
-(i.e. protein-coding) transcript per super locus, i.e. the same set old Helixer's h5
-export trains on. Super loci with no coding transcript at all are skipped entirely.
+Writes back a plain GFF3 file with just the longest CDS-containing (i.e. protein-coding)
+transcript per super locus that is not masked whole, i.e. the same set old Helixer's h5
+export gives labels from. Super loci with no coding transcript at all are skipped entirely.
 
 ```
 python $geenuff_path/scripts/dump_filtered_gff3.py --db-path-in <GENUFF_DB> -o filtered.gff3

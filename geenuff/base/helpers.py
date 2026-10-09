@@ -254,6 +254,14 @@ def geenuff_to_gff_start_end(start: int, end: int, is_plus_strand: bool) -> tupl
         return end + 2, start + 1
 
 
+def is_masked_whole(transcript_feature, masks) -> bool:
+    """Whether one of the masks covers the whole transcript feature, leaving no labels from it.
+    The masks of a transcript are merged, so one covering it suffices, and any other lies beside
+    it. Takes anything with a GeenuFF start and end, on either strand."""
+    t_lo, t_hi = sorted((transcript_feature.start, transcript_feature.end))
+    return any(min(m.start, m.end) <= t_lo and max(m.start, m.end) >= t_hi for m in masks)
+
+
 # maps "normal" (0, 1, 2; cumulative CDS length so far, mod 3) phase counting to GFF3's
 # biological (0, 2, 1) convention. Self-inverse (0<->0, 1<->2, 2<->1), so the same mapping
 # converts a phase in either direction

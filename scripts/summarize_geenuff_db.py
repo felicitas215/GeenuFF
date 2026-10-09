@@ -1,8 +1,8 @@
 #! /usr/bin/env python3
 """Rebuilds as much of the import summary as the database still holds, for when the import log is
-gone. Queries through plain sqlite rather than the ORM, so a database an older GeenuFF wrote still
-opens and the sections its schema cannot answer are simply left out. The feature types and
-exclusion reasons come from geenuff itself, so they cannot drift from what the importer writes.
+gone, in the layout of the import summary. Queries through plain sqlite rather than the ORM, and
+fills the counts into geenuff's own ImportStatistics, so the sections and their wording cannot
+drift from what the importer logs.
 
 Counts that only existed while the GFF3 was being read are not in the database and cannot be
 recovered; the script says which at the end.
@@ -10,23 +10,14 @@ recovered; the script says which at the end.
 import argparse
 import sqlite3
 from collections import defaultdict
+from types import SimpleNamespace
 
 from geenuff.base import types
-from geenuff.applications.importer import UNEXPORTED_REASONS
+from geenuff.applications.importer import (ImportStatistics, GFFErrorHandling, NOT_MASKING_IN_FULL,
+                                           exported_outcome, format_summary)
 
-TRANSCRIPT_TYPE = types.GEENUFF_TRANSCRIPT
-CDS_TYPE = types.GEENUFF_CDS
 # an overlap-dropped locus was still part of the sweep at import time, an unplaceable one was not
 SWEPT = (types.OVERLAP_DROPPED,)
-
-# a locus id and exclusion reason, its transcript count, and the span of its exported transcript
-LocusRow = tuple[int, str | None, int, int | None, int | None, bool | None, int | None]
-# a counted line of the summary, or a heading standing over the lines that follow it
-Entry = tuple[int, str] | str
-
-
-def has_column(con: sqlite3.Connection, table: str, column: str) -> bool:
-    return any(row[1] == column for row in con.execute(f'PRAGMA table_info({table})'))
 
 
 def has_table(con: sqlite3.Connection, table: str) -> bool:
@@ -34,136 +25,120 @@ def has_table(con: sqlite3.Connection, table: str) -> bool:
                             (table,)).fetchall())
 
 
-def locus_rows(con: sqlite3.Connection, excluded_column: bool) -> list[LocusRow]:
-    """Per super locus: its exclusion reason, transcript count, and the span, coordinate and
-    strand of the one transcript an export emits for it, where it has one."""
-    reason_col = 'sl.excluded_from_export' if excluded_column else 'NULL'
-    query = f"""SELECT sl.id, {reason_col},
-                       (SELECT COUNT(*) FROM transcript t WHERE t.super_locus_id = sl.id),
-                       f.start, f.end, f.is_plus_strand, f.coordinate_id
-                FROM super_locus sl
-                LEFT JOIN transcript t ON t.super_locus_id = sl.id AND t.longest = 1
-                LEFT JOIN transcript_piece tp ON tp.transcript_id = t.id
-                LEFT JOIN association_transcript_piece_to_feature a
-                    ON a.transcript_piece_id = tp.id
-                LEFT JOIN feature f ON f.id = a.feature_id AND f.type = ?
-                GROUP BY sl.id"""
-    return list(con.execute(query, (TRANSCRIPT_TYPE,)))
+def features_by_transcript(con: sqlite3.Connection, feature_type: str) -> dict[int, list[SimpleNamespace]]:
+    """{transcript id: [its features of one type, with start, end, is_plus_strand and coordinate_id]}"""
+    out = defaultdict(list)
+    for t_id, start, end, plus, coord in con.execute(
+            """SELECT tp.transcript_id, f.start, f.end, f.is_plus_strand, f.coordinate_id
+               FROM feature f
+               JOIN association_transcript_piece_to_feature a ON a.feature_id = f.id
+               JOIN transcript_piece tp ON tp.id = a.transcript_piece_id
+               WHERE f.type = ?""", (feature_type,)):
+        out[t_id].append(SimpleNamespace(start=start, end=end, is_plus_strand=plus, coordinate_id=coord))
+    return out
 
 
-def overlap_sweep(loci: list[LocusRow]) -> dict[int, set[int]]:
-    """Re-runs the import's overlap sweep over the spans the database holds, giving back each
-    locus' partners. Loci an export never reached are left out, as they were at import."""
-    groups = defaultdict(list)
-    for sl_id, reason, _, start, end, plus, coord in loci:
-        if start is None or (reason is not None and reason not in SWEPT):
-            continue
-        groups[(coord, plus)].append((min(start, end), max(start, end), sl_id))
+def overlap_partners(spans: dict[int, SimpleNamespace]) -> dict[int, set[int]]:
+    """Re-runs the import's overlap sweep over the exported transcripts' spans, {gene id: transcript
+    feature}, giving back each gene's partners on the same sequence and strand."""
+    by_strand = defaultdict(list)
+    for sl_id, tf in spans.items():
+        by_strand[(tf.coordinate_id, tf.is_plus_strand)].append((min(tf.start, tf.end), max(tf.start, tf.end),
+                                                                sl_id))
     partners = defaultdict(set)
-    for spans in groups.values():
-        active = []
-        for lo, hi, sl_id in sorted(spans):
-            active = [(a_hi, a_id) for a_hi, a_id in active if a_hi > lo]
-            for _, a_id in active:
-                partners[sl_id].add(a_id)
-                partners[a_id].add(sl_id)
-            active.append((hi, sl_id))
+    for strand_spans in by_strand.values():
+        for i, j, _, _ in GFFErrorHandling._overlapping_pairs(strand_spans):
+            partners[i].add(j)
+            partners[j].add(i)
     return partners
 
 
-def report(con: sqlite3.Connection, out: list[Entry]) -> None:
-    """Appends every section the database can answer to out."""
-    excluded_column = has_column(con, 'super_locus', 'excluded_from_export')
-    loci = locus_rows(con, excluded_column)
-    excluded = defaultdict(int)
-    n_empty = 0
-    for _, reason, n_transcripts, *_ in loci:
+def statistics(con: sqlite3.Connection) -> ImportStatistics:
+    """The counts of the import summary that the database holds."""
+    stats = ImportStatistics()
+    stats.total_super_loci = con.execute('SELECT COUNT(*) FROM super_locus').fetchone()[0]
+    stats.empty_super_loci = con.execute(
+        'SELECT COUNT(*) FROM super_locus sl WHERE NOT EXISTS '
+        '(SELECT 1 FROM transcript t WHERE t.super_locus_id = sl.id)').fetchone()[0]
+    stats.total_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
+
+    errors = defaultdict(set)
+    for t_id, error_type in con.execute('SELECT transcript_id, type FROM transcript_error'):
+        errors[t_id].add(error_type)
+    stats.floating_cds_transcripts = sum(types.FLOATING_CDS in e for e in errors.values())
+
+    # {gene id: (exclusion reason, [(coding transcript id, longest)])}
+    genes = {}
+    for sl_id, reason, t_id, longest in con.execute(
+            f"""SELECT sl.id, sl.excluded_from_export, t.id, t.longest FROM transcript t
+                JOIN super_locus sl ON sl.id = t.super_locus_id
+                WHERE t.id IN (SELECT DISTINCT tp.transcript_id FROM transcript_piece tp
+                               JOIN association_transcript_piece_to_feature a ON a.transcript_piece_id = tp.id
+                               JOIN feature f ON f.id = a.feature_id WHERE f.type = ?)""",
+            (types.GEENUFF_CDS,)):
+        genes.setdefault(sl_id, (reason, []))[1].append((t_id, longest))
+
+    transcript_features = features_by_transcript(con, types.GEENUFF_TRANSCRIPT)
+    masks = features_by_transcript(con, types.GEENUFF_MASK)
+    selected = {sl_id: next(t_id for t_id, longest in coding if longest)
+                for sl_id, (reason, coding) in genes.items() if reason in (None,) + SWEPT}
+    partners = overlap_partners({sl_id: transcript_features[t_id][0] for sl_id, t_id in selected.items()})
+
+    for sl_id, (reason, coding) in genes.items():
         if reason is not None:
-            excluded[reason] += 1
-        if not n_transcripts:
-            n_empty += 1
-    distinct_names = con.execute('SELECT COUNT(DISTINCT given_name) FROM super_locus').fetchone()[0]
+            stats.unexported_coding_genes[reason] += 1
+            stats.unexported_coding_transcripts[reason] += len(coding)
+            if reason == types.OVERLAP_DROPPED:
+                stats.overlap_loci_dropped_labelled += not errors[selected[sl_id]] - NOT_MASKING_IN_FULL
+            continue
+        t_id = selected[sl_id]
+        stats.longest_transcripts += 1
+        stats.unselected_coding_transcripts += len(coding) - 1
+        stats.longest_error_free_transcripts += not errors[t_id]
+        for error_type in errors[t_id]:
+            stats.errors[error_type] += 1
+        stats.exported_outcomes[exported_outcome(errors[t_id], transcript_features[t_id][0], masks[t_id],
+                                                 len(partners[sl_id]) <= 1)] += 1
 
-    out.append('loci:')
-    out.append((len(loci), 'gene lines in the database'))
-    out.append((n_empty, 'of them with no transcript under them'))
-    out.append((len(loci) - distinct_names, 'gene IDs used by more than one gene line'))
-    for reason, count in sorted(excluded.items()):
-        out.append((count, f'genes kept but never exported: '
-                           f'{UNEXPORTED_REASONS.get(reason, reason)}'))
+    # the pairs of exported genes, settled as at import: in a chain, resolved by dropping one,
+    # nested, or both masked outright for their own errors
+    for i, j in {tuple(sorted((a, b))) for a, bs in partners.items() for b in bs}:
+        spans = [transcript_features[selected[k]][0] for k in (i, j)]
+        if len(partners[i]) > 1 or len(partners[j]) > 1:
+            stats.overlap_pairs_in_chains += 1
+        elif types.OVERLAP_DROPPED in (genes[i][0], genes[j][0]):
+            stats.overlap_pairs_resolved += 1
+        elif GFFErrorHandling._is_nested(*[sorted((tf.start, tf.end)) for tf in spans]):
+            stats.overlap_pairs_nested += 1
+        else:
+            stats.overlap_pairs_both_masked_outright += 1
 
-    coding = {r[0] for r in con.execute(
-        """SELECT DISTINCT t.id FROM transcript t
-           JOIN transcript_piece tp ON tp.transcript_id = t.id
-           JOIN association_transcript_piece_to_feature a ON a.transcript_piece_id = tp.id
-           JOIN feature f ON f.id = a.feature_id WHERE f.type = ?""", (CDS_TYPE,))}
-    n_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
-    error_table = has_table(con, 'transcript_error')
-    exported = list(con.execute(
-        f"""SELECT t.id,
-                   {'(SELECT COUNT(*) FROM transcript_error e WHERE e.transcript_id = t.id)'
-                    if error_table else 'NULL'}
-            FROM transcript t
-            JOIN super_locus sl ON sl.id = t.super_locus_id
-            WHERE t.longest = 1
-              {'AND sl.excluded_from_export IS NULL' if excluded_column else ''}"""))
-
-    out.append('transcripts:')
-    out.append((n_transcripts, 'transcripts in the database'))
-    out.append((len(coding), 'of them with a CDS'))
-    out.append((len(exported), 'selected for export, one per locus that will be exported'))
-    if error_table:
-        out.append((sum(1 for _, n_errors in exported if not n_errors),
-                    'of those selected with no error at all'))
-
-    if has_table(con, 'super_locus_overlap'):
-        pairs = con.execute('SELECT COUNT(*) FROM super_locus_overlap').fetchone()[0]
-        in_pairs = con.execute("""SELECT COUNT(*) FROM (
-                                    SELECT super_locus_id AS id FROM super_locus_overlap
-                                    UNION SELECT partner_id FROM super_locus_overlap)""").fetchone()[0]
-        out.append('overlapping coding genes, over every coding transcript they have:')
-        out.append((in_pairs, f'genes recorded in the super_locus_overlap table, in {pairs} pairs'))
-
-    partners = overlap_sweep(loci)
-    exported_pairs = {tuple(sorted((a, b))) for a, bs in partners.items() for b in bs}
-    chained = {p for p in exported_pairs if len(partners[p[0]]) > 1 or len(partners[p[1]]) > 1}
-    n_resolved = excluded.get(types.OVERLAP_DROPPED, 0)
-    out.append('overlapping genes, over the one transcript each of them exports:')
-    out.append((len(partners), f'genes overlap at least one other, in {len(exported_pairs)} pairs'))
-    out.append((n_resolved, 'pairs where one gene was kept whole and its partner dropped'))
-    out.append((len(exported_pairs) - len(chained) - n_resolved,
-                'pairs where neither gene could be kept, so both are masked'))
-    out.append((len(chained), 'pairs left alone, one of the two overlapping a further gene'))
-
-    errors = list(con.execute('SELECT type, COUNT(*) FROM transcript_error GROUP BY type ORDER BY type')
-                  ) if error_table else []
-    if errors:
-        out.append('errors, counted once per transcript they occur in:')
-        out += [(count, error_type) for error_type, count in errors]
+    stats.overlap_pairs_recorded = con.execute('SELECT COUNT(*) FROM super_locus_overlap').fetchone()[0]
+    stats.super_loci_in_overlap_pairs = con.execute(
+        """SELECT COUNT(*) FROM (SELECT super_locus_id FROM super_locus_overlap
+                                 UNION SELECT partner_id FROM super_locus_overlap)""").fetchone()[0]
+    return stats
 
 
 def main(args: argparse.Namespace) -> None:
     con = sqlite3.connect(args.db_path_in)
+    if not has_table(con, 'transcript_error'):
+        raise SystemExit(f'"{args.db_path_in}" was written by a GeenuFF without the transcript_error '
+                         f'table; import it again to summarize it')
     species = con.execute('SELECT species FROM genome').fetchone()
-    out: list[Entry] = [f'summary rebuilt from "{args.db_path_in}"'
-                        + (f' for "{species[0]}"' if species else '') + ':']
-    report(con, out)
+    stats = statistics(con)
     con.close()
 
-    width = max((len(str(entry[0])) for entry in out if isinstance(entry, tuple)), default=1)
-    for entry in out:
-        if isinstance(entry, tuple):
-            print(f'    {entry[0]:>{width}}  {entry[1]}')
-        else:
-            print(entry if entry.startswith('summary') else f'  {entry}')
-
-    print('\n  not in the database, only ever in the import log:')
-    for line in ('gene lines on neither strand, saved without transcripts and so '
-                 'indistinguishable from any other empty gene',
-                 'transcripts dropped for having no storable range, never written at all',
-                 'exon/CDS lines dropped while reading the GFF3, whether as duplicates, as '
-                 'belonging to a transcript-less gene, or as an isoform with no transcript line',
-                 'lines skipped for a feature type GeenuFF has no use for'):
+    title = f'summary rebuilt from "{args.db_path_in}"' + (f' for "{species[0]}"' if species else '')
+    print(format_summary(title, stats.summary_sections(reading_counts=False), stats.summary_notes()))
+    print('  not in the database, only ever in the import log:')
+    for line in ('GFF lines skipped or left out while grouping them into genes, and the coding '
+                 'transcripts lost through them',
+                 'genes created for transcripts naming a Parent ID that matches no line or to mask '
+                 'floating CDS lines, and gene lines on neither strand, indistinguishable from other '
+                 'genes',
+                 'transcripts with exons built from their CDS and UTR lines, or with a stop codon added',
+                 'transcripts dropped, never written at all'):
         print(f'    - {line}')
 
 

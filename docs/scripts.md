@@ -11,8 +11,9 @@ only one installed onto the PATH (see `pyproject.toml`). The rest are run from t
 Writes a plain GFF3 of one transcript per gene, the longest coding one, for comparing a Helixer
 prediction against the reference it was trained on.
 
-By default, it writes exactly what the h5 export trains on: only genes that reach that export, and
-of those only the ones with no error recorded at all.
+By default, it writes exactly what the h5 export gives labels from: only genes that reach that
+export, and of those only the ones not masked whole. One with only sequence beside it masked, for
+a missing UTR or for an overlapping gene dropped in its favour, is labelled in full and written.
 
 `--include-erroneous` writes every gene that can be written at all, whatever is wrong with it,
 which is the set to compare against when the question is what Helixer predicted per gene rather
@@ -62,18 +63,20 @@ error types, when a summary count says something is wrong but not what.
 ## summarize_geenuff_db.py
 
 Rebuilds the import summary from the database, for when the import log has been lost or the
-database arrived without one. It reads through plain sqlite rather than the ORM, so a database
-written by an older GeenuFF opens as well; sections resting on tables or columns that version did
-not have are simply left out.
+database arrived without one, in the layout and wording of the import summary: it fills the counts
+it can read into the importer's own statistics and prints them the same way. It reads through plain
+sqlite rather than the ORM, and needs a database with the `transcript_error` table.
 
-Most of the summary is recoverable, and the counts it prints are identical to the log's. Gene and
-transcript totals, the empty and the reused-ID genes, the transcripts selected for export and how
-many of those are error free, the errors per type and the contents of the `super_locus_overlap`
-table are all read straight out. The overlap resolution is not stored as counts, but the outcome
-is: the sweep is run again over the spans in the database, and the pairs split into resolved,
-refused and chained by which genes carry `excluded_from_export = 'overlap_dropped'`.
+Most of the summary is recoverable, and the counts it prints are identical to the log's: the gene
+and transcript totals, the whole training data section bar the coding transcripts lost while
+grouping, the errors of the exported transcripts and the notes. What the masks leave of each
+exported transcript is read from its `geenuff_mask` features and errors, and the overlap
+resolution is recovered by running the sweep again over the exported spans in the database, the
+pairs splitting into resolved, nested, chained and both masked outright by which genes carry
+`excluded_from_export = 'overlap_dropped'`.
 
 What the summary counted while reading the GFF3 is gone for good, because the lines it counted
-were never written: genes on no definite strand, transcripts dropped for having no storable range,
-the exon and CDS lines parented to a gene instead of a transcript, and the lines skipped for an
-unused feature type. The script lists these at the end.
+were never written: the GFF lines skipped or left out while grouping, with the coding transcripts
+lost through them, the genes created for orphan transcripts or floating CDS lines and the genes on
+no definite strand, which look like any other gene, the transcripts with exons built or a stop
+codon added, and the transcripts dropped. The script lists these at the end.

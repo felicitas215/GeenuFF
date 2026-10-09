@@ -16,8 +16,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description=('Writes a GFF3 file containing one transcript per gene, the longest coding '
                      'one, for comparing a Helixer prediction against its reference. By default '
-                     'only the fully error-free ones, i.e. the same gene models Helixer\'s h5 '
-                     'export trains on.'))
+                     'only the ones not masked whole, i.e. the same gene models Helixer\'s h5 '
+                     'export gives labels from.'))
     parser.add_argument('--db-path-in', type=str, required=True,
                         help='Path to the GeenuFF SQLite input database.')
     parser.add_argument('-o', '--out', type=str,

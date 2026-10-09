@@ -4,7 +4,7 @@ from typing import TextIO
 
 from geenuff.applications.exporter import GeenuffExportController, RangeMaker
 from geenuff.base.orm import Transcript, SuperLocus, Feature
-from geenuff.base.helpers import geenuff_to_gff_start_end, GFF_PHASE_FROM_NORMAL
+from geenuff.base.helpers import geenuff_to_gff_start_end, is_masked_whole, GFF_PHASE_FROM_NORMAL
 from geenuff.base import types
 
 logger = logging.getLogger(__name__)
@@ -22,9 +22,9 @@ class FilteredGff3ExportController(GeenuffExportController):
     """Writes a plain GFF3 file of one transcript per gene, the longest coding one, for comparing
     a Helixer prediction against the reference it was trained on.
 
-    By default, it writes exactly what the h5 export would train on: only genes that reach that
-    export, and of those only the ones with no error recorded at all. That is stricter than the
-    h5 export itself, which still includes erroneous transcripts and merely masks them.
+    By default, it writes exactly the transcripts the h5 export gives labels from: those of genes
+    reaching that export that are not masked whole. One with only sequence beside it masked, for a
+    missing UTR or for an overlapping gene dropped in its favour, is labelled in full and written.
 
     With include_erroneous it writes every gene that can be written at all, whatever is wrong with
     it, which is the set to compare against when the question is what Helixer predicted per gene
@@ -39,8 +39,8 @@ class FilteredGff3ExportController(GeenuffExportController):
         handle_out.write('##gff-version 3\n')
 
         n_written = 0
-        n_erroneous = 0
-        n_skipped_erroneous = 0
+        n_masked_whole = 0
+        n_overlap_dropped = 0
         skipped = defaultdict(int)  # keyed by SuperLocus.excluded_from_export
         # the super locus is selected alongside so its reason and name come from the same query
         rows = (self.session.query(Transcript, SuperLocus)
@@ -53,33 +53,33 @@ class FilteredGff3ExportController(GeenuffExportController):
                                        or reason in types.unrepresentable_reasons):
                 skipped[reason] += 1
                 continue
-            if not self._is_error_free(transcript):
+            n_overlap_dropped += reason == types.OVERLAP_DROPPED
+            features = [f for piece in transcript.transcript_pieces for f in piece.features]
+            tx_feature = next(f for f in features if f.type.value == types.GEENUFF_TRANSCRIPT)
+            masks = [f for f in features if f.type.value == types.GEENUFF_MASK]
+            if is_masked_whole(tx_feature, masks):
+                n_masked_whole += 1
                 if not include_erroneous:
-                    n_skipped_erroneous += 1
                     continue
-                n_erroneous += 1
             self._write_transcript(handle_out, transcript)
             n_written += 1
 
         if file_out is not None:
             handle_out.close()
-        self._log_summary(n_written, n_erroneous, n_skipped_erroneous, skipped, include_erroneous)
+        self._log_summary(n_written, n_masked_whole, n_overlap_dropped, skipped, include_erroneous)
 
     @staticmethod
-    def _log_summary(n_written: int, n_erroneous: int, n_skipped_erroneous: int,
+    def _log_summary(n_written: int, n_masked_whole: int, n_overlap_dropped: int,
                      skipped: dict[str, int], include_erroneous: bool) -> None:
         if include_erroneous:
-            logger.info(f'Wrote {n_written} transcripts to GFF3, one per gene, '
-                        f'{n_erroneous} of them with something wrong')
+            logger.info(f'Wrote {n_written} transcripts to GFF3, one per gene, {n_masked_whole} of '
+                        f'them masked whole and {n_overlap_dropped} dropped from the h5 export for '
+                        f'an overlap')
         else:
-            logger.info(f'Wrote {n_written} error-free transcripts to GFF3 '
-                        f'({n_skipped_erroneous} longest-but-erroneous transcripts skipped)')
+            logger.info(f'Wrote {n_written} transcripts to GFF3, the ones the h5 export gives labels '
+                        f'from ({n_masked_whole} masked whole left out)')
         for reason, count in sorted(skipped.items()):
             logger.info(f'  {count} genes left out, {UNWRITTEN_REASONS[reason]}')
-
-    @staticmethod
-    def _is_error_free(transcript: Transcript) -> bool:
-        return not transcript.errors
 
     def _write_transcript(self, handle_out: TextIO, transcript: Transcript) -> None:
         range_maker = RangeMaker(transcript)
