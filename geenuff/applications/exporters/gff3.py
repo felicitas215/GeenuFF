@@ -24,7 +24,7 @@ class FilteredGff3ExportController(GeenuffExportController):
 
     By default, it writes exactly the transcripts the h5 export gives labels from: those of genes
     reaching that export that are not masked whole. One with only sequence beside it masked, for a
-    missing UTR or for an overlapping gene dropped in its favour, is labelled in full and written.
+    missing UTR or for an overlapping gene dropped in its favor, is labeled in full and written.
 
     With include_erroneous it writes every gene that can be written at all, whatever is wrong with
     it, which is the set to compare against when the question is what Helixer predicted per gene

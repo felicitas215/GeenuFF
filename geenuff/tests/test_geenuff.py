@@ -844,7 +844,7 @@ def test_filtered_gff3_export_writes_only_longest_labelled_transcripts(tmp_path)
     with open(out_path) as f:
         lines = [line.rstrip('\n') for line in f if not line.startswith('#')]
 
-    # only gene2's transcript is coding and labelled; the trans-spliced locus has no transcript
+    # only gene2's transcript is coding and labeled; the trans-spliced locus has no transcript
     # at all and is absent entirely
     feature_types = [line.split('\t')[2] for line in lines]
     assert feature_types == ['gene', 'mRNA', 'exon', 'CDS']
@@ -882,7 +882,7 @@ def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path,
 
     # the default export writes the genes the h5 export gives labels from: geneCrossCoder and
     # geneCleanNoCds, kept in their overlaps and with only the flanks of missing UTRs and the
-    # overhang of the gene dropped in their favour masked; the others are masked whole or dropped.
+    # overhang of the gene dropped in their favor masked; the others are masked whole or dropped.
     # With include_erroneous all eight come through, geneCrossGivesWay and geneTruncatedCoder among
     # them although both were dropped from the h5 export for overlapping a gene that was kept
     assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', False) == {

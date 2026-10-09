@@ -21,7 +21,7 @@ give errors more precise ranges.
 An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
 *flank*. It is measured from the gene's selected transcript toward the closest edge of another
 coding gene on that side, or toward the end of the sequence: a gene dropped for an overlap counts
-as a neighbour, one overlapping the gene does not, and genes without a CDS never bound a flank, so
+as a neighbor, one overlapping the gene does not, and genes without a CDS never bound a flank, so
 that a transposon or lncRNA overlapping a coding gene cannot leave it without one. The flank
 reaches `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap: up to a gap of about 400 bp the
 flanks of two genes nearly meet, beyond it the middle of the gap stays usable as intergenic.
@@ -29,7 +29,7 @@ flanks of two genes nearly meet, beyond it the middle of the gap stays usable as
 **To watch: masking in dense genomes.** Up to a gap of about 400 bp an erroneous gene masks half of
 every gap next to it, and a gap between two erroneous genes is masked entirely, save one base:
 
-| gap    | flank per erroneous side | gap masked, one erroneous neighbour | gap masked, both erroneous |
+| gap    | flank per erroneous side | gap masked, one erroneous neighbor  | gap masked, both erroneous |
 |--------|--------------------------|-------------------------------------|----------------------------|
 | 100 bp | 50 bp                    | 50 %                                | 100 %                      |
 | 400 bp | 200 bp                   | 50 %                                | 100 %                      |
@@ -61,7 +61,7 @@ gap.
 | wrong_starting_phase     | phase of the first CDS piece in the file is not 0    | nothing, only recorded                  |
 | super_loci_overlap_error | two coding genes share sequence                      | see below and `overlap_masking.md`      |
 
-A missing UTR leaves only the transcript's end unknown; the CDS stays labelled. Every other error
+A missing UTR leaves only the transcript's end unknown; the CDS stays labeled. Every other error
 that masks means the CDS boundaries cannot be trusted, so the gene is masked whole with both
 flanks: masking only part would leave a hole whose edges read as transitions that are not there
 (see `overlap_masking.md`). A too short intron typically stands in for an assembly frameshift an
@@ -87,7 +87,7 @@ error extended into a flank masks nothing where there is no unclaimed sequence, 
 5' UTR of a gene nested inside another. It still counts in the import statistics and is named in
 the filtered GFF3 export's geenuff_errors attribute. A gene dropped for an overlap has its errors
 recorded too, without a mask and outside the import statistics, so that why it was dropped in
-favour of its partner can be looked up.
+favor of its partner can be looked up.
 
 ##### start_is_biological_start and end_is_biological_end:
 When `True`, these attributes mean the start and end attributes
@@ -149,9 +149,9 @@ naming a gene that has transcripts are counted per gene, as perhaps an isoform w
 transcript line.
 
 The training data section accounts for every coding gene, of which Helixer gets one transcript:
-exported and labelled in full, with or without sequence beside it masked, or masked in full, each
+exported and labeled in full, with or without sequence beside it masked, or masked in full, each
 by cause; or not exported, by reason, with how many genes dropped for an overlap would otherwise
-have been labelled. Errors are counted over the exported transcripts only, and counts of 0 are
+have been labeled. Errors are counted over the exported transcripts only, and counts of 0 are
 shown only in that section.
 
 - Gene and transcript lines need an `ID`, being the lines others name as their parent; one without

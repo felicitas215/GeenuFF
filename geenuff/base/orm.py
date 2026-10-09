@@ -89,7 +89,7 @@ association_protein_to_feature = Table('association_protein_to_feature', Base.me
 
 # One row per unordered pair of coding super loci sharing genomic range, with the shared range
 # itself. Measured over every coding transcript a locus has, not only the exported one, so it is
-# the wider record of the annotation's geometry and carries no judgement about whether either
+# the wider record of the annotation's geometry and carries no judgment about whether either
 # locus is usable. Loci with no CDS under them take no part, a bare gene line or a non-coding
 # gene not being something this can say anything about.
 # The masking counterpart is the geenuff_mask feature of a kept gene, with its

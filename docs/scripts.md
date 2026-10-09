@@ -14,7 +14,7 @@ prediction against the reference it was trained on.
 
 | written                     | by default | `--include-erroneous` |
 |-----------------------------|------------|-----------------------|
-| labelled in full            | yes        | yes                   |
+| labeled in full             | yes        | yes                   |
 | masked in full              | no         | yes                   |
 | dropped for an overlap      | no         | yes                   |
 | features not placeable      | no         | no                    |

@@ -6,8 +6,7 @@ from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
 
 def main(args: argparse.Namespace) -> None:
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format='%(asctime)s - %(levelname)s: %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
     controller = FilteredGff3ExportController(args.db_path_in)
     controller.write_filtered_gff3(args.out, include_erroneous=args.include_erroneous)
 
@@ -27,7 +26,5 @@ if __name__ == '__main__':
                               'with it, including ones dropped from the h5 export for '
                               'overlapping another gene. Only genes whose features cannot be '
                               'placed are left out, and the log says how many'))
-    parser.add_argument('--verbose', action='store_true',
-                        help='log at DEBUG level instead of INFO')
 
     main(parser.parse_args())

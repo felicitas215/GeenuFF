@@ -1,6 +1,10 @@
+import logging
+
 import numpy
 
 from geenuff.applications.exporter import GeenuffExportController
+
+logger = logging.getLogger(__name__)
 
 
 class LengthExportController(GeenuffExportController):
@@ -21,6 +25,7 @@ class LengthExportController(GeenuffExportController):
             l = self.get_length(export_group)
             handle_out.write("{}\t{}\n".format(export_group.seqid, l))
         handle_out.close()
+        logger.info(f'Wrote the lengths of {len(self.export_ranges)} export ranges')
 
     def write_length_stats(self, file_out):
         lengths = []
@@ -35,6 +40,7 @@ class LengthExportController(GeenuffExportController):
         for group in [stats, quants, nxes]:
             handle_out.write(fmt_stats(group))
         handle_out.close()
+        logger.info(f'Wrote length statistics over {len(lengths)} export ranges')
 
 
 def fmt_stats(a_dict):
@@ -85,7 +91,7 @@ def quantiles(lengths, x_vals=None):
 
 
 def fmt_keys(a_dict, pfx, sfx="%", times_by=100):
-    """convert fraction keys to labelled percentages (or similar)"""
+    """convert fraction keys to labeled percentages (or similar)"""
     out = {}
     for key in a_dict:
         new_key = "{}{}{}".format(pfx, int(key * times_by), sfx)

@@ -1,8 +1,11 @@
+import logging
 import sys
 
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.base.orm import Coordinate
 from geenuff.base.helpers import reverse_complement, chunk_str
+
+logger = logging.getLogger(__name__)
 
 
 class FastaExportController(GeenuffExportController):
@@ -46,6 +49,7 @@ class FastaExportController(GeenuffExportController):
             handle_out.write(self.fmt_seq(export_seq))
             handle_out.write('\n')
         handle_out.close()
+        logger.info(f'Wrote {len(self.export_ranges)} sequences to FASTA')
 
 
 

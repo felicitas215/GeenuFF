@@ -745,7 +745,7 @@ def test_exporter_all_or_1_transcript():
 
 def test_exporter_return_super_loci():
     # this test is here to make sure I don't break something I didn't notice while refactoring
-    # in the long run, I almost certainly want to _change_ the behaviour so genome_query does
+    # in the long run, I almost certainly want to _change_ the behavior so genome_query does
     # not have two different output types.
     controller = GeenuffExportController(db_path_in='sqlite:///' + EXPORTING_DB)
     coords = controller.genome_query(longest_only=False, return_super_loci=True)

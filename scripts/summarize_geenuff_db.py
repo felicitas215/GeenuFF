@@ -8,6 +8,7 @@ Counts that only existed while the GFF3 was being read are not in the database a
 recovered; the script says which at the end.
 """
 import argparse
+import logging
 import sqlite3
 from collections import defaultdict
 from types import SimpleNamespace
@@ -15,6 +16,8 @@ from types import SimpleNamespace
 from geenuff.base import types
 from geenuff.applications.importer import (ImportStatistics, GFFErrorHandling, NOT_MASKING_IN_FULL,
                                            exported_outcome, format_summary)
+
+logger = logging.getLogger(__name__)
 
 # an overlap-dropped locus was still part of the sweep at import time, an unplaceable one was not
 SWEPT = (types.OVERLAP_DROPPED,)
@@ -62,6 +65,8 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
         '(SELECT 1 FROM transcript t WHERE t.super_locus_id = sl.id)').fetchone()[0]
     stats.total_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
 
+    logger.info(f'Found {stats.total_super_loci} genes with {stats.total_transcripts} transcripts')
+
     errors = defaultdict(set)
     for t_id, error_type in con.execute('SELECT transcript_id, type FROM transcript_error'):
         errors[t_id].add(error_type)
@@ -78,10 +83,13 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
             (types.GEENUFF_CDS,)):
         genes.setdefault(sl_id, (reason, []))[1].append((t_id, longest))
 
+    logger.info(f'Found {len(genes)} genes with coding transcripts and {len(errors)} transcripts with errors')
+
     transcript_features = features_by_transcript(con, types.GEENUFF_TRANSCRIPT)
     masks = features_by_transcript(con, types.GEENUFF_MASK)
     selected = {sl_id: next(t_id for t_id, longest in coding if longest)
                 for sl_id, (reason, coding) in genes.items() if reason in (None,) + SWEPT}
+    logger.info(f'Re-running the overlap sweep over the longest transcripts of {len(selected)} genes')
     partners = overlap_partners({sl_id: transcript_features[t_id][0] for sl_id, t_id in selected.items()})
 
     for sl_id, (reason, coding) in genes.items():
@@ -89,7 +97,7 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
             stats.unexported_coding_genes[reason] += 1
             stats.unexported_coding_transcripts[reason] += len(coding)
             if reason == types.OVERLAP_DROPPED:
-                stats.overlap_loci_dropped_labelled += not errors[selected[sl_id]] - NOT_MASKING_IN_FULL
+                stats.overlap_loci_dropped_labeled += not errors[selected[sl_id]] - NOT_MASKING_IN_FULL
             continue
         t_id = selected[sl_id]
         stats.longest_transcripts += 1
@@ -121,6 +129,8 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
 
 
 def main(args: argparse.Namespace) -> None:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    logger.info(f'Reading "{args.db_path_in}"')
     con = sqlite3.connect(args.db_path_in)
     if not has_table(con, 'transcript_error'):
         raise SystemExit(f'"{args.db_path_in}" was written by a GeenuFF without the transcript_error '
@@ -130,8 +140,8 @@ def main(args: argparse.Namespace) -> None:
     con.close()
 
     title = f'summary rebuilt from "{args.db_path_in}"' + (f' for "{species[0]}"' if species else '')
-    print(format_summary(title, stats.summary_sections(reading_counts=False), stats.summary_notes()))
-    print('  not in the database, only ever in the import log:')
+    print(format_summary(title, stats.summary_sections(reading_counts=False), stats.summary_notes()), flush=True)
+    print('  not in the database, only ever in the import log:', flush=True)
     for line in ('GFF lines skipped or left out while grouping them into genes, and the coding '
                  'transcripts lost through them',
                  'genes created for transcripts naming a Parent ID that matches no line or to mask '
@@ -139,7 +149,7 @@ def main(args: argparse.Namespace) -> None:
                  'genes',
                  'transcripts with exons built from their CDS and UTR lines, or with a stop codon added',
                  'transcripts dropped, never written at all'):
-        print(f'    - {line}')
+        print(f'    - {line}', flush=True)
 
 
 if __name__ == '__main__':

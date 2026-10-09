@@ -20,9 +20,9 @@ write no CDS, intron or UTR label, so they cannot collide with anything.
 | covers        | every pair of coding genes         | only pairs of exported genes                                       |
 | measured over | every coding transcript a gene has | the one transcript it exports                                      |
 | masks         | nothing                            | its range, merged into that transcript's geenuff_mask features     |
-| written for   | consumers other than Helixer       | consumers labelling one class per base (i.e. Helixer)              |
+| written for   | consumers other than Helixer       | consumers labeling one class per base (i.e. Helixer)               |
 
-The table carries no judgement about whether either gene is usable. All overlaps of one gene are
+The table carries no judgment about whether either gene is usable. All overlaps of one gene are
 `WHERE super_locus_id = X OR partner_id = X`.
 
 ## How a pair is settled
@@ -124,11 +124,11 @@ reads as the kept gene's UTR, intron or CDS.
 | level           | what its own errors mask                       | may be kept?            | errors                                                                                                                                                                                       |
 |-----------------|------------------------------------------------|-------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | none            | nothing                                        | yes                     | none, or a wrong starting phase                                                                                                                                                              |
-| flank masked    | the flank only, coding sequence still labelled | yes, below a clean gene | a missing UTR                                                                                                                                                                                |
+| flank masked    | the flank only, coding sequence still labeled  | yes, below a clean gene | a missing UTR                                                                                                                                                                                |
 | masked outright | the coding sequence itself                     | no, nothing to recover  | a missing start or stop codon, a truncated CDS, an in-frame stop codon, a truncated or too short intron, overlapping exon or CDS lines, floating CDS lines, a transcript beyond its sequence |
 
 A missing UTR never disqualifies a gene from being kept: its own mask already covers the unknown
-boundary, and the coding sequence stays labelled, as for any gene with an unannotated UTR. A
+boundary, and the coding sequence stays labeled, as for any gene with an unannotated UTR. A
 dropped gene graded anything but none gets the flank on the sides it sticks out past the kept gene.
 
 ## What a dropped gene leaves behind

@@ -1,4 +1,5 @@
 import json
+import logging
 from abc import abstractmethod
 
 from geenuff.applications.exporter import GeenuffExportController
@@ -8,6 +9,8 @@ from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase, 
     FeatureHandlerBase
 from geenuff.base.helpers import is_masked_whole
 from geenuff.base.orm import Coordinate, Transcript
+
+logger = logging.getLogger(__name__)
 
 
 class ToJsonable(object):
@@ -219,3 +222,7 @@ class JsonExportController(GeenuffExportController):
         handle_out = self._as_file_handle(file_out)
         handle_out.write(dumps)
         handle_out.close()
+        if not jsonable:
+            logger.warning(f'No sequence "{seqid}" found for species "{species}"')
+        n_genes = sum(len(res['super_loci']) for res in jsonable)
+        logger.info(f'Wrote {n_genes} genes on the {"+" if is_plus_strand else "-"} strand of "{seqid}" as JSON')
