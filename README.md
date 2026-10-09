@@ -22,16 +22,13 @@ A more extensive description can be found [here](https://weberlab-hhu.github.io/
 ## Relation to Helixer
 
 GeenuFF is the annotation store [Helixer](https://github.com/usadellab/Helixer) trains from.
-Importing a GFF3 file here does the interpreting: gene models are checked, repaired where that
-can be done unambiguously, and whatever stays ambiguous is recorded as an error of its transcript,
-everything a transcript's errors cover being merged into its geenuff_mask features. Helixer then
-reads one transcript per gene through `GeenuffExportController.genome_query` and turns it into its
-per-base-pair matrices, where those geenuff_mask features keep unreliable annotation out of
-training.
+Importing a GFF3 checks the gene models, repairs what can be repaired unambiguously, and records
+what stays ambiguous as errors of the transcript, merged into its geenuff_mask features. Helixer
+reads one transcript per gene through `GeenuffExportController.genome_query`, the masks keeping
+unreliable annotation out of training.
 
-That split is deliberate: the database holds the annotation as given, and nothing is deleted for
-being wrong. Which parts of it a consumer is handed, and which are masked, is decided on the way
-out. Two pieces of that are worth reading before relying on the output:
+The database holds the annotation as given; what a consumer is handed, and what is masked, is
+decided on export. Worth reading before relying on the output:
 
 * [docs/spec_vs_gff.md](docs/spec_vs_gff.md): how GeenuFF's features differ from a GFF3's, the
   error types, what each of them masks, and errors that mask nothing
@@ -43,14 +40,9 @@ out. Two pieces of that are worth reading before relying on the output:
 
 ## Install
 
-GeenuFF needs python3.10.12 or newer, which `pyproject.toml` enforces via `requires-python`.
-
-I would recommend installation in a virtual environment.
-https://docs.python-guide.org/dev/virtualenvs/
-
-From a directory of your choice (and preferably in a virtualenv):
-
-Clone and install GeenuFF:
+GeenuFF needs Python 3.10.12 or newer. Install it preferably in a
+[virtual environment](https://docs.python-guide.org/dev/virtualenvs/), adding `-e` to `pip install`
+for an editable installation:
 
 ```bash
 git clone https://github.com/weberlab-hhu/GeenuFF.git
@@ -59,10 +51,7 @@ pip install .
 cd ..
 ```
 
-Add `-e` to install it editable, i.e. so that changes in the working tree take effect without
-reinstalling.
-
-And you might want to run the tests:
+To run the tests:
 
 ```bash
 cd GeenuFF/geenuff
@@ -84,10 +73,10 @@ the expected format, and import it into a geenuff spec db for each
 species. For more information please see
 [the api docs](https://weberlab-hhu.github.io/GeenuFF/api.html).
 
-Each import ends with a summary of what was found: how many genes and transcripts the file held,
-how many survived to be exported, which genes overlap another and how that was settled, and every
-error type with the number of transcripts it was found in. It is worth reading, as it is the
-quickest way to see whether an annotation is in the state you expected.
+Each import ends with a summary: the GFF lines left out and what they cost, what Helixer gets from
+each coding gene (labeled in full, masked, or not exported, and why), and the errors of the
+exported transcripts. It is the quickest way to see whether an annotation is in the state you
+expected.
 
 ## Major plans
 

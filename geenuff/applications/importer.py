@@ -118,6 +118,17 @@ NOT_MASKING_IN_FULL = frozenset({types.MISSING_UTR_5P, types.MISSING_UTR_3P, typ
                                  types.SL_OVERLAP_ERROR})
 
 
+def error_severity(errors) -> str:
+    """What a transcript's own errors take away, from its error types, as the overlap decision
+    grades it (see GFFErrorHandling._locus_severity): 'masked_outright', 'flank_masked' or 'none'.
+    The masks of an overlap are not the transcript's own."""
+    if errors - NOT_MASKING_IN_FULL:
+        return 'masked_outright'
+    if errors & {types.MISSING_UTR_5P, types.MISSING_UTR_3P}:
+        return 'flank_masked'
+    return 'none'
+
+
 def exported_outcome(errors, transcript_feature, masks, nested: bool) -> str:
     """The EXPORTED_OUTCOMES key of an exported transcript, from its error types, transcript
     feature and geenuff_mask features; nested says whether an overlap left unresolved has one gene

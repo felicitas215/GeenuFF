@@ -662,6 +662,61 @@ def test_get_json_feature():
     # todo, slightly more thorough testing
 
 
+def json_controller(tmp_path, name):
+    """A JsonExportController over testdata/<name>.fa and .gff3, imported into a fresh database."""
+    db_path = str(tmp_path / f'{name}.sqlite3')
+    ImportController(database_path='sqlite:///' + db_path).add_genome(
+        f'testdata/{name}.fa', f'testdata/{name}.gff3', clean_gff=True, genome_args={'species': 'dummy'})
+    return JsonExportController(db_path)
+
+
+def test_json_minus_strand_genes_are_found_with_an_ascending_range(tmp_path):
+    """The queried range is ascending, [start, end), on either strand. gMinus (GFF 211-300 on the
+    minus strand, i.e. bases 210-299) is the only minus strand gene of testdata/stop_codon.gff3:
+    found on the minus strand over the whole sequence and over a range containing it, partly
+    contained in a range cutting it, and never on the plus strand."""
+    controller = json_controller(tmp_path, 'stop_codon')
+
+    def genes(start, end, is_plus_strand):
+        out = controller.coordinate_range_to_jsonable('dummy', 'CHR', start, end, is_plus_strand)[0]
+        return out['coordinate_piece'], {sl['given_name']: sl['is_fully_contained'] for sl in out['super_loci']}
+
+    piece, found = genes(0, None, False)
+    assert len(piece['sequence']) == 500
+    assert found == {'gMinus': True}
+    assert 'gMinus' not in genes(0, None, True)[1]
+    piece, found = genes(200, 300, False)
+    assert len(piece['sequence']) == 100
+    assert found == {'gMinus': True}
+    assert genes(250, 400, False)[1] == {'gMinus': False}
+
+
+def test_json_marks_what_becomes_of_each_gene_and_transcript(tmp_path):
+    """See testdata/overlapping_loci_pairs.gff3: geneCrossCoder is kept over geneCrossGivesWay,
+    both lacking UTRs; geneBothTruncatedLeft has a CDS that is not a multiple of 3 and no codons,
+    so it is masked in full. geneCrossCoder (bases 99-398) lies within 0-700 although its masks reach
+    to 725, the masks lying beside it not counting."""
+    controller = json_controller(tmp_path, 'overlapping_loci_pairs')
+    out = controller.coordinate_range_to_jsonable('dummy', 'CHR', 0, 700, True)[0]
+    genes = {sl['given_name']: sl for sl in out['super_loci']}
+
+    kept, dropped = genes['geneCrossCoder'], genes['geneCrossGivesWay']
+    assert (kept['exported'], kept['excluded_from_export'], kept['is_fully_contained']) == (True, None, True)
+    assert (dropped['exported'], dropped['excluded_from_export']) == (False, types.OVERLAP_DROPPED)
+    t_kept, t_dropped = kept['transcripts'][0], dropped['transcripts'][0]
+    assert (t_kept['selected_for_export'], t_kept['exported'], t_kept['error_severity'],
+            t_kept['masked_in_full']) == (True, True, 'flank_masked', False)
+    assert t_kept['masks'] == [[50, 99], [399, 725]]
+    # selected within its gene, but the gene gave way, so nothing of it is exported or masked
+    assert (t_dropped['selected_for_export'], t_dropped['exported'], t_dropped['error_severity'],
+            t_dropped['masks']) == (True, False, 'flank_masked', [])
+
+    out = controller.coordinate_range_to_jsonable('dummy', 'CHR', 1500, 2200, True)[0]
+    truncated = {sl['given_name']: sl for sl in out['super_loci']}['geneBothTruncatedLeft']['transcripts'][0]
+    assert (truncated['exported'], truncated['error_severity'], truncated['masked_in_full']) == (
+        True, 'masked_outright', True)
+
+
 def helper_get_species(pks, session):
     out = []
     for pk in pks:

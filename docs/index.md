@@ -7,79 +7,57 @@ See [github repository](https://github.com/weberlab-hhu/GeenuFF)
 Relational db Schema & Api to store and interpret gene structure
 
 ### Conceptual summary
-GeenuFF format essentially defines ranges on the genomic sequence 
-of a gene structure related "type" (e.g. transcribed, coding, ...).
-These ranges are delineated by a feature with a type, start and end. 
-The combination of features ultimately required to define
-a processed biological macromolecule (e.g. mRNA, protein) from the genomic
-sequence, is recorded in links to the 'outer' tables (e.g. "transcript", 
-"protein"). 
+GeenuFF defines ranges on the genomic sequence of a gene-structure "type" (transcribed, coding,
+...), each delineated by a feature with a type, start and end. Which features make up a processed
+molecule (mRNA, protein) is recorded in links to the 'outer' tables ("transcript", "protein").
 
-GeenuFF is designed to unambiguously encode even 
-partial information. For instance, the "start_is_biological_start"
-and "end_is_biological_end"
-of a feature can be used to indicate whether the feature delineates
-the expected full biological range, or merely a part of it. Thus a 
-gene model encoded in geenuff can explicitly differentiate a full
-from partial gene model, and exactly _where_ our knowledge of the
-gene model ends.
+GeenuFF encodes even partial information unambiguously: "start_is_biological_start" and
+"end_is_biological_end" say whether a feature covers its full biological range or only part of
+it, so a gene model states whether it is complete and exactly _where_ our knowledge of it ends.
 
-GeenuFF is designed to encode all necessary complexity, both to 
-represent the biological processes, as well as technical limitations.
-In particular, the abstraction layer of transcribed_pieces can be used
-to group and organize features
-encoding a transcript that originates from multiple unrelated genomic loci.
-Thus, geenuff can encode a transcript split across two scaffolds in a 
-fragmented genome assembly, or it can encode a transcript processed
-via trans-splicing that truly derives from two (or more) loci.
+It encodes both biological complexity and technical limitations: transcript pieces group the
+features of a transcript originating from several genomic loci, whether split across two
+scaffolds of a fragmented assembly or truly derived from two or more loci by trans-splicing. The
+schema allows this; the importer, built for eukaryotic GFF3 and Helixer, writes one transcript
+piece per transcript on one sequence, and keeps trans-spliced genes flattened and out of exports
+(see [trans_splicing.md](trans_splicing.md)).
 
 ## Why
 ### general goal
-The encoding of gene annotations (which parts of an organisms
-genome will be transcribed into RNA, how the RNA will be modified
-to make the final mature RNA (mRNA), and what part of the mRNA
-will be transcribed into protein) ultimately requires a 
-non-trivial and tailored data structure to properly capture the 
-information and recreate at will the coordinates of a gene, 
-gene part, or the final or intermediate sequences created, etc.
-Some of the challenges include handling cases like the following
-* where there are multiple ways to 'put together' the transcripts or proteins
-originating from a single loci
-* multiple transcripts can produce the same final protein and differ only in mRNA
-* one transcript (in prokaryotes) can be translated into several proteins
-* in rare cases of trans-splicing a single mRNA can be derived from multiple
-  genomic loci
-* and all of the above have to be encodable in cases of partial information, including:
+A gene annotation (which parts of a genome are transcribed into RNA, how the RNA is processed into
+mature mRNA, and which part of it is translated into protein) needs a tailored data structure to
+recreate at will the coordinates of a gene, its parts, and the sequences made from them. It has
+to handle cases like:
+* several ways to 'put together' the transcripts or proteins of one locus
+* several transcripts producing the same protein, differing only in mRNA
+* one transcript (in prokaryotes) translated into several proteins (Note: currently GeenuFF is
+  mostly tailored towards eukaryotes)
+* rarely, one mRNA derived from several genomic loci by trans-splicing
+* all of the above with partial information:
   * incomplete genomic sequence
   * fragmented genomic sequence
   * incomplete information about the gene annotation itself
 
 ### specific advantages over alternatives
-Unsurprisingly, GeenuFF does not represent the first attempt
-to encode gene structures; so if you're already familiar 
-with e.g. the gff format and are wondering if we're just 
-adding one more standard to the [pile](https://xkcd.com/927/),
-then the following section explains _why_ we think it's worth it.
+GeenuFF is not the first attempt to encode gene structures; if you know e.g. GFF and wonder
+whether this is one more standard on the [pile](https://xkcd.com/927/), this section explains
+_why_ we think it is worth it.
 
-Historically, gene annotations have been encoded in some variation
-of the gff format (gtf, gff, gff3), see
-[http://gmod.org/wiki/GFF3](http://gmod.org/wiki/GFF3).
-There are a variety of drawbacks to these formats. Some are somewhat
-more superficial, such as the custom encoding of key, value
-pairs specifying both relationships and extra meta info 
-in the final column. A good base parser, or non-text alternatives 
-such as gffutils
-([https://daler.github.io/gffutils/)](https://daler.github.io/gffutils/));
-are sufficient
-to address such issues. Here, we will focus on the benefits of
-the basic changes in underlying _structure_ that address the more
-fundamental issues.
+Today GeenuFF is mainly the store of eukaryotic annotation that
+[Helixer](https://github.com/usadellab/Helixer) trains from: it imports GFF3, checks and repairs
+the gene models, and records what stays ambiguous as errors and masks. The schema below is more
+general than what the importer and the exports build from it; where they fall short of it, this
+section says so.
+
+Gene annotations are usually encoded in a variant of the GFF format (GTF, GFF, GFF3), see
+[http://gmod.org/wiki/GFF3](http://gmod.org/wiki/GFF3). Superficial drawbacks, such as the custom
+key-value encoding of relationships and meta info in the last column, are solved by a good parser
+or tools such as [gffutils](https://daler.github.io/gffutils/). This section is about the more
+fundamental issues of the underlying _structure_.
 
 #### Gff-like implicit encodings
-In gff-like formats, genes and gene pieces are encoded as 
-ranges, e.g. `[ exon ]`. Unfortunately this leaves many gene 
-components to only be encoded implicitly. For instance,
-an intron is encoded as the gap between two exons:
+In GFF-like formats genes and their pieces are ranges, e.g. `[ exon ]`, which leaves many
+components implicit. An intron is the gap between two exons:
 ```
 # gff features
  [      transcript        ]
@@ -87,8 +65,7 @@ an intron is encoded as the gap between two exons:
 # interpretation
  [ exon ]( intron )[ exon ]
 ```
-Similarly, the transcription start site (TSS) is not indicated
-explicitly, but is rather implicitly assumed to be:
+The transcription start site (TSS) is implied as well:
 ```
 # at the start of the 1st exon (+ strand)
  [    transcript    ]
@@ -102,35 +79,22 @@ explicitly, but is rather implicitly assumed to be:
                     ^
                     TSS
 ```
-While this always requires some extra parsing if one is interested
-in one of the _implicit_ features, the greater problem occurs
-in cases where one has less-than perfect information. 
-
-For example, lets assume we want to encode a partial gene model;
-we know from homology comparison to other species and the truncated
-mapping of RNAseq reads that we are missing at least the first exon.
-With gff-like formats one can either include the exons one knows 
-which will erroneously _imply_ the transcription start site is located
-where one actually has an acceptor splice site; or one can skip
-the gene model entirely, which will erroneous _imply_ that the whole
-region is intergenic. There is no 'right' way to document what one 
-knows and what one doesn't with these formats.
+Beyond the extra parsing, the real problem is partial information. Say homology and truncated
+RNAseq mappings show that at least the first exon of a gene is missing. A GFF-like file can either
+include the known exons, wrongly _implying_ the TSS lies where there is actually an acceptor
+splice site, or skip the gene, wrongly _implying_ the region is intergenic. There is no right way
+to record what is known and what is not.
 
 ##### GeenuFF more explicit encodings
-While GeenuFF also ecodes ranges, and to avoid redundancy still
-has some _implicit_ encodings, the choice of _which_ structural
-elements to encode has been done to better reflect biology
-and so that the start and end of features have a consistent interpretation
-for each type. 
-
-For instance, the same two-exon, + strand transcript
-used above would basically change as follows
+GeenuFF also encodes ranges, with some _implicit_ encodings left to avoid redundancy, but the
+elements encoded reflect biology, and a feature's start and end mean the same for every type. The
+two-exon, + strand transcript from above becomes:
 ```
 # gff-like
  [      transcript        ]
  [ exon ]          [ exon ]
 
-# geenuff 
+# geenuff
  [       transcript        )
          [ intron  )
  ^
@@ -138,24 +102,16 @@ used above would basically change as follows
 ```
 Or on the - strand:
 ```
-# geenuff 
+# geenuff
 (       transcript        ]
         ( intron  ]
                           ^
                           start, TSS
 ```
-This already makes it easier to parse, e.g. you don't 
-have to use a different rule to find the transcription start site
-on the minus strand. 
-
-More importantly however, both start and end, come with an additional
-boolean attribute (start_is_biological_start and end_is_biological_end)
-which indicate whether this transition is a biological one (when
-set to `True` or whether we have a partially known gene model,
-when set to `False`).
-
-If we now return to how to encode our incomplete gene model, where
-we know we are missing the first exon, we can do so as follows.
+No separate rule is needed to find the TSS on the minus strand. More importantly, start and end
+carry a boolean (start_is_biological_start, end_is_biological_end) saying whether the transition
+is a biological one (`True`) or the edge of a partially known gene model (`False`). The gene model
+missing its first exon becomes:
 ```
 # geenuff
                        [     transcript      )
@@ -165,150 +121,95 @@ we know we are missing the first exon, we can do so as follows.
 start_is_biological_start=False
 end_is_biological_end=True
 
-# further, if we want to indicate our lack of knowledge on the region
-# before (perhaps we don't know for sure if this is an intron or an assembly
-# error); we can record the error for the transcript (e.g. missing_utr_5p) and add a
-# geenuff_mask feature over the region to indicate our uncertainty. e.g.
+# to mark the region before as unknown too (an intron, or an assembly error?), the error is
+# recorded for the transcript (e.g. missing_utr_5p) and a geenuff_mask feature covers the region
 [    geenuff_mask      )
 ^                      ^
 start                  end
 ```
 
-#### Gff-like miss assignment of attributes and relations
-Ultimately a gff-like encoded gene model tries to map biology
-onto a miss-fitting model. 
+#### Gff-like misassignment of attributes and relations
+A GFF-like gene model maps biology onto an ill-fitting model.
 
-For instance, in a gff-like model a transcript is always the
-child of a gene. This works fine for most Eukaryotic genes, but in prokaryotes
-where several proteins are derived from a single transcript; this 
-requires an awkward patch to encode in a gff file. Specifically,
-the genes / proteins derived from one transcript are labeled
-as children of a new feature, the operon. The single transcript 
-then has multiple parent genes, and the CDS pieces now have 
-to use a prokaryote-specific key-value pair in their attribute
-field (Derives_from=<a gene ID>) to determine which gene they are associated
-with. Note that this drastically changes the meaning of the _implicit_
-features discussed above, and requires fundamentally different code to
-parse / interpret.
+In GFF a transcript is always the child of a gene. That works for most eukaryotic genes, but a
+prokaryotic transcript yielding several proteins needs an awkward patch: the genes derived from
+it become children of a new feature, the operon, the transcript has several parent genes, and the
+CDS pieces need a prokaryote-specific attribute (Derives_from=<a gene ID>) to name their gene.
+This changes the meaning of the _implicit_ features above and needs different code to interpret.
+The importer does not read this encoding.
 
-Even more problematic are 'corner cases' like trans-splicing,
-where one final mature mRNA, may be derived from two distant
-original transcripts which are then ligated together. From our experience,
-we have not seen a standard way, and there certainly isn't a good
-way to encode this in a gff-like format.
+Corner cases like trans-splicing, where one mature mRNA is ligated from two distant transcripts,
+have no standard and no good encoding in GFF at all; the importer keeps such genes flattened and
+never exports them (see [trans_splicing.md](trans_splicing.md)).
 
-The miss-fitting relationship structure is further exacerbated by 
-assigning attributes at the wrong level. For instance,
-trans-splicing makes it clear that it is not the gene nor protein that
-should have on-genome coordinates; but that they are made up of pieces,
-such as transcription or coding start and end sites, that have on-genome
-coordinates. Another good example of the miss-placed assignment is common
-(yet not standardized) practice of deriving the protein ID from the gene 
-or transcript ID, instead of assigning it specifically to the protein. 
+Attributes sit at the wrong level, too. Trans-splicing makes clear that neither the gene nor the
+protein has on-genome coordinates; their pieces do, such as transcription or coding start and end
+sites. Likewise, the protein ID is commonly (but not by any standard) derived from the gene or
+transcript ID rather than assigned to the protein.
 
-While some of this confusion most certainly derives from a somewhat 
-undefined biological concept of a gene...
-* 'gene' is frequently used to refer to a genomic locus so that one 'gene ID' can
-  be assigned to the often highly-related transcripts 'put together differently'
-  by alternative splicing. In such cases, it's an umbrella of sorts that encompasses
-  all mRNA _transcribed_ from that locus, as well as all proteins _translated_ from
-  the mRNA.
-* yet in prokaryotes 'gene' is used more to refer to the proteins and rather denotes
-  a sub-section of what is _transcribed_.
-* it's very unclear whether a protein derived from trans-splicing is part 
-  of one or two 'genes'?
+Some of this confusion comes from the loosely defined biological concept of a gene...
+* a 'gene' is often a genomic locus, one ID over the related transcripts alternative splicing
+  makes from it, i.e. an umbrella over all mRNA _transcribed_ from the locus and all proteins
+  _translated_ from it.
+* in prokaryotes, a 'gene' rather denotes a protein, a sub-section of what is _transcribed_.
+* whether a protein from trans-splicing belongs to one or two 'genes' is unclear.
 
-... be this as it may, this is no excuse to encode what is unambiguous in a
-clear and consistent fashion. 
+... but that is no excuse not to encode what is unambiguous clearly and consistently.
 
 ##### GeenuFF restructuring to bring the map closer to the territory
-GeenuFF essentially consists of a schema for a relational database (and an API to 
-interpret as necessary). The schema breaks up the artificial connection
-rules of the gff-like formats; and with many-to-many fields directly allows
-assignment of things like multiple transcripts to one protein, or multiple 
-proteins to one transcript. The key tables / concepts in the schema are as follows.
+GeenuFF is a relational database schema (with an API to interpret it). It drops the artificial
+connection rules of GFF-like formats, and its many-to-many fields directly allow several
+transcripts per protein or several proteins per transcript. Its key tables:
 
-* SuperLocus: this is a holder for related transcripts, proteins, and all the bits
-  that might be combined to make them. Essentially, it's an artificial / abstract
-  concept, but importantly it delineates the maximum graph
-  one might have to walk to to put any-subcomponent in context, by linking 
-  (directly or indirectly) to all of the following:
-  * Feature: this holds things like "geenuff_transcript", "geenuff_cds", or "geenuff_intron"
-    that can directly be assigned coordinates on the genome.
-    * appending "geenuff_" is done to disambiguate them from the similarly named gff features
-  * Transcript: (AKA pre-mRNA), has an ID, importantly it links 
-    (via intermediary, see [transcript_piece](#transcript_piece))) 
-    to all the features combined to make a transcript and 
-    any protein translated there from.
-  * Protein: (AKA protein), has an ID, importantly it links to geenuff_cds-type features 
-    making one protein.
+* SuperLocus: an abstract holder for related transcripts, proteins and all the pieces that might
+  be combined to make them, delineating the largest graph one might walk to put any component in
+  context. It links (directly or indirectly) to:
+  * Feature: "geenuff_transcript", "geenuff_cds", "geenuff_intron" and the like, with coordinates
+    on the genome; the "geenuff_" prefix sets them apart from similarly named GFF features.
+  * Transcript: (AKA pre-mRNA) has an ID and links (via [transcript_piece](#transcript_piece)) to
+    all features making the transcript and any protein translated from it.
+  * Protein: has an ID and links to the geenuff_cds features making it.
 
-The gains of this restructuring is that the gene structure of Eukaryotic, Prokaryotic,
-and even Trans-spliced examples can be encoded in fundamentally the same fashion and
-parsed with the same code.
+Eukaryotic, prokaryotic and even trans-spliced gene structures are then encoded the same way and
+parsed by the same code:
+* eukaryotic: a SuperLocus points to several Transcripts, each with one "geenuff_transcript" and
+  one "geenuff_cds" feature and connected to one Protein.
+* prokaryotic: a SuperLocus points to one Transcript with one "geenuff_transcript" feature,
+  connected to several Proteins and with several "geenuff_cds" features.
+* trans-splicing: a Transcript has one "geenuff_transcript" feature at each of its loci, ordered
+  by the "position" attribute of its TranscriptPieces (see [transcript_piece](#transcript_piece)
+  and [feature](#feature)).
+* any of these across artificial breaks in the sequence (e.g. a fragmented assembly), using the
+  "<>\_is_biological\_<>" attributes, masks where needed and TranscriptPieces.
 
-For example:
-* In a common Eukaryotic example, a SuperLocus will point to multiple Transcripts. 
-Each Transcript will have one "geenuff_transcript" and one "geenuff_cds" feature
-and will be connected to one Protein.
+("geenuff_cds", start) is always interpreted the same way, unlike a GFF CDS edge whose meaning
+depends on eukaryote or prokaryote, on other CDS lines and on the overlapping exon. Likewise, the
+same code reads a split-locus gene model whether the split is biological (trans-splicing) or
+artificial (fragmented assembly): the features differ, the logic stays the same.
 
-* In a common Prokaryotic example, a SuperLocus will point to one Transcript
-with one "geenuff_transcript" feature, but
-this Transcript will be connected to multiple Proteins and have
-multiple "geenuff_cds" features.
-
-* In a case of trans-splicing, a Transcript will have multiple 
-"geenuff_transcript" features, one at each of its different loci. How these 
-pieces are ultimately linked is encoded using the "position" attribute of the
-TranscriptPieces (see [transcript_piece](#transcript_piece)
-and [feature](#feature)).
-
-* Finally, any of the above could be encoded across multiple artificial breaks in the
-sequence (such as a fragmented assembly), by setting the "<>\_is_biological\_<>" 
-attributes, adding error masks as necessary and using TranscriptPieces 
-(see [transcribed_piece](#transcribed_piece) and [feature](#feature))).
-
-While these four examples differ in which features they use, they all follow the
-same spec and can be parsed with the same code. For instance, ("geenuff_cds", start) is always
-interpreted in the exact same way; and you don't get cases like those in a gff, where
-the edge of a CDS feature means something else depending on whether the species
-is a Eukaryote or Prokaryote, on the presence of other
-'CDS' features and on the relative position of the overlapping 'exon' feature.
-Similarly, the same code can be used to interpret a split-locus gene model, whether
-this has a biological (trans-splicing) origin or artificial (e.g.
-fragmented assembly) origin. The features differ as necessary, the logic remains the same.
+The importer builds only the first of these cases: one transcript piece and one protein per
+transcript, from eukaryotic GFF3. It leaves out lines on another sequence than their parent, so no
+transcript spans two scaffolds, and keeps trans-spliced genes flattened and out of exports. The
+exports, Helixer's above all, rely on that: one transcript per gene, on one strand of one sequence.
 
 #### gff-like coordinate troubles.
-The most common usage of a gff-like file is simply to denote which sequences
-belong to the original transcript, the final transcript and the proteins. This
-works decently with the `[inclusive start, inclusive end]` coordinates the gff-like
-formats use. However, the _implicit_ components are then inverted, and tedious, e.g.
-for an intron the coordinates are `(exclude end exon_i, exclude start exon_i+1)`,
-or for the 3' untranslated region (UTR) the coordinates are 
-`[inclusive start exon, exclude start CDS)`.
+GFF's `[inclusive start, inclusive end]` coordinates work for the sequences of the transcripts and
+proteins, but the _implicit_ components come out inverted and tedious: an intron is
+`(exclude end exon_i, exclude start exon_i+1)`, the 3' UTR `[inclusive start exon, exclude start
+CDS)`.
 
 ##### GeenuFF increased coordinate consistency
-In the geenuff format the start of features are always inclusive
-while the end of features are always exclusive. Besides being more
-consistent with e.g. python coordinates, this has the major advantage that if one
-wants a component that isn't explicitly included for reasons of avoiding redundancy
-(e.g to get the UTR you still have to take "geenuff_transcript" - "geenuff_cds") 
-it's at least always 
-`[inclusive start, exclusive end <or start next>)`. So the first coding exon 
-would be `[geenuff_cds start, geenuff_intron start)`. 
+In GeenuFF a feature's start is always inclusive and its end always exclusive, as in python. A
+component left implicit to avoid redundancy (e.g. the UTR as "geenuff_transcript" -
+"geenuff_cds") is therefore always `[inclusive start, exclusive end <or start next>)`, e.g. the
+first coding exon is `[geenuff_cds start, geenuff_intron start)`.
 
-__Caveat:__ 
+__Caveat:__
 Ranges on the minus strand are off by one from the pythonic coordinates.
 
 #### Extensible
-Finally, with geenuff being based on a relational database, it's much easier
-to _extend_ the format for specific purposes without changing the base, shared
-attributes. 
-
-For instance, we needed to track some meta_information
-for an applied machine learning and gene model project. This required just
-an additional tables with a foreign key to Coordinate, but required no modification
-of the core format.
+Being a relational database, GeenuFF can be _extended_ with tables of its own, linked by foreign
+keys to e.g. Coordinate or Genome, without changing the shared core.
 
 ## What (with details)
 
@@ -317,35 +218,20 @@ Quick start / reference for 1:1 comparison with gff:
 [spec_vs_gff.html](spec_vs_gff.html)
 
 ### Coordinate system
-GeenuFF coordinates count from 0, have an inclusive start and exclusive end.
+GeenuFF coordinates count from 0, with the _start_ attribute marking the _inclusive_ start of a
+range and the _end_ attribute its _exclusive_ end. On the plus strand they match python
+coordinates; the same logic holds on the _minus_ strand.
 
-The position of the _start_ attribute always marks the 
-_inclusive_ start of this range. The position of the _end_ attribute
-always marks the _exclusive_ end of the range. 
-
-Therefore, GeenuFF coordinates exactly match (among other languages) 
-python coordinates for ranges on the positive strand.
-
-However, the logic of inclusive start, exclusive end applies even when encoding
-features on the _minus_ strand.
-
-Let's say you want to encode the range to select the elements `{2, 3}` 
-(of `[0, 1, 2, 3, 4, ...]`) with geenuff features / coordinates. 
-The plus strand would exactly match the pythonic coordinates `[2, 4)`,
-but the negative strand (want `{3, 2}`) would include the start point,
-and not the end `[3, 1)`. Thus, if the genomic sequence was represented
-in a python list you would select a range on the minus strand 
-with something like this:
+To select the elements `{2, 3}` of `[0, 1, 2, 3, 4, ...]`: on the plus strand this is `[2, 4)`,
+exactly the pythonic coordinates; on the minus strand (`{3, 2}`) it includes the start and not the
+end, `[3, 1)`. With the genomic sequence as a python list, a minus strand range is selected with:
 ```
-genomic_sequence[end + 1, start + 1]
+genomic_sequence[end + 1:start + 1]
 ```
-of course one will want to reverse and complement
-this sequence as well for most purposes, so a handling function is anyways advisable. 
-(and available in `applications.exporters.sequence`)
+It usually also needs reversing and complementing, which `applications.exporters.sequence` does.
 
 ### Schema summary
-For the fine details, please look at `base/orm.py`; here we will just
-try and describe the overall structure / major pieces, and what they mean.
+For the details see `base/orm.py`; this describes the overall structure and what it means.
 
 #### Tables & relations
 Indentation inside a piece indicates a one-to-? relation
@@ -355,94 +241,75 @@ Indentation inside a piece indicates a one-to-? relation
 * super_locus
   * transcript, < many2many to protein >
     * transcript_piece, < many2many to feature >
+    * transcript_error
   * protein, < many2many with transcript, feature >
   * feature, < many2many with protein, transcript_piece; many2one to coordinate >
 
 (and linkage-only association tables for the many2many fields)
 
 ##### genome
-This _mostly_ holds meta information 
+This _mostly_ holds meta information
 
 ##### coordinate
-(sequence meta info: seqid, length
-sha1 hash of the sequence the annotation is for,
-optional full sequence)
+Sequence meta info: seqid, length, sha1 hash of the sequence the annotation is for, optionally
+the full sequence.
 
 #### super_loci and children
 ###### super_loci
-essentially delineates the graph of things that might possibly be combined,
-
-has given_name and type for the ~gene
+Delineates the graph of things that might possibly be combined, with given_name and type for the
+~gene.
 
 ###### feature
-these describe geenuff specific types and ranges, but
-otherwise resemble features from a gff
+Geenuff-specific types and ranges, otherwise resembling GFF features. Each has:
 
-* they occur on a sequence (foreign key to coordinates)
-* they have a position (start and end)
-* they have a type, e.g. {geenuff_transcript, geenuff_cds, geenuff_intron, geenuff_mask}; the
-error types a transcript has are recorded per transcript instead (transcript_error)
-* they have a start_is_biological_start and end_is_biological_end which indicates whether 
-start and end mark the biologically meaningful transition or just the edge of what we know.
-* they have a boolean indicator is_plus_strand.
-* they have a score (confidence)
-* they have a phase (important for type "geenuff_cds", else None; usage and checking still need to be implemented, todo). This is particularly
-important if trying to encode a partial protein sequence.
-* they have a given_name (but this is often "None" as nothing was available)
-* they have a source
-* they have many to many relationship with protein (mostly to assign the 'protein_id')
-* they have a many to many relationship with transcript_piece.
-at the first bp of the downstream sequence.
+* a sequence (foreign key to coordinates)
+* a position (start and end)
+* a type, e.g. {geenuff_transcript, geenuff_cds, geenuff_intron, geenuff_mask}; the error types of
+  a transcript are recorded per transcript instead (transcript_error)
+* start_is_biological_start and end_is_biological_end, saying whether start and end mark the
+  biologically meaningful transition or just the edge of what we know
+* a boolean is_plus_strand
+* a score (confidence)
+* a phase, 0 for every feature: a CDS starts a fresh codon, the importer setting its phase itself
+  whatever the file says (a different starting phase in the file is recorded as an error)
+* a given_name (often "None", nothing being available)
+* a source
+* a many to many relationship with protein (mostly to assign the 'protein_id')
+* a many to many relationship with transcript_piece
 
 __Feature self consistency:__
-All features on a transcribed piece must be interpretable when sorted 5' to 3'.
-There are some biological considerations
-such as: an intronic (_cis_ or _trans_) range cannot have a "start" or "end" 
-unless it's in a transcribed region, a 
-coding range can only "start" or "end" inside a transcript, but non-intronic region.
-All features assigned to a transcribed_piece must have the same value for "is_plus_strand".
+All features on a transcript piece must be interpretable when sorted 5' to 3', and share the same
+"is_plus_strand". An intronic (_cis_ or _trans_) range can only "start" or "end" in a transcribed
+region, and a coding range only inside a transcript's non-intronic region. A feature whose
+<>\_is_biological\_<> attribute is False should lie at the edge of the piece, or come with a
+geenuff_mask feature masking the ambiguous area.
 
-If a feature has a False value for <>\_is_biological\_<>  attribute, these should occur at the edge
-of the piece, or be accompanied by a geenuff_mask feature masking the ambiguous area.
+###### transcript_error
+One row per error type found for a transcript, without a range; what the errors mask is merged
+into the transcript's geenuff_mask features.
 
 ###### protein
-Each Protein object basically just points to one protein's worth of "geenuff_cds" 
-type features (and associated transcript & super_locus),
-and has a given_name attribute.
+Points to one protein's worth of "geenuff_cds" features (and associated transcript & super_locus),
+and has a given_name.
 
 ###### transcript_piece
-TranscriptPieces delineate a collection of features that can be interpreted 
-(5'-3') together. In the standard case (with either _cis_- or no- splicing, 
-and representing a full gene model)
-a Transcript will have a single TranscribedPiece pointing to all the 
-relevant Features.
+TranscriptPieces delineate the features that can be interpreted (5'-3') together. In the standard
+case (_cis_- or no splicing, a full gene model) a Transcript has a single TranscriptPiece pointing
+to all its Features.
 
-In cases where the Transcribpt (final mRNA) is split for either biological or 
-technical reasons, each involved locus should have its own transcript_piece.
+In cases where the Transcript (final mRNA) is split for either biological or technical reasons,
+each involved locus should have its own transcript_piece.
 
-Each TranscriptPiece should have a single "geenuff_transcript"
-feature covering its whole range;
-that is the most 5' part of the piece should be at the _start_ from the
-"geenuff_transcript" feature and the most 3' part of the piece at the _end_.
-The exception is geenuff_mask features, which may be associated with the piece,
-but exceed this range.
+Each TranscriptPiece should have a single "geenuff_transcript" feature covering its whole range,
+its _start_ at the most 5' and its _end_ at the most 3' part of the piece; only geenuff_mask
+features may exceed it.
 
-transcribed_piece has a many2one relationship with transcript.
-
-The 5' to 3' ordering of transcript_pieces within a transcript can be accomplished using
-the 'position' attribute of the transcript_piece.
+transcript_piece has a many2one relationship with transcript. The 5' to 3' ordering of
+transcript_pieces within a transcript can be accomplished using the `position` attribute.
 
 ###### transcript
-Transcript objects ultimately define what should be interpreted together
-to produce the final biological molecule (e.g. pre-mRNA, mRNA, protein, etc.).
-
-They consist of one or more transcript_pieces (which can be ordered 5' to 3' by sorting 'position'
-in ascending order). The features
-within each transcribed_piece can simply be ordered by coordinates. With pieces
-and their features sorted, a transcript can be read 5'-3' and the information
-of interest (beit the whole transcript range, the spice sites, the start codon, etc..)
-can be extracted as necessary. 
-
-Example logic for interpreting a transcript is can be found
-in `geenuff.applications.exporter.RangeMaker`.
-
+Transcripts define what is interpreted together to produce the final molecule (pre-mRNA, mRNA,
+protein, ...). With their transcript_pieces sorted by ascending 'position' and the features within
+each piece by coordinate, a transcript reads 5'-3', and whatever is of interest (the transcript
+range, the splice sites, the start codon, ...) can be extracted. Example logic is in
+`geenuff.applications.exporter.RangeMaker`.

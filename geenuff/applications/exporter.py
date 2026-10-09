@@ -632,18 +632,10 @@ class SuperLocusRanger(SuperLocusHandlerBase):
         if not self.longest:
             self.exp_range_makers = self.range_makers
         else:
-            long_transcript, _ = self.get_longest_transcript()
-            self.exp_range_makers = [long_transcript]
-
-    def get_longest_transcript(self):
-        """identify which transcript in this super locus is longest (with introns removed)"""
-        transcript, length = None, 0
-        for range_maker in self.range_makers:
-            rm_length = range_maker.sum_exonic_lengths()
-            if rm_length > length:
-                transcript = range_maker
-                length = rm_length
-        return transcript, length
+            # the transcript the importer selected for export, as the h5 export uses (see
+            # OrganizedGeenuffImporterGroup._set_longest_transript); none for a gene without a
+            # coding one
+            self.exp_range_makers = [rm for rm in self.range_makers if rm.data.longest]
 
     def get_longest_protein_in_transcript(self):
         """identify which transcript, protein_id makes longest final coding sequence (introns rm) in this super locus"""

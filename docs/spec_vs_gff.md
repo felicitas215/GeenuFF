@@ -2,47 +2,32 @@
 ### features
 
 #### types
-Feature types differ somewhat from a gff, "geenuff_" has been 
-appended to names to reduce confusion where the meaning is not
-identical.
+Feature types differ from a GFF's; the "geenuff_" prefix marks where the meaning is not identical.
 
 ##### core types:
 * geenuff_transcript: range of pre-mRNA / unspliced transcript
 * geenuff_cds: range between the start and stop codon (ignoring introns)
-* geenuff_intron / trans intron: range between a donor and acceptor splice site
+* geenuff_intron: range between a donor and acceptor splice site
 * geenuff_mask: range not to be trained on, everything the errors of its transcript mask merged
   into as few ranges as possible
 
 ##### error types:
-These do not exist in a gff, but are used in geenuff to denote things
-that might be ambiguous or unknown about a gene model. 
+Errors mark what is ambiguous or unknown about a gene model; only coding transcripts are checked.
+Each error type found is recorded once per transcript in the `transcript_error` table, without a
+range; what the errors mask is worked out once per transcript and stored as its geenuff_mask
+features (see the table below). Annotation stored directly in GeenuFF rather than via GFF could
+give errors more precise ranges.
 
-Currently, errors are assigned when any obvious gene model inconsistency
-is encountered during gff parsing. Only coding transcripts are checked. Each error type found is
-recorded once per transcript in the `transcript_error` table, without a range of its own; what
-the errors mask is worked out once per transcript and stored as its geenuff_mask features. The
-table below gives what each error contributes to that mask. If gff format were not
-used as an intermediary and gene annotation was performed and stored directly in a geenuff
-structured database, all the errors could be assigned more precise ranges for any ambiguity.
+An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
+*flank*. It is measured from the gene's selected transcript toward the closest edge of another
+coding gene on that side, or toward the end of the sequence: a gene dropped for an overlap counts
+as a neighbour, one overlapping the gene does not, and genes without a CDS never bound a flank, so
+that a transposon or lncRNA overlapping a coding gene cannot leave it without one. The flank
+reaches `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap: up to a gap of about 400 bp the
+flanks of two genes nearly meet, beyond it the middle of the gap stays usable as intergenic.
 
-An error that leaves a gene's end unknown is extended from that end into the gap of unclaimed
-sequence beside the gene, the *flank*. A gene's span here is that of its selected transcript, the
-one exported, not its gene line, which can be far wider or narrower. The flank is measured from
-the gene with the error toward the closest edge of another coding gene that way, i.e. the
-nearest end before it or start after it, or toward the end of the sequence where there is none.
-A gene overlapping it is not a neighbour, sharing sequence with it rather than bounding it, so
-the flank is measured past it. A gene dropped for an overlap still counts as a neighbour.
-
-The flank reaches `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap. Where the half-gap term
-binds (gaps up to about 400 bp), the flanks of two genes nearly meet, leaving at most one base
-between them in an odd gap; where the square root term binds, they leave the middle of the gap
-unmasked, so sequence far enough from any gene stays usable as intergenic. Genes without a CDS do
-not bound a flank, as a transposon or lncRNA overlapping a coding gene would otherwise leave that
-gene no flank at all.
-
-**To watch: masking in dense genomes.** Up to a gap of about 400 bp the half-gap term binds, so an
-erroneous gene masks half of every such gap next to it, however small, and a gap between two
-erroneous genes is masked entirely, save at most one base:
+**To watch: masking in dense genomes.** Up to a gap of about 400 bp an erroneous gene masks half of
+every gap next to it, and a gap between two erroneous genes is masked entirely, save one base:
 
 | gap    | flank per erroneous side | gap masked, one erroneous neighbour | gap masked, both erroneous |
 |--------|--------------------------|-------------------------------------|----------------------------|
@@ -52,13 +37,12 @@ erroneous genes is masked entirely, save at most one base:
 | 2.5 kb | 500 bp                   | 20 %                                | 40 %                       |
 | 10 kb  | 1000 bp                  | 10 %                                | 20 %                       |
 
-Within one gap this rarely masks sequence that is clearly intergenic, 50-200 bp being about one
-typical UTR length. The risk is a bias: in compact genomes (fungi, many algae, gene-dense plant
-regions) the intergenic sequence left unmasked comes mostly from long gaps or gaps beside clean
-genes, so short intergenic stretches, typical there, are underrepresented in training. Errors
-masking a gene whole add to this, each taking both neighbouring gaps down to their middle. To
-check on real data: the share of intergenic base pairs masked, by gap size, on a dense and a
-sparse genome. A possible remedy is a share smaller than half the gap.
+Within one gap this rarely masks clearly intergenic sequence, 50-200 bp being a typical UTR length.
+The risk is a bias: in compact genomes (fungi, many algae, gene-dense plant regions) short
+intergenic stretches are underrepresented in training, the unmasked intergenic sequence coming
+mostly from long gaps or gaps beside clean genes. To check on real data: the share of intergenic bp
+masked, by gap size, on a dense and a sparse genome; a possible remedy is a share below half the
+gap.
 
 | type                     | cause                                                | masked                                  |
 |--------------------------|------------------------------------------------------|-----------------------------------------|
@@ -77,55 +61,33 @@ sparse genome. A possible remedy is a share smaller than half the gap.
 | wrong_starting_phase     | phase of the first CDS piece in the file is not 0    | nothing, only recorded                  |
 | super_loci_overlap_error | two coding genes share sequence                      | see below and `overlap_masking.md`      |
 
-A missing UTR leaves only where the transcript ends unknown; the CDS itself is sound and stays
-labelled. Every other error masking a flank means the CDS boundaries cannot be trusted: a missing
-start or stop codon, a reading frame that is wrong (truncated CDS, in-frame stop codon), a gene
-that is partial (truncated intron) or an intron too short to be spliced, which typically stands in
-for a frameshift in the assembly that an annotation pipeline bridged and may or may not be right.
-Such a gene is masked whole together with the flank on both sides. Masking only part of it would
-leave a hole, whose edges read as transitions that are not there (see `overlap_masking.md`). An
-intron the transcript starts or ends in lies only partly inside it, so its length is not checked;
-it is a truncated intron, and the transcript's start or end counts as not biological.
+A missing UTR leaves only the transcript's end unknown; the CDS stays labelled. Every other error
+that masks means the CDS boundaries cannot be trusted, so the gene is masked whole with both
+flanks: masking only part would leave a hole whose edges read as transitions that are not there
+(see `overlap_masking.md`). A too short intron typically stands in for an assembly frameshift an
+annotation pipeline bridged. An intron the transcript starts or ends in is a truncated intron,
+its length not checked, and the transcript's start or end counts as not biological.
 
-Overlapping exon or CDS lines are a structure that cannot exist and most likely come from a wrong
-annotation, so the gene is masked whole together with the flank on both sides, and both ends of
-its transcript and CDS count as not biological. No further checks are applied to such a
-transcript: concatenating overlapping CDS pieces duplicates the bases they share, so the
-reconstructed coding sequence, on which the codon and reading-frame checks operate, is incorrect.
-A wrong starting phase changes no label,
-as the importer sets every CDS phase itself whatever the file says, so it is only recorded and
-masks nothing (see below). The file's phases of the other CDS pieces are not checked at
-all: they are never used, and a CDS that really leaves its frame is caught as truncated_cds.
+Overlapping exon or CDS lines cannot exist, so both ends of the transcript and CDS count as not
+biological and nothing else is checked, the spliced CDS repeating the shared bases. A wrong
+starting phase changes no label, the importer setting every phase itself, so it masks nothing; the
+phases of later CDS pieces are not checked, a CDS leaving its frame being caught as truncated_cds.
 
 ###### super_loci_overlap_error is positioned differently:
-Unlike the types above, what it masks is not extended into a flank of its own, and it marks
-sequence two genes both claim rather than anything wrong with one gene. Every shared base
-carries two mutually exclusive true labels (e.g. CDS for one gene and intron or UTR for the
-other), which a one-class-per-base consumer cannot represent. It is recorded for the exported
-transcript only, its range having been worked out from that transcript's span.
-
-Of two crossing genes the better one is exported whole and its partner is left out of exports
-altogether; the kept gene's mask then covers what that partner occupied beyond it. Where both
-are masked outright for their own errors, or one lies inside the other, both genes are exported
-and each is masked over its whole length and the flank on both sides. Only genes with a CDS
-take part, so a coding gene annotated inside a transposable-element or other non-coding record
-is not masked for it. Every overlapping pair of coding genes is recorded without masking in the
-`super_locus_overlap` table as well. See `overlap_masking.md` for both records, the rules
-deciding which gene is kept, and how this has changed.
+It marks sequence two exported coding genes both claim, every shared base carrying two
+incompatible labels, rather than anything wrong with one gene, and is recorded for the exported
+transcript only. Of two crossing genes the better one is kept whole and masked over what its
+dropped partner covered beyond it, without a flank of its own; a nested or refused pair is masked
+whole with both flanks. See `overlap_masking.md` for the rules and the `super_locus_overlap`
+table, which records every overlapping pair of coding genes without masking.
 
 ###### errors masking nothing:
-An error is recorded for its transcript whether or not it masks anything. Besides a wrong
-starting phase, this happens where an error that would normally be extended into a flank has no
-unclaimed sequence to extend into, e.g. the missing 5' UTR of a gene nested inside another gene:
-the neighbouring locus already reaches past the boundary the mask would start from, so the range
-available for it is empty. The finding is real and the correct amount to mask is zero, so it
-adds nothing to the transcript's geenuff_mask features but still counts in the import
-statistics and is named in the geenuff_errors attribute of the filtered GFF3 export.
-
-A gene dropped from exports for an overlap has its errors recorded as well, masking nothing, its
-features reaching no export. The import statistics count exported genes only, so its errors are
-not among them. They are included for brevity, i.e. finding out why the specific gene was dropped
-in favour of its partner.
+An error is recorded whether or not it masks anything: a wrong starting phase never does, and an
+error extended into a flank masks nothing where there is no unclaimed sequence, e.g. the missing
+5' UTR of a gene nested inside another. It still counts in the import statistics and is named in
+the filtered GFF3 export's geenuff_errors attribute. A gene dropped for an overlap has its errors
+recorded too, without a mask and outside the import statistics, so that why it was dropped in
+favour of its partner can be looked up.
 
 ##### start_is_biological_start and end_is_biological_end:
 When `True`, these attributes mean the start and end attributes
@@ -139,32 +101,17 @@ of a feature correspond to a meaningful biological transition.
   * geenuf_cds --> 1 after stop codon, first non-coding bp, e.g. the N in TGAN
   * geenuff_intron --> 1 after acceptor splice site (1st bp that is part of final transcript)
 
-When `False`, these attributes mean the start and end attributes
-of a feature either do not, or it is not known if they correspond
-to a biological transition, yet the region they delineate is
-confidently of the given type. 
+When `False`, the start or end is not, or not known to be, a biological transition, though the
+region is confidently of its type. E.g. where the first exon and the first CDS start at the same
+position (+ strand), the 5' UTR is missing: the transcript's start_is_biological_start is False
+and the range upstream of the CDS is masked, as it is unclear which part is UTR and which
+intergenic.
 
-For instance, if the parser finds a gene model in a gff where the
-start of the first exon and the start of the first CDS (+ strand)
-have the same position (the A in ATG), then it is apparent that
-we are missing the 5' UTR, so for the geenuff_transcript feature
-the start_is_biological_start will be set to False, and an
-error mask will be added upstream of the CDS. We are still confident
-that all of the CDS must occur within the transcript, we know
-the start codon is part of the transcript region, but we mark that the start point
-itself is probably wrong, and mask the upstream range as it's 
-unclear what part of this is intergenic and which part UTR.
- 
 #### feature start/end/at numbering
 
-Features have start and end coordinates that
-delineate a range. 
-
-The positioning of these features is in keeping with the common
-coordinate system: count from 0, start inclusive, end exclusive. 
-So, the "geenuff_cds, start", is at the A, of the ATG, AKA the first
-coding base pair; while in contrast, the "geenuff_cds, end" is
-after the stop-codon, AKA, the first non-coding bp.
+Features delineate a range counted from 0, start inclusive, end exclusive: "geenuff_cds, start" is
+the A of the ATG, the first coding bp, and "geenuff_cds, end" the first non-coding bp after the
+stop codon.
 
 ##### lines outside their sequence
 
@@ -240,12 +187,9 @@ shown only in that section.
 
 ##### reverse complement
 
-Importantly, the coding-start should always point to the first
-A, of ATG, regardless of strand. This means the numeric coordinates
-have to change and unfortunately while one could take the
-sequence \[1, 4) on the + strand, and directly use 1 and 4 as python coordinates
-and get the sequence; the same is not going to work on the minus strand.
-Instead: 
+The coding start always points to the A of the ATG, whatever the strand. On the + strand the
+sequence \[1, 4) can be sliced with 1 and 4 directly as python coordinates; on the minus strand it
+cannot:
 
 ```
  0  1  2  3  4  5
@@ -254,9 +198,8 @@ Instead:
  N. T. A. C. N. N.
 ```
 
-To get the reverse complement of this on the minus strand, we set the
-inclusive start to 3, and exclusive end to 0. Note this is now off by 
-one from the python coordinates
+For the reverse complement on the minus strand, the inclusive start is 3 and the exclusive end 0,
+one off from the python coordinates:
 
 
 ```
@@ -267,11 +210,8 @@ one from the python coordinates
 ```
 
 ##### differences vs gff
-Cheat sheet for how the Features compare to the gff (in particular any discrepancy
-between the closest coordinate in the gff, and the now standardized, consistent coordinate).
-
-First and last for gff are reported as they are typically in gff (coordinate sorted),
-so reverse to the interpretation when on the - strand. 
+How the features' coordinates compare to the closest GFF coordinate. First and last are as in a
+coordinate-sorted GFF, so reversed on the - strand.
 
 Plus strand (+)
 
