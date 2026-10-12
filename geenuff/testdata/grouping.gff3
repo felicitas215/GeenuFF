@@ -20,9 +20,6 @@ A	test	exon	1701	1800	.	+	.	Parent=phantomD
 # left out
 A	test	mRNA	1401	1500	.	+	.	ID=mixedPlus;Parent=missingMixed
 A	test	mRNA	1451	1600	.	-	.	ID=mixedMinus;Parent=missingMixed
-# parentless names no parent: left out with its exon
-A	test	mRNA	401	500	.	+	.	ID=parentless
-A	test	exon	401	500	.	+	.	Parent=parentless
 # twoGenes names two genes: left out with its exon, g1 and g2 remaining without transcripts
 A	test	gene	601	800	.	+	.	ID=g1
 A	test	gene	601	800	.	+	.	ID=g2

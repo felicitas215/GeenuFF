@@ -5,8 +5,8 @@ modifies the database. All take `--db-path-in` and write to stdout; all but
 `summarize_geenuff_db.py` write to a file instead when given `-o`.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, which is the
-only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout, as is
-`rename_gff_seqids.py`, which prepares a GFF3 file for import.
+only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout, as are
+`rename_gff_seqids.py` and `add_gene_lines.py`, which prepare a GFF3 file for import.
 
 ## dump_filtered_gff3.py
 
@@ -120,3 +120,27 @@ method, checks passed and FASTA full name.
 A possible extension: where most pairs by ID or full name fail, search a sample of them by sequence
 first, to pair all by sequence where the names were merely reassigned (e.g. scaffolds renumbered
 after annotation) rather than stopping as for different assemblies.
+
+## add_gene_lines.py
+
+Adds gene lines for transcripts without a `Parent`, as gene predictors such as AUGUSTUS, BRAKER
+and Tiberius write them; GeenuFF imports nothing of a transcript without a gene (unless it
+names a parent `Parent=gene1`, then the missing line is inferred). Each such transcript's gene
+ID is taken from the first source that gives one:
+
+| source                                                                                  | e.g. transcript line            | gene ID   |
+|-----------------------------------------------------------------------------------------|---------------------------------|-----------|
+| an attribute, by default `geneID`, `gene_id` or `gene` (`--gene-id-attributes`)         | `ID=g1.t1;geneID=g1` (Tiberius) | `g1`      |
+| the ID up to the last occurrence of a split text, by default `.` (`--split-at`)         | `ID=g653.t1` (AUGUSTUS)         | `g653`    |
+| neither: a gene of its own                                                              | `ID=X1`                         | `X1_gene` |
+
+The split text is cut at its last occurrence, so `.` gives `Glyma.01G000100` for
+`Glyma.01G000100.1`; for MAKER's `gene7-mRNA-2` give `--split-at -mRNA-`. The log shows a few
+example splits and warns where transcripts put into one gene do not overlap each other, as isoforms
+do, a sign of the wrong split text or attribute.
+
+Transcripts of one gene ID share a gene line spanning them, written before the first of them, and
+each gets it as `Parent`; a gene ID naming a gene line already is only set as `Parent`. A gene ID
+on several sequences or strands, or already the ID of another line, gets the sequence and strand
+appended (e.g. `g2_CHR_minus`), with a warning, as do transcripts given a gene of their own.
+Without transcripts lacking a `Parent`, no file is written.

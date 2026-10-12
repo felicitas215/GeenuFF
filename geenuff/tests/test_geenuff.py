@@ -15,7 +15,8 @@ from geenuff.base import helpers
 from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, TranscriptPiece, SuperLocus,
                               Protein, TranscriptError)
 from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
-from geenuff.applications.importer import ImportController, InsertCounterHolder, OrganizedGFFEntries
+from geenuff.applications.importer import (ImportController, InsertCounterHolder, MissingGeneLines,
+                                           OrganizedGFFEntries)
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
@@ -1363,29 +1364,40 @@ def test_an_exon_naming_several_transcripts_is_put_under_each(grouping_organizer
 
 
 def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer):
-    """A gene without an ID, transcripts naming no parent, several genes or another transcript,
-    transcripts naming one missing parent on different sequences or strands, an exon on another
-    sequence than its parent, and every exon below a transcript left out, counted under the reason
-    its transcript was left out for. g1 and g2 remain without transcripts, and nothing remains on
-    sequence B. See testdata/grouping.gff3."""
+    """A gene without an ID, transcripts naming several genes or another transcript, transcripts
+    naming one missing parent on different sequences or strands, an exon on another sequence than
+    its parent, and every exon below a transcript left out, counted under the reason its transcript
+    was left out for. g1 and g2 remain without transcripts, and nothing remains on sequence B. See
+    testdata/grouping.gff3."""
     groups = groups_by_gene_id(grouping_organizer, 'A')
     assert set(groups) == {'missingGene', 'g1', 'g2', 'g3'}
     assert not groups['g1']['transcripts'] and not groups['g2']['transcripts']
     assert 'B' not in grouping_organizer.organized_entries
     assert grouping_organizer.stats.dropped_lines == {
         'no_id': {'gene': 1},
-        'no_parent': {'mRNA': 1},
         'several_genes': {'mRNA': 1},
         'parent_not_gene': {'mRNA': 1},
         'missing_parent_unplaceable': {'mRNA': 4},
         'other_sequence': {'exon': 1},
     }
-    # parentless's, twoGenes's, phantomC's and phantomD's exons
+    # twoGenes's, phantomC's and phantomD's exons
     assert grouping_organizer.stats.dropped_lines_below == {
-        'no_parent': {'exon': 1},
         'several_genes': {'exon': 1},
         'missing_parent_unplaceable': {'exon': 2},
     }
+
+
+def test_transcripts_naming_no_parent_stop_the_import(tmp_path):
+    """Transcripts without a Parent (and Parent= attribute), as gene predictors write them without
+    gene lines, stop the import with an error naming them and pointing to scripts/add_gene_lines.py."""
+    gff_path = tmp_path / 'no_gene.gff3'
+    gff_path.write_text('##gff-version 3\n'
+                        'CHR\tTiberius\ttranscript\t21\t53\t.\t+\t.\tID=g1.t1;geneID=g1\n'
+                        'CHR\tTiberius\tCDS\t21\t53\t.\t+\t0\tParent=g1.t1\n')
+    organizer = OrganizedGFFEntries(str(gff_path))
+    with pytest.raises(MissingGeneLines, match=r'1 of 1 transcript lines name no Parent gene.*e\.g\. g1\.t1.*'
+                                               r'scripts/add_gene_lines\.py'):
+        organizer.load_organized_entries()
 
 
 @pytest.fixture(scope='module')

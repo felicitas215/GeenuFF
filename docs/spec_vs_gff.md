@@ -162,7 +162,8 @@ The training data section accounts for every coding gene, of which Helixer gets 
 exported and labeled in full, with or without sequence beside it masked, or masked in full, each
 by cause; or not exported, by reason, with how many genes dropped for an overlap would otherwise
 have been labeled. Errors are counted over the exported transcripts only, and counts of 0 are
-shown only in that section.
+shown only in that section. Where no coding transcript is imported at all, e.g. from a GFF3 file
+without CDS lines, a warning after the summary says that the genome gives no training data.
 
 - Gene and transcript lines need an `ID`, being the lines others name as their parent; one without
   an `ID`, or sharing it with another gene or transcript line, is left out. Exon, CDS and UTR lines
@@ -172,10 +173,12 @@ shown only in that section.
 - UTR lines are the Sequence Ontology's UTR types, e.g. `five_prime_UTR` and `three_prime_UTR`;
   the lowercase `five_prime_utr` and `three_prime_utr` some tools write are not SO types and are
   ignored.
-- A transcript names exactly one gene. One naming no parent, several genes or another transcript
-  is left out. Transcripts naming a `Parent` that matches no line share a gene inferred for them,
-  spanning them all. If they lie on different sequences or strands, they are all left out: which of
-  them belong together cannot be told.
+- A transcript names exactly one gene. One naming several genes or another transcript is left
+  out. Transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius write
+  them without gene lines, stop the import with an error pointing to `scripts/add_gene_lines.py`,
+  which adds the gene lines. Transcripts naming a `Parent` that matches no line share a gene
+  inferred for them, spanning them all. If they lie on different sequences or strands, they are
+  all left out: which of them belong together cannot be told.
 - An exon, CDS or UTR line is put under every transcript it names. One naming a gene that has
   transcripts is left out, whether or not it duplicates a line of one of that gene's transcripts:
   it could equally belong to an isoform the file gives no transcript line of its own. An exon or

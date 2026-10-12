@@ -63,6 +63,10 @@ UNEXPORTED_REASONS = {
     types.OVERLAP_DROPPED: 'dropped so an overlapping partner could be kept whole',
 }
 
+class MissingGeneLines(Exception):
+    """Transcript lines name no Parent, as gene predictors write them without gene lines."""
+
+
 # why a GFF line was left out while the lines are grouped into loci by their ID and Parent
 # attributes (see OrganizedGFFEntries.load_organized_entries), for the import summary
 DROPPED_LINE_REASONS = {
@@ -73,7 +77,7 @@ DROPPED_LINE_REASONS = {
     'parent_not_gene': 'transcript lines naming another transcript as their parent',
     'missing_parent_unplaceable': 'transcript lines naming a parent that matches no line, where the '
                                   'transcripts naming it lie on different sequences or strands',
-    'no_parent': 'transcript, exon and UTR lines naming no parent',
+    'no_parent': 'exon and UTR lines naming no parent',
     'unknown_parent': 'exon and UTR lines naming a parent that matches no line',
     'gene_parented_duplicate': 'exon and UTR lines whose parent is a gene with transcripts, '
                                'duplicating a line of one of those transcripts',
@@ -1027,14 +1031,24 @@ class OrganizedGFFEntries(object):
     def _place_transcripts(self, transcripts_by_id, groups, dropped_ids):
         """Puts every transcript under the one gene it names. The transcripts naming one Parent ID
         that matches no line share a gene inferred for them, spanning them all (see _inferred_gene),
-        unless they lie on different sequences or strands, which leaves them all out."""
+        unless they lie on different sequences or strands, which leaves them all out.
+
+        Raises:
+            MissingGeneLines: if transcripts name no Parent at all, which gene predictors write
+                without gene lines; scripts/add_gene_lines.py adds them
+        """
+        parentless = [t_id for t_id, t in transcripts_by_id.items() if not t.get_Parent()]
+        if parentless:
+            raise MissingGeneLines(
+                f'{len(parentless)} of {len(transcripts_by_id)} transcript lines name no Parent gene or '
+                f'"Parent=" attribute, e.g. {", ".join(parentless[:3])}, as gene predictors such as AUGUSTUS, '
+                f'BRAKER and Tiberius write them without gene lines. Add the gene lines with '
+                f'scripts/add_gene_lines.py and import the GFF3 file it writes.')
         named_missing_parent = defaultdict(list)
         for t_id, t in transcripts_by_id.items():
             parents = t.get_Parent() or []
             if len(parents) == 1 and parents[0] in groups:
                 reason = 'other_sequence' if t.seqid != groups[parents[0]]['super_locus'].seqid else None
-            elif not parents:
-                reason = 'no_parent'
             elif len(parents) > 1:
                 reason = 'several_genes'
             elif parents[0] in dropped_ids:
@@ -1699,7 +1713,7 @@ class ImportController(object):
         try:
             self.add_gff(gff_path, clean=clean_gff)
             self.run_analyze()
-        except Exception:
+        except Exception as e:
             self.session.close()
             # the path may be given as an SQLAlchemy URL, and an in-memory database has no file
             file_path = self.database_path.removeprefix('sqlite:///')
@@ -1707,11 +1721,15 @@ class ImportController(object):
                 part_path = f'{file_path}.partial'
                 shutil.move(file_path, part_path)
                 logger.error(f'Aborting due to error, attempt so far saved at {part_path} '
-                             f'for debugging purposes')
+                             f'for debugging purposes: {type(e).__name__}: {e}')
             else:
-                logger.error('Aborting due to error')
+                logger.error(f'Aborting due to error: {type(e).__name__}: {e}')
             raise
         self.stats.log_summary(species)
+        if not self.stats.total_coding_transcripts:
+            logger.warning(f'NO TRAINING DATA: no coding transcript of "{species}" was imported, the GFF3 file '
+                           f'having no CDS lines or none that could be placed (see the summary above), so '
+                           f'Helixer gets nothing to learn from this genome. Use a GFF3 file with CDS lines.')
 
     def add_sequences(self, seq_path, genome_args=None):
         if genome_args is None:
