@@ -161,9 +161,11 @@ transcript line.
 The training data section accounts for every coding gene, of which Helixer gets one transcript:
 exported and labeled in full, with or without sequence beside it masked, or masked in full, each
 by cause; or not exported, by reason, with how many genes dropped for an overlap would otherwise
-have been labeled. Errors are counted over the exported transcripts only, and counts of 0 are
-shown only in that section. Where no coding transcript is imported at all, e.g. from a GFF3 file
-without CDS lines, a warning after the summary says that the genome gives no training data.
+have been labeled. It ends with the bases masked, as a share of both strands of the genome: each
+mask covers only the strand of its gene, and overlapping masks on one strand count once. Errors are
+counted over the exported transcripts only, and counts of 0 are shown only in that section. Where
+no coding transcript is imported at all, e.g. from a GFF3 file without CDS lines, a warning after
+the summary says that the genome gives no training data.
 
 - Gene and transcript lines need an `ID`, being the lines others name as their parent; one without
   an `ID`, or sharing it with another gene or transcript line, is left out. Exon, CDS and UTR lines

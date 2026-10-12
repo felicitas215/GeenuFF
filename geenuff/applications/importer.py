@@ -133,6 +133,12 @@ def error_severity(errors) -> str:
     return 'none'
 
 
+def ascending_range(start: int, end: int, is_plus_strand: bool) -> tuple[int, int]:
+    """The half-open (lo, hi) bases of a feature, its start and end running downwards on the minus
+    strand."""
+    return (start, end) if is_plus_strand else (end + 1, start + 1)
+
+
 def exported_outcome(errors, transcript_feature, masks, nested: bool) -> str:
     """The EXPORTED_OUTCOMES key of an exported transcript, from its error types, transcript
     feature and geenuff_mask features; nested says whether an overlap left unresolved has one gene
@@ -194,6 +200,10 @@ class ImportStatistics(object):
         self.longest_error_free_transcripts: int = 0  # of the above, the ones with no error at all
         # of the above, by what their masks leave of them, keyed by an EXPORTED_OUTCOMES key
         self.exported_outcomes: Counter[str] = Counter()
+        # the masks of the above, as ascending (lo, hi) ranges keyed by (sequence, is_plus_strand), each
+        # masking only its own strand, and the bases of the genome's sequences on one strand
+        self.mask_ranges: defaultdict[tuple, list[tuple[int, int]]] = defaultdict(list)
+        self.genome_bases: int = 0
         # coding transcripts of exported genes other than the selected one, never exported
         self.unselected_coding_transcripts: int = 0
         # coding transcripts and coding genes never exported, keyed by orm.SuperLocus.excluded_from_export
@@ -289,6 +299,10 @@ class ImportStatistics(object):
         the counts that only exist while the GFF3 is read are unknown, as for a summary rebuilt from
         the database; such a count of 0 is then left out even where 0s are shown."""
         masked_in_full = sum(self.exported_outcomes[outcome] for outcome in MASKED_IN_FULL_OUTCOMES)
+        # overlapping masks of exported genes on one strand count once
+        n_masked_bases = sum(hi - lo for ranges in self.mask_ranges.values()
+                             for lo, hi in GFFErrorHandling._merge_ranges(ranges))
+        both_strands = 2 * self.genome_bases
         # every coding gene imported is exported with one transcript or not exported, by reason
         n_coding_genes = self.longest_transcripts + sum(self.unexported_coding_genes.values())
         n_unexported_transcripts = (self.unselected_coding_transcripts
@@ -349,6 +363,9 @@ class ImportStatistics(object):
                  if reason != types.OVERLAP_DROPPED] + [
                 (n_unexported_transcripts, 'further coding transcripts, not exported: the isoforms besides '
                                            'the one exported per gene, and those of genes not exported'),
+                (n_masked_bases, f'bases masked, of the genome\'s {both_strands} on both strands '
+                                 f'({100 * n_masked_bases / both_strands if both_strands else 0:.2f}%), each '
+                                 f'mask only on the strand of its gene; Helixer gets no labels there'),
             ] + [
                 (sum(self.coding_transcripts_dropped.values()), 'coding transcripts lost while grouping GFF '
                                                                 'lines, never imported (see the GFF lines '
@@ -1710,6 +1727,7 @@ class ImportController(object):
         self.clean_tmp_data()
         self.stats = ImportStatistics()
         self.add_sequences(fasta_path, genome_args)
+        self.stats.genome_bases = sum(c.length for c in self.latest_fasta_importer.genome.coordinates)
         try:
             self.add_gff(gff_path, clean=clean_gff)
             self.run_analyze()
@@ -1826,6 +1844,9 @@ class ImportController(object):
                     self.stats.exported_outcomes[exported_outcome(
                         errors, transcript['transcript_feature'], transcript['masks'],
                         group.get('unresolved_overlap') == 'nested')] += 1
+                    for mask in transcript['masks']:
+                        self.stats.mask_ranges[(mask.coord.seqid, mask.is_plus_strand)].append(
+                            ascending_range(mask.start, mask.end, mask.is_plus_strand))
             # insert importers
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)

@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from geenuff.base import types
 from geenuff.applications.importer import (ImportStatistics, GFFErrorHandling, NOT_MASKING_IN_FULL,
-                                           exported_outcome, format_summary)
+                                           ascending_range, exported_outcome, format_summary)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
         'SELECT COUNT(*) FROM super_locus sl WHERE NOT EXISTS '
         '(SELECT 1 FROM transcript t WHERE t.super_locus_id = sl.id)').fetchone()[0]
     stats.total_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
+    stats.genome_bases = con.execute('SELECT COALESCE(SUM(length), 0) FROM coordinate').fetchone()[0]
 
     logger.info(f'Found {stats.total_super_loci} genes with {stats.total_transcripts} transcripts')
 
@@ -107,6 +108,9 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
             stats.errors[error_type] += 1
         stats.exported_outcomes[exported_outcome(errors[t_id], transcript_features[t_id][0], masks[t_id],
                                                  len(partners[sl_id]) <= 1)] += 1
+        for mask in masks[t_id]:
+            stats.mask_ranges[(mask.coordinate_id, bool(mask.is_plus_strand))].append(
+                ascending_range(mask.start, mask.end, mask.is_plus_strand))
 
     # the pairs of exported genes, settled as at import: in a chain, resolved by dropping one,
     # nested, or both masked outright for their own errors

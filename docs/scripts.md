@@ -1,6 +1,6 @@
 # Command line scripts
 
-Five scripts in `scripts/` read a GeenuFF database and write something out of it. None of them
+Six scripts in `scripts/` read a GeenuFF database and write something out of it. None of them
 modifies the database. All take `--db-path-in` and write to stdout; all but
 `summarize_geenuff_db.py` write to a file instead when given `-o`.
 
@@ -75,6 +75,27 @@ section and the errors; the overlap outcomes are recovered by running the overla
 the exported spans. What was only counted while reading the GFF3 cannot be recovered and is listed
 at the end: lines left out while grouping and the coding transcripts lost through them, created
 genes, exons built, stop codons added and dropped transcripts.
+
+## list_transcripts.py
+
+Lists transcripts by what GeenuFF found and decided, as a table or as gene or transcript IDs to
+filter other files with. By default every coding transcript is listed; filters combine with AND.
+
+| filter                                             | lists the transcripts                                                          |
+|----------------------------------------------------|--------------------------------------------------------------------------------|
+| `--error TYPE ...`                                 | with any of these error types                                                  |
+| `--with-errors` / `--error-free`                   | with at least one error / checked and without any                              |
+| `--severity none\|flank_masked\|masked_outright`   | by what their own errors take away                                             |
+| `--masked-in-full` / `--labeled`                   | covered entirely by a mask / giving labels                                     |
+| `--exported` / `--not-exported`                    | the one per gene an export takes / all others                                  |
+| `--excluded-reason REASON ...`                     | of genes left out of exports for these reasons                                 |
+| `--selected`, `--seqid ...`, `--include-noncoding` | the selected transcript per gene only, on these sequences, non-coding ones too |
+
+`--output` chooses a table (default: IDs, sequence, GFF3 coordinates, export state, errors,
+severity, masks), `gene_ids` or `transcript_ids` (one per line, e.g. for `grep -f`), or `counts`
+(transcripts and genes per error type and severity). Non-coding transcripts and those of genes left
+out before the error checks show "not checked" and match no error filter. E.g. the genes masked in
+full although exported: `--masked-in-full --exported --output gene_ids`.
 
 ## rename_gff_seqids.py
 
