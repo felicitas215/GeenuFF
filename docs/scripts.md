@@ -6,7 +6,8 @@ modifies the database. All take `--db-path-in` and write to stdout; all but
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, which is the
 only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout, as are
-`rename_gff_seqids.py` and `add_gene_lines.py`, which prepare a GFF3 file for import.
+`rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`, which prepare the
+files for import.
 
 ## dump_filtered_gff3.py
 
@@ -165,3 +166,26 @@ each gets it as `Parent`; a gene ID naming a gene line already is only set as `P
 on several sequences or strands, or already the ID of another line, gets the sequence and strand
 appended (e.g. `g2_CHR_minus`), with a warning, as do transcripts given a gene of their own.
 Without transcripts lacking a `Parent`, no file is written.
+
+## filter_sequence_lengths.py
+
+Removes short junk sequences, e.g. organelle genomes or small unplaced scaffolds, from a FASTA
+file and their lines from its GFF3 file before import:
+
+| removed                                                 | how                                                                                                                                                                        |
+|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score of at least 3); needs 5 sequences or more |
+| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                           |
+
+Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
+The output files default to the input files' names with `_length_filtered` before the extension,
+e.g. `genome.fna.gz` gives `genome_length_filtered.fna.gz`; `--fasta-out` and `--gff-out` set
+others. The log gives the removed sequences, their length range and the coding transcripts on
+them; `--removed-out` lists every removed ID with its length. The FASTA file is read in fixed-size
+chunks, so a sequence written on one line is never held in memory whole.
+
+Side note on the clustering itself: The cluster is the part below the largest gap between the
+sorted log10 lengths of all sequences, where that gap stands out from the others (a robust z-score
+of at least MIN_GAP_RANK (3.0), from their median and median absolute deviation); with fewer than
+MIN_SEQUENCES_FOR_CLUSTERING (5) sequences, or no such gap, only the floor applies. Nothing is
+removed where no FASTA sequence or no sequence with coding transcripts would remain.
