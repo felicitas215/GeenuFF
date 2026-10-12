@@ -213,6 +213,8 @@ class ImportStatistics(object):
         # CDS missing only their stop codon, as in GFF3 converted from GTF, extended by the stop codon
         # after them; GTF itself is not read
         self.stop_codons_recovered: int = 0
+        # of those, the ones past the end of their exons, the last exon and the transcript extended
+        self.stop_codons_recovered_past_exons: int = 0
         # GFF lines left out while grouping, keyed by a DROPPED_LINE_REASONS key and then by GFF
         # type; a line with several parents counts once per parent it is left out for. The lines
         # below a line left out are counted apart, under the reason the first line of their chain
@@ -317,6 +319,9 @@ class ImportStatistics(object):
                 (self.stop_codons_recovered, '  of them with the stop codon after their CDS added to it, '
                                              'the CDS missing only that, as in GFF3 converted from GTF '
                                              '(GTF itself is not read)'),
+                (self.stop_codons_recovered_past_exons, '    of those, with the stop codon past the end of '
+                                                        'their exons, the last exon and the transcript '
+                                                        'extended to hold it; worth checking in the GFF3'),
                 (self.unstorable_transcripts_dropped, 'transcripts dropped, no line of theirs having a '
                                                       'storable range'),
                 (self.transcripts_outside_sequence_dropped, 'transcripts dropped, a line of theirs '
@@ -464,20 +469,28 @@ class OrganizedGeenuffImporterGroup(object):
                        f"'{sl_i.given_name}' will not be exported")
 
     @staticmethod
-    def _cds_extended_by_a_codon(t_entries, is_plus_strand):
+    def _cds_extended_by_a_codon(t_entries, is_plus_strand, seq_length):
         """Copies of a transcript's CDS lines extended by the 3 bases following them along its
-        exons, possibly across an intron, or None where fewer are left. Used to recover the stop
-        codon GTF leaves out of the CDS, in GFF3 converted from GTF; GTF itself is not read."""
-        cds = t_entries['cds']
+        exons, possibly across an intron, and directly past its last exon where fewer are left in
+        the exons, with how many of the 3 lie past them; None where the sequence ends first. Used
+        to recover the stop codon GTF leaves out of the CDS, in GFF3 converted from GTF, which can
+        also lack the exon part holding it; GTF itself is not read."""
+        cds, exons = t_entries['cds'], t_entries['exons']
         if is_plus_strand:
-            following = (p for exon in t_entries['exons']
-                         for p in range(max(exon.start, cds[-1].end + 1), exon.end + 1))
+            in_exons = (p for exon in exons for p in range(max(exon.start, cds[-1].end + 1), exon.end + 1))
+            past_exons = range(max(line.end for line in exons + cds) + 1, seq_length + 1)
         else:
-            following = (p for exon in reversed(t_entries['exons'])
-                         for p in range(min(exon.end, cds[0].start - 1), exon.start - 1, -1))
-        following = list(itertools.islice(following, 3))
-        # fewer bases are left in the transcript, or overlapping exons repeat one
-        if len(set(following)) < 3:
+            in_exons = (p for exon in reversed(exons) for p in range(min(exon.end, cds[0].start - 1),
+                                                                    exon.start - 1, -1))
+            past_exons = range(min(line.start for line in exons + cds) - 1, 0, -1)
+        following = list(itertools.islice(in_exons, 3))
+        # overlapping exons repeat a base
+        if len(set(following)) < len(following):
+            return None
+        n_past = 3 - len(following)
+        following += itertools.islice(past_exons, n_past)
+        # the sequence ends first
+        if len(following) < 3:
             return None
 
         pieces = [copy.copy(c) for c in cds]
@@ -492,7 +505,23 @@ class OrganizedGeenuffImporterGroup(object):
                 touching.end = p
             else:
                 touching.start = p
-        return sorted(pieces, key=lambda c: c.start)
+        return sorted(pieces, key=lambda c: c.start), n_past
+
+    @staticmethod
+    def _extend_to_cds(t, t_entries, is_plus_strand):
+        """Extends a transcript line and a copy of its outermost exon at the 3' end to the end of
+        its CDS, for a stop codon added past them."""
+        exons = t_entries['exons']
+        if is_plus_strand:
+            last = copy.copy(exons[-1])
+            last.end = t_entries['cds'][-1].end
+            t_entries['exons'] = exons[:-1] + [last]
+            t.end = max(t.end, last.end)
+        else:
+            first = copy.copy(exons[0])
+            first.start = t_entries['cds'][0].start
+            t_entries['exons'] = [first] + exons[1:]
+            t.start = min(t.start, first.start)
 
     def _clip_to_sequence(self, t, t_entries):
         """Clips a transcript reaching past an edge of its sequence to the part on it, leaving out
@@ -647,15 +676,21 @@ class OrganizedGeenuffImporterGroup(object):
                 # GTF leaves the stop codon out of the CDS, and GFF3 converted from GTF can keep it
                 # that way (GTF itself is not read). Where it alone is missing, the CDS being
                 # whole codons without any stop codon, and the next codon is one, it is added:
-                # translation ends there whatever the file says. The other checks above hold for
-                # the extended CDS as well
+                # translation ends there whatever the file says. Where the exons end before it,
+                # the last exon and the transcript are extended to hold it. The other checks above
+                # hold for the extended CDS as well
                 if not (t_importers['mask_whole'] or is_truncated or has_inframe_stop or has_stop_codon):
-                    extended = self._cds_extended_by_a_codon(t_entries, t_is_plus_strand)
+                    extended = self._cds_extended_by_a_codon(t_entries, t_is_plus_strand, self.coord.length)
                     if extended is not None:
-                        extended_seq = spliced_cds_sequence(self.coord.sequence, extended, t_is_plus_strand)
+                        extended_cds, n_past_exons = extended
+                        extended_seq = spliced_cds_sequence(self.coord.sequence, extended_cds, t_is_plus_strand)
                         if extended_seq[-3:] in STOP_CODONS:
-                            t_entries['cds'], cds_seq, has_stop_codon = extended, extended_seq, True
+                            t_entries['cds'], cds_seq, has_stop_codon = extended_cds, extended_seq, True
                             stats.stop_codons_recovered += 1
+                            if n_past_exons:
+                                self._extend_to_cds(t, t_entries, t_is_plus_strand)
+                                tf_i.set_start_end_from_gff(t.start, t.end)
+                                stats.stop_codons_recovered_past_exons += 1
                 # the lines are sorted by start, so any overlap shows between neighbors
                 cds_lines = t_entries['cds']
                 overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))
@@ -1124,8 +1159,8 @@ class OrganizedGFFEntries(object):
                 yield entry
 
     def _gff_gen(self):
-        reader = gffhelper.read_gff_file(self.gff_file)
-        for entry in reader:
+        for line in helpers.gff_feature_lines(self.gff_file):
+            entry = gffhelper.GFFObject(gffline=line)
             if entry.type not in KNOWN_TYPES:
                 # an unrecognized Sequence Ontology term shouldn't take down the whole
                 # import; skip just this line and keep going
@@ -1782,7 +1817,7 @@ class ImportController(object):
 
         assert self.latest_fasta_importer is not None, 'No recent genome found'
         logger.info('Starting to parse the GFF file')
-        self.latest_fasta_importer.mk_mapper(gff_file)
+        self.latest_fasta_importer.match_gff_seqids(gff_file)
         gff_organizer = OrganizedGFFEntries(gff_file, self.stats)
         gff_organizer.load_organized_entries()
 
@@ -1811,39 +1846,14 @@ class Insertable(ABC):
 class FastaImporter(object):
     def __init__(self, genome):
         self.genome = genome
-        self.mapper = None
-        self._coords_by_seqid = None
-        self._gffid_to_coords = None
-        self._gff_seq_ids = None
+        self.gffid_to_coords = None
 
-    @property
-    def gffid_to_coords(self):
-        if not self._gffid_to_coords:
-            self._gffid_to_coords = {}
-            for gffid in self._gff_seq_ids:
-                fa_id = self.mapper(gffid)
-                x = self.coords_by_seqid[fa_id]
-                self._gffid_to_coords[gffid] = x
-        return self._gffid_to_coords
-
-    @property
-    def coords_by_seqid(self):
-        if not self._coords_by_seqid:
-            self._coords_by_seqid = {c.seqid: c for c in self.genome.coordinates}
-        return self._coords_by_seqid
-
-    def mk_mapper(self, gff_file=None):
-        fa_ids = [e.seqid for e in self.genome.coordinates]
-        if gff_file is not None:  # allow setup without ado when we know IDs match exactly
-            self._gff_seq_ids = helpers.get_seqids_from_gff(gff_file)
-        else:
-            self._gff_seq_ids = fa_ids
-        mapper, is_forward = helpers.two_way_key_match(fa_ids, self._gff_seq_ids)
-        self.mapper = mapper
-
-        if not is_forward:
-            raise NotImplementedError("Still need to implement backward match if fasta IDs "
-                                      "are subset of gff IDs")
+    def match_gff_seqids(self, gff_file):
+        """Maps each sequence ID of the GFF's feature lines to its FASTA sequence's Coordinate,
+        raising helpers.NonMatchableIDs for IDs without exactly one (see helpers.match_seqids)."""
+        coords_by_seqid = {c.seqid: c for c in self.genome.coordinates}
+        seqid_pairs = helpers.match_seqids(coords_by_seqid, helpers.get_seqids_from_gff(gff_file))
+        self.gffid_to_coords = {gff_id: coords_by_seqid[fa_id] for gff_id, fa_id in seqid_pairs.items()}
 
     def add_sequences(self, seq_file):
         # todo, parallelize sequence & annotation format, then import directly from ~Slice

@@ -1480,20 +1480,27 @@ def test_a_cds_missing_only_its_stop_codon_gets_the_one_after_it():
     """GTF leaves the stop codon out of the CDS, and GFF3 converted from GTF can keep it that way
     (GTF itself is not read). A CDS of whole codons without any stop codon is extended by the next
     3 bases of its exons where they are a stop codon, also across an intron and on the minus
-    strand; it is left as it is where they are none or its frame is off. See
-    testdata/stop_codon.gff3."""
+    strand, and by the 3 bases right after its last exon where the exons end with the CDS, the
+    exon and the transcript then extended with it; it is left as it is where they are none or its
+    frame is off. See testdata/stop_codon.gff3."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/stop_codon.fa', 'testdata/stop_codon.gff3', clean_gff=True)
     transcripts = transcripts_by_name(controller)
 
     expected = {'tPlus': (20, 53), 'tSplit': (121, 181), 'tMinus': (269, 236),
-                'tNoStop': (320, 350), 'tFrame': (420, 449)}
+                'tNoStop': (320, 350), 'tFrame': (420, 449), 'tCdsOnly': (520, 553), 'tExonEnd': (649, 616)}
     assert {name: feature_ranges(t, types.GEENUFF_CDS)[0] for name, t in transcripts.items()} == expected
     for name in ['tPlus', 'tSplit', 'tMinus']:
         assert not error_types(transcripts[name])
+    # the stop codon recovered, only the UTRs their exons lack remain
+    assert error_types(transcripts['tCdsOnly']) == {types.MISSING_UTR_5P, types.MISSING_UTR_3P}
+    assert error_types(transcripts['tExonEnd']) == {types.MISSING_UTR_3P}
+    assert feature_ranges(transcripts['tCdsOnly'], types.GEENUFF_TRANSCRIPT) == [(520, 553)]
+    assert feature_ranges(transcripts['tExonEnd'], types.GEENUFF_TRANSCRIPT) == [(659, 616)]
     assert types.MISSING_STOP_CODON in error_types(transcripts['tNoStop'])
     assert types.TRUNCATED_CDS in error_types(transcripts['tFrame'])
-    assert controller.stats.stop_codons_recovered == 3
+    assert controller.stats.stop_codons_recovered == 5
+    assert controller.stats.stop_codons_recovered_past_exons == 2
 
 
 # section: types
@@ -1512,48 +1519,25 @@ def test_enums_name_val_match():
 
 
 # section: helpers
-def test_key_matching():
-    # identical
-    known = {'a', 'b', 'c'}
-    mapper, is_forward = helpers.two_way_key_match(known, known)
-    assert is_forward
-    assert mapper('a') == 'a'
-    assert isinstance(mapper, helpers.CheckMapper)
-    with pytest.raises(KeyError):
-        mapper('d')
+def test_seqid_matching_pairs_gff_ids_with_fasta_ids():
+    # the GFF covering only some of the FASTA sequences
+    assert helpers.match_seqids({'a', 'b', 'c'}, {'a', 'c'}) == {'a': 'a', 'c': 'c'}
+    # GFF IDs abbreviated from the FASTA IDs
+    assert helpers.match_seqids({'a.seq', 'b.seq', 'c.seq'}, {'a', 'b'}) == {'a': 'a.seq', 'b': 'b.seq'}
+    # an identical FASTA ID is taken over others containing the GFF ID
+    assert helpers.match_seqids({'1', '10', '2.seq'}, {'1', '2'}) == {'1': '1', '2': '2.seq'}
 
-    # subset, should behave as before
-    mapper, is_forward = helpers.two_way_key_match(known, {'c'})
-    assert is_forward
-    assert mapper('a') == 'a'
-    assert isinstance(mapper, helpers.CheckMapper)
-    with pytest.raises(KeyError):
-        mapper('d')
 
-    # superset, should flip ordering
-    mapper, is_forward = helpers.two_way_key_match({'c'}, known)
-    assert not is_forward
-    assert mapper('a') == 'a'
-    assert isinstance(mapper, helpers.CheckMapper)
-    with pytest.raises(KeyError):
-        mapper('d')
-
-    # other is abbreviated from known
-    set1 = {'a.seq', 'b.seq', 'c.seq'}
-    set2 = {'a', 'b', 'c'}
-    mapper, is_forward = helpers.two_way_key_match(set1, set2)
-    assert is_forward
-    assert mapper('a') == 'a.seq'
-    assert isinstance(mapper, helpers.DictMapper)
-    with pytest.raises(KeyError):
-        mapper('d')
-
-    # cannot be safely differentiated
-    set1 = {'ab.seq', 'ba.seq', 'c.seq', 'a.seq', 'b.seq'}
-    set2 = {'a', 'b', 'c'}
-    with pytest.raises(helpers.NonMatchableIDs):
-        mapper, is_forward = helpers.two_way_key_match(set1, set2)
-        print(mapper.key_vals)
+def test_seqid_matching_raises_for_gff_ids_without_one_fasta_id():
+    # a GFF ID with no FASTA sequence
+    with pytest.raises(helpers.NonMatchableIDs, match=r'matching no FASTA header \(1\): d'):
+        helpers.match_seqids({'a', 'b', 'c'}, {'a', 'b', 'c', 'd'})
+    # GFF IDs contained in several FASTA IDs
+    with pytest.raises(helpers.NonMatchableIDs, match=r'contained in several FASTA headers \(2\)'):
+        helpers.match_seqids({'ab.seq', 'ba.seq', 'c.seq', 'a.seq', 'b.seq'}, {'a', 'b', 'c'})
+    # two GFF IDs contained in the same FASTA ID
+    with pytest.raises(helpers.NonMatchableIDs, match=r'containing several GFF sequence IDs \(1\): ab \(a, b\)'):
+        helpers.match_seqids({'ab'}, {'a', 'b'})
 
 
 def test_gff_to_seqids():

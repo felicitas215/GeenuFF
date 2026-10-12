@@ -5,7 +5,8 @@ modifies the database. All take `--db-path-in` and write to stdout; all but
 `summarize_geenuff_db.py` write to a file instead when given `-o`.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, which is the
-only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout.
+only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout, as is
+`rename_gff_seqids.py`, which prepares a GFF3 file for import.
 
 ## dump_filtered_gff3.py
 
@@ -74,3 +75,48 @@ section and the errors; the overlap outcomes are recovered by running the overla
 the exported spans. What was only counted while reading the GFF3 cannot be recovered and is listed
 at the end: lines left out while grouping and the coding transcripts lost through them, created
 genes, exons built, stop codons added and dropped transcripts.
+
+## rename_gff_seqids.py
+
+Renames the sequence IDs of a GFF3 file to those of its FASTA file. Take the FASTA and GFF3 files
+from the same source wherever possible; this script is for when it is not, e.g. a FASTA file
+uploaded to NCBI, which renames and may trim sequences, beside the GFF3 file made before.
+
+Each GFF3 sequence ID is paired with the first FASTA sequence found by:
+
+| by        | FASTA sequence                                                               |
+|-----------|------------------------------------------------------------------------------|
+| ID        | of the same ID (its header line up to the first space)                       |
+| full name | whose whole header line holds the GFF3 ID as a word, e.g. `scaffold_12`      |
+| sequence  | the only one the genes fit, where they have enough checks to rule out chance |
+
+A check is one position where the GFF3 file places a start codon (ATG), a stop codon (TAA, TAG,
+TGA, also right after the CDS as in GFF3 converted from GTF) or an intron end (GT or GC, AG), so a
+transcript with n introns gives 2 + 2n. Up to 250 per sequence ID are used: those of its first and
+last genes (20 each) and the rest spread evenly between them. A right sequence passes nearly all,
+a wrong or shifted one about 9% by chance (a pair needs at least 50% in every window, 80% in all
+when found by sequence alone).
+
+A pair by ID or full name does not fit, the FASTA sequence having been changed after annotation,
+if the genes reach past its end, a `##sequence-region` length differs from its own, or, with at
+least 20 checks, fewer than half pass in any window of them (the first 20, the last 20, and about
+25 each in between). A cut or insertion shifts every check after it, so the windows show it
+wherever it lies before the last gene. With 20 checks a wrong sequence passes half in about 2 of a
+million cases, and a right one with a poor annotation passing 70% fails in about 2%.
+
+| case                                                                      | result                                                                                                                                               |
+|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| all IDs match and fit                                                     | checked only, no file written                                                                                                                        |
+| sequences changed after annotation, up to 5% of the coding transcripts    | these are left out of the GFF3 and FASTA files, listed in a warning; the FASTA copy without them is written beside the output GFF3 file (`.fa(.gz)`) |
+| GFF3 IDs with no FASTA sequence, up to 15% of the coding transcripts lost | these lines are left out, counted in a warning                                                                                                       |
+| GFF3 IDs whose genes fit only a FASTA sequence paired already             | left out as duplicates, counted apart                                                                                                                |
+| most pairs by ID or full name not fitting                                 | error: the files belong to different assemblies                                                                                                      |
+| coding transcripts changed above 5% or missing above 15%                  | error                                                                                                                                                |
+| stop codons right after the CDS                                           | counted (don't cause a check to not pass); GeenuFF adds them on import (see `spec_vs_gff.md`), those past the exons listed in a warning              |
+
+Every warning gives the share of coding transcripts lost. `--pairs-out` writes every pair with its
+method, checks passed and FASTA full name.
+
+A possible extension: where most pairs by ID or full name fail, search a sample of them by sequence
+first, to pair all by sequence where the names were merely reassigned (e.g. scaffolds renumbered
+after annotation) rather than stopping as for different assemblies.

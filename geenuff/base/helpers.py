@@ -2,7 +2,8 @@ import copy
 import hashlib
 import logging
 import enum
-from collections.abc import Sequence
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Sequence
 from types import GeneratorType
 
 import dustdas.fastahelper
@@ -112,89 +113,69 @@ class NonMatchableIDs(Exception):
     pass
 
 
-class LikelyReveresedIDs(Exception):
-    pass
+def _listed(ids: list[str], n_shown: int = 5) -> str:
+    return ', '.join(ids[:n_shown]) + (', ...' if len(ids) > n_shown else '')
 
 
-class Mapper(object):
-    def __call__(self, key, *args, **kwargs):
-        return key
+def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, str]:
+    """Pairs each GFF sequence ID with a FASTA sequence ID: the identical one if there is one, else
+    the only one of the remaining FASTA IDs containing it (e.g. 'Chr1.v2' for 'Chr1').
 
+    Args:
+        fasta_ids: the FASTA sequence IDs, i.e. the headers up to their first space
+        gff_ids: the sequence IDs of the GFF feature lines
 
-class CheckMapper(Mapper):
-    def __init__(self, keys):
-        self.keys = set(keys)
+    Returns:
+        {GFF ID: FASTA ID}
 
-    def __call__(self, key, *args, **kwargs):
-        if key in self.keys:
-            return key
+    Raises:
+        NonMatchableIDs: if a GFF ID matches no FASTA ID or several, or two GFF IDs the same one.
+    """
+    gff_ids = set(gff_ids)
+    matched = {gff_id: gff_id for gff_id in gff_ids & set(fasta_ids)}
+    unclaimed = set(fasta_ids) - matched.keys()
+    substring_matched, unmatched, ambiguous = {}, [], []
+    for gff_id in sorted(gff_ids - matched.keys()):
+        candidates = sorted(fa_id for fa_id in unclaimed if gff_id in fa_id)
+        if len(candidates) == 1:
+            substring_matched[gff_id] = candidates[0]
+        elif candidates:
+            ambiguous.append(f'{gff_id} (in {_listed(candidates)})')
         else:
-            raise KeyError("{} not in known keys {}".format(key, self.keys))
+            unmatched.append(gff_id)
+    gff_ids_by_fasta_id = defaultdict(list)
+    for gff_id, fa_id in substring_matched.items():
+        gff_ids_by_fasta_id[fa_id].append(gff_id)
+    claimed_twice = [f'{fa_id} ({", ".join(ids)})' for fa_id, ids in sorted(gff_ids_by_fasta_id.items())
+                     if len(ids) > 1]
+
+    problems = [f'{label} ({len(ids)}): {_listed(ids)}'
+                for label, ids in (('GFF sequence IDs matching no FASTA header', unmatched),
+                                   ('GFF sequence IDs contained in several FASTA headers', ambiguous),
+                                   ('FASTA headers containing several GFF sequence IDs', claimed_twice))
+                if ids]
+    if problems:
+        raise NonMatchableIDs('; '.join(problems))
+    if substring_matched:
+        pairs = [f'{gff_id} -> {fa_id}' for gff_id, fa_id in substring_matched.items()]
+        logger.warning(f'GFF sequence IDs paired with the one FASTA header containing them, for lack of an '
+                       f'identical one ({len(pairs)}); check that these pairs are right: {_listed(pairs)}')
+    return matched | substring_matched
 
 
-class DictMapper(Mapper):
-    def __init__(self, key_vals):
-        if not isinstance(key_vals, dict):
-            raise ValueError('key_vals must be a dict instance')
-        self.key_vals = key_vals
-
-    def __call__(self, key, *args, **kwargs):
-        return self.key_vals[key]
-
-
-def make_key_mapper(known_keys, other_keys):
-    to_match_keys = set(known_keys)
-    other_keys = set(other_keys)
-    # if we have a perfect match
-    if to_match_keys == other_keys or to_match_keys.issuperset(other_keys):
-        return CheckMapper(to_match_keys)
-    elif to_match_keys.issubset(other_keys):
-        raise LikelyReveresedIDs('known is a subset of other keys')
-
-    logger.info("attempting to match up, non-identical IDs")
-    oth2known = {}
-    # for each tree key, does it have exactly one match?
-    for key in other_keys:
-        matches = [x for x in to_match_keys if key in x]
-        if len(matches) == 1:
-            # setup dict[old_key] = new_key
-            oth2known[key] = matches[0]
-        elif len(matches) == 0:
-            # pretending no match is ok, (a warning will be logged by are_keys_compatible) but seriously NCBI?
-            logger.debug('no matches found for {} in known keys, e.g. {}'.format(
-                key, list(known_keys)[:min(4, len(known_keys))]
-            ))
-        else:
-            raise NonMatchableIDs('could not identify unique match for {}, but instead got {}'.format(key,
-                                                                                                      matches))
-    if not oth2known:  # bc we can still get an empty dict for complete unrelated gibberish at this point
-        raise NonMatchableIDs('could not uniquely match up known: {} and other: {} keys'.format(known_keys,
-                                                                                                other_keys))
-
-    # check we matched trees to _unique_ fasta keys
-    if len(oth2known.values()) != len(set(oth2known.values())):
-        raise NonMatchableIDs('could not uniquely match up known: {} and other: {} keys'.format(known_keys,
-                                                                                                other_keys))
-    return DictMapper(oth2known)
-
-
-def two_way_key_match(known_keys, other_keys):
-    forward = True
-    try:
-        mapper = make_key_mapper(known_keys, other_keys)
-    except LikelyReveresedIDs:
-        mapper = make_key_mapper(other_keys, known_keys)
-        forward = False
-    return mapper, forward
-
-
-def get_seqids_from_gff(gfffile):
-    seqids = set()
-    with dustdas.fastahelper.text_or_gzip_open(gfffile) as f:
+def gff_feature_lines(gff_file: str) -> Iterator[str]:
+    """Yields the feature lines of a (gzipped) GFF3 file, skipping comments and blank lines, up to an
+    embedded FASTA section (a ##FASTA line or a line starting with '>')."""
+    with dustdas.fastahelper.text_or_gzip_open(gff_file) as f:
         for line in f:
-            if not line.startswith('#'):
-                seqids.add(line.split('\t')[0])
-    return seqids
+            if line.startswith(('##FASTA', '>')):
+                return
+            if line.strip() and not line.startswith('#'):
+                yield line
+
+
+def get_seqids_from_gff(gff_file: str) -> set[str]:
+    return {line.split('\t')[0] for line in gff_feature_lines(gff_file)}
 
 
 ##### GFF start/end to GeenuFF #####

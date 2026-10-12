@@ -672,9 +672,9 @@ def json_controller(tmp_path, name):
 
 def test_json_minus_strand_genes_are_found_with_an_ascending_range(tmp_path):
     """The queried range is ascending, [start, end), on either strand. gMinus (GFF 211-300 on the
-    minus strand, i.e. bases 210-299) is the only minus strand gene of testdata/stop_codon.gff3:
-    found on the minus strand over the whole sequence and over a range containing it, partly
-    contained in a range cutting it, and never on the plus strand."""
+    minus strand, i.e. bases 210-299) and gExonEnd (GFF 618-660) are the minus strand genes of
+    testdata/stop_codon.gff3: found on the minus strand over the whole sequence, gMinus over a range
+    containing it and partly contained in a range cutting it, and never on the plus strand."""
     controller = json_controller(tmp_path, 'stop_codon')
 
     def genes(start, end, is_plus_strand):
@@ -682,8 +682,8 @@ def test_json_minus_strand_genes_are_found_with_an_ascending_range(tmp_path):
         return out['coordinate_piece'], {sl['given_name']: sl['is_fully_contained'] for sl in out['super_loci']}
 
     piece, found = genes(0, None, False)
-    assert len(piece['sequence']) == 500
-    assert found == {'gMinus': True}
+    assert len(piece['sequence']) == 700
+    assert found == {'gMinus': True, 'gExonEnd': True}
     assert 'gMinus' not in genes(0, None, True)[1]
     piece, found = genes(200, 300, False)
     assert len(piece['sequence']) == 100

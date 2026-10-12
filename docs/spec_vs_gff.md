@@ -113,6 +113,14 @@ Features delineate a range counted from 0, start inclusive, end exclusive: "geen
 the A of the ATG, the first coding bp, and "geenuff_cds, end" the first non-coding bp after the
 stop codon.
 
+##### matching sequence IDs
+
+Each GFF sequence ID is paired with the identical FASTA ID (the header up to its first space), else
+with the only FASTA ID containing it (`Chr1` with `Chr1.v2`), which the import logs as a warning.
+A GFF ID matching no FASTA ID or several stops the import with an error listing them. Two GFF IDs
+contained in the same FASTA ID are an error as well, and reading the GFF stops at a `##FASTA` line
+or a line starting with `>`.
+
 ##### lines outside their sequence
 
 Lines starting before position 1 or ending past the length of their sequence come from an
@@ -133,11 +141,13 @@ docs/trans_splicing.md): whether and where the intron between their parts lies i
 GTF writes the stop codon as a line of its own and leaves it out of the CDS, and GFF3 converted from
 GTF can keep it that way. Where a CDS is whole (no inframe stop, truncation, ...), only the stop
 codon is missing and the next 3 bases along the transcript's exons are a stop codon, the CDS is
-extended by them, across an intron if need be: translation ends there whatever the file says. Only
-these 3 bases are read; a stop codon further on would make a longer protein than the file
-annotates. The start codon is not recovered, GTF counting it as part of the CDS, so a missing one
-is likely a legit error. The import summary counts the CDS extended, so a file converted from GTF
-shows as such.
+extended by them, across an intron if need be: translation ends there whatever the file says.
+Where the exons end before 3 bases (CDS lines only, or exons ending with the CDS), the bases right
+after the last exon are read, and the last exon and the transcript are extended to hold the stop
+codon. Only these 3 bases are read; a stop codon further on would make a longer protein than the
+file annotates. The start codon is not recovered, GTF counting it as part of the CDS, so a missing
+one is likely a legit error. The import summary counts the CDS extended, and apart those extended
+past their exons, so a file converted from GTF shows as such.
 
 ##### grouping lines into genes
 
