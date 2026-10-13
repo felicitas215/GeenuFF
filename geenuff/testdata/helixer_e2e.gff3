@@ -1,0 +1,130 @@
+##gff-version 3
+##sequence-region CHR 1 6000
+##sequence-region CHR2 1 6000
+# Input for the end-to-end test in tests/test_helixer_h5.py. Eight cases, each in its own region
+# of a sequence so none can influence another, with the outcome each one is expected to produce
+# in Helixer's h5 written out below. The expectations are taken from docs/overlap_masking.md, not
+# from what the pipeline currently does; where the two disagree the test is meant to fail.
+#
+# Both sequences are all C except an ATG at the start and a TAA at the end of every CDS (CAT and
+# TTA on the plus strand for the minus strand gene) and GT..AG on the one intron, so each spliced
+# CDS is a clean ATG + CCC... + TAA and no gene draws an error it was not given on purpose. The
+# two genes of case 6 lack their ATG on purpose.
+#
+# Coordinates below are GeenuFF's: 0-based, start inclusive, end exclusive, i.e. one less than
+# the 1-based GFF start and equal to the GFF end.
+#
+# case 1  geneClean          one sound gene, nothing wrong with it
+#                            exported 200-800, no masked base anywhere in the region
+# case 2  geneCross*         crossing pair, geneCrossKept has the longer CDS (600 bp against
+#                            201 bp) (overlap_masking.md "Crossing, one gene kept")
+#                            geneCrossKept exported whole 1200-2000, geneCrossDropped not
+#                            exported at all, masked 2000-2400: what the dropped gene covered
+#                            beyond the kept one. It has an annotated 3' UTR, so its end is
+#                            known and the mask does not run on past it
+# case 3  geneNest*          nested pair, the inner gene sits inside the outer one's intron
+#                            (overlap_masking.md "Nested, both masked whole")
+#                            both exported, each masked over its whole length and the flank on
+#                            both sides: masked 2600-4000, geneNestOuter's mask reaching 200 bp
+#                            into each of the 400 bp gaps to geneCrossDropped and to
+#                            geneBothCodeDropped, geneNestInner's lying inside it
+# case 4  geneBothCode*      crossing pair, both genes have CDS in the shared stretch 4600-4800,
+#                            which does not matter for the choice (overlap_masking.md "Which gene
+#                            is kept"): geneBothCodeKept has the longer CDS (498 bp against
+#                            399 bp) and is exported whole 4600-5200, geneBothCodeDropped not
+#                            exported at all, masked 4200-4600: what the dropped gene covered
+#                            beyond the kept one. It has an annotated 5' UTR, so the mask does
+#                            not run on past it
+# case 5  geneNoThreeUtr     coding gene whose CDS runs to the end of its transcript, so where
+#                            it really stopped is unknown (spec_vs_gff.md, missing_utr_3p)
+#                            exported 5500-5799, masked 5799-5899: toward the end of the
+#                            sequence, 100 bp of the 201 bp gap (overlap_masking.md)
+#
+# Cases 6-8 lie on CHR2.
+#
+# case 6  geneRefused*       crossing pair, both genes lacking their start codon and so masked
+#                            outright (overlap_masking.md "Refused, both masked whole")
+#                            both exported, each masked over its whole length with the flank on
+#                            both sides: masked 200-2000, geneRefusedA's flank reaching 200 bp
+#                            into the 400 bp gap to the sequence start, geneRefusedB's 200 bp
+#                            into the 400 bp gap to geneUtrKept. The flanks facing the partner
+#                            end inside its mask
+# case 7  geneUtr*           crossing pair, geneUtrKept is clean with the shorter CDS (399 bp
+#                            against 699 bp), geneUtrDropped lacks its 3' UTR, which ranks it
+#                            below a clean gene (overlap_masking.md "Which gene is kept")
+#                            geneUtrKept exported whole 2200-2800, geneUtrDropped not exported
+#                            at all, masked 2800-3900: what the dropped gene covered beyond the
+#                            kept one and, its end being unknown, the flank toward the end of
+#                            the sequence, 500 bp of the 2600 bp gap. The minus strand gene of
+#                            case 8 does not bound the flank, being on the other strand
+# case 8  geneMinusNoThreeUtr
+#                            minus strand coding gene without a 3' UTR, its 3' end being its
+#                            lower coordinate (spec_vs_gff.md, missing_utr_3p)
+#                            exported 4200-4800, masked 3560-4200 on the minus strand only: 640
+#                            bp of the 4200 bp gap toward the minus strand's 3' end, i.e. plus
+#                            strand position 0. The plus strand there carries only the masks of
+#                            its own genes
+#
+# case 1: sound gene, single exon, UTR on both sides
+CHR	test	gene	201	800	.	+	.	ID=geneClean;Name=sound-gene-nothing-masked
+CHR	test	mRNA	201	800	.	+	.	ID=rnaClean;Parent=geneClean
+CHR	test	exon	201	800	.	+	.	ID=exon-rnaClean;Parent=rnaClean
+CHR	test	CDS	301	699	.	+	0	ID=cds-rnaClean;Parent=rnaClean
+# case 2: crossing pair. The CDS of the left gene runs into the shared stretch (1-based
+# 1601-2000), the right gene's CDS starts beyond it, so the left gene is the keeper
+CHR	test	gene	1201	2000	.	+	.	ID=geneCrossKept;Name=kept-whole-owns-the-shared-cds
+CHR	test	mRNA	1201	2000	.	+	.	ID=rnaCrossKept;Parent=geneCrossKept
+CHR	test	exon	1201	2000	.	+	.	ID=exon-rnaCrossKept;Parent=rnaCrossKept
+CHR	test	CDS	1301	1900	.	+	0	ID=cds-rnaCrossKept;Parent=rnaCrossKept
+CHR	test	gene	1601	2400	.	+	.	ID=geneCrossDropped;Name=dropped-cds-starts-further-right
+CHR	test	mRNA	1601	2400	.	+	.	ID=rnaCrossDropped;Parent=geneCrossDropped
+CHR	test	exon	1601	2400	.	+	.	ID=exon-rnaCrossDropped;Parent=rnaCrossDropped
+CHR	test	CDS	2101	2301	.	+	0	ID=cds-rnaCrossDropped;Parent=rnaCrossDropped
+# case 3: nested pair, the outer gene's intron spanning the inner gene; never decided
+CHR	test	gene	2801	3800	.	+	.	ID=geneNestOuter;Name=outer-masked-whole
+CHR	test	mRNA	2801	3800	.	+	.	ID=rnaNestOuter;Parent=geneNestOuter
+CHR	test	exon	2801	3050	.	+	.	ID=exon-rnaNestOuter-1;Parent=rnaNestOuter
+CHR	test	CDS	2901	3050	.	+	0	ID=cds-rnaNestOuter-1;Parent=rnaNestOuter
+CHR	test	exon	3451	3800	.	+	.	ID=exon-rnaNestOuter-2;Parent=rnaNestOuter
+CHR	test	CDS	3451	3699	.	+	0	ID=cds-rnaNestOuter-2;Parent=rnaNestOuter
+CHR	test	gene	3101	3400	.	+	.	ID=geneNestInner;Name=inner-masked-whole
+CHR	test	mRNA	3101	3400	.	+	.	ID=rnaNestInner;Parent=geneNestInner
+CHR	test	exon	3101	3400	.	+	.	ID=exon-rnaNestInner;Parent=rnaNestInner
+CHR	test	CDS	3151	3351	.	+	0	ID=cds-rnaNestInner;Parent=rnaNestInner
+# case 4: both genes carry CDS in the stretch they share, the longer CDS is kept
+CHR	test	gene	4201	4800	.	+	.	ID=geneBothCodeDropped;Name=dropped-shorter-cds
+CHR	test	mRNA	4201	4800	.	+	.	ID=rnaBothCodeDropped;Parent=geneBothCodeDropped
+CHR	test	exon	4201	4800	.	+	.	ID=exon-rnaBothCodeDropped;Parent=rnaBothCodeDropped
+CHR	test	CDS	4301	4699	.	+	0	ID=cds-rnaBothCodeDropped;Parent=rnaBothCodeDropped
+CHR	test	gene	4601	5200	.	+	.	ID=geneBothCodeKept;Name=kept-longer-cds
+CHR	test	mRNA	4601	5200	.	+	.	ID=rnaBothCodeKept;Parent=geneBothCodeKept
+CHR	test	exon	4601	5200	.	+	.	ID=exon-rnaBothCodeKept;Parent=rnaBothCodeKept
+CHR	test	CDS	4651	5148	.	+	0	ID=cds-rnaBothCodeKept;Parent=rnaBothCodeKept
+# case 5: the CDS reaches the end of the transcript, leaving no annotated 3' UTR
+CHR	test	gene	5501	5799	.	+	.	ID=geneNoThreeUtr;Name=no-annotated-three-prime-utr
+CHR	test	mRNA	5501	5799	.	+	.	ID=rnaNoThreeUtr;Parent=geneNoThreeUtr
+CHR	test	exon	5501	5799	.	+	.	ID=exon-rnaNoThreeUtr;Parent=rnaNoThreeUtr
+CHR	test	CDS	5551	5799	.	+	0	ID=cds-rnaNoThreeUtr;Parent=rnaNoThreeUtr
+# case 6: crossing pair, both CDS lacking the ATG, so neither gene can be kept
+CHR2	test	gene	401	1200	.	+	.	ID=geneRefusedA;Name=refused-masked-whole
+CHR2	test	mRNA	401	1200	.	+	.	ID=rnaRefusedA;Parent=geneRefusedA
+CHR2	test	exon	401	1200	.	+	.	ID=exon-rnaRefusedA;Parent=rnaRefusedA
+CHR2	test	CDS	501	1100	.	+	0	ID=cds-rnaRefusedA;Parent=rnaRefusedA
+CHR2	test	gene	1001	1800	.	+	.	ID=geneRefusedB;Name=refused-masked-whole
+CHR2	test	mRNA	1001	1800	.	+	.	ID=rnaRefusedB;Parent=geneRefusedB
+CHR2	test	exon	1001	1800	.	+	.	ID=exon-rnaRefusedB;Parent=rnaRefusedB
+CHR2	test	CDS	1101	1700	.	+	0	ID=cds-rnaRefusedB;Parent=rnaRefusedB
+# case 7: crossing pair, the clean gene is kept over the longer CDS of the gene without a 3' UTR
+CHR2	test	gene	2201	2800	.	+	.	ID=geneUtrKept;Name=kept-clean-shorter-cds
+CHR2	test	mRNA	2201	2800	.	+	.	ID=rnaUtrKept;Parent=geneUtrKept
+CHR2	test	exon	2201	2800	.	+	.	ID=exon-rnaUtrKept;Parent=rnaUtrKept
+CHR2	test	CDS	2301	2699	.	+	0	ID=cds-rnaUtrKept;Parent=rnaUtrKept
+CHR2	test	gene	2601	3400	.	+	.	ID=geneUtrDropped;Name=dropped-no-three-prime-utr
+CHR2	test	mRNA	2601	3400	.	+	.	ID=rnaUtrDropped;Parent=geneUtrDropped
+CHR2	test	exon	2601	3400	.	+	.	ID=exon-rnaUtrDropped;Parent=rnaUtrDropped
+CHR2	test	CDS	2702	3400	.	+	0	ID=cds-rnaUtrDropped;Parent=rnaUtrDropped
+# case 8: minus strand, the CDS reaches the transcript's lower end, leaving no annotated 3' UTR
+CHR2	test	gene	4201	4800	.	-	.	ID=geneMinusNoThreeUtr;Name=minus-no-annotated-three-prime-utr
+CHR2	test	mRNA	4201	4800	.	-	.	ID=rnaMinusNoThreeUtr;Parent=geneMinusNoThreeUtr
+CHR2	test	exon	4201	4800	.	-	.	ID=exon-rnaMinusNoThreeUtr;Parent=rnaMinusNoThreeUtr
+CHR2	test	CDS	4201	4599	.	-	0	ID=cds-rnaMinusNoThreeUtr;Parent=rnaMinusNoThreeUtr

@@ -47,3 +47,8 @@ packages = [
 package-data = {geenuff = ["testdata/*.fa", "testdata/*.gff3", "testdata/*.gff"]}
 script-files = ["import2geenuff.py"]
 zip-safe = false
+
+[tool.pytest.ini_options]
+markers = [
+    "helixer: end to end tests running the Helixer h5 export, which needs Helixer installed. Helixer requires GeenuFF rather than the other way round, so deselect these in a general run with -m 'not helixer'",
+]

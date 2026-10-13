@@ -20,9 +20,10 @@ give errors more precise ranges.
 
 An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
 *flank*. It is measured from the gene's selected transcript toward the closest edge of another
-coding gene on that side, or toward the end of the sequence: a gene dropped for an overlap counts
-as a neighbor, one overlapping the gene does not, and genes without a CDS never bound a flank, so
-that a transposon or lncRNA overlapping a coding gene cannot leave it without one. The flank
+coding gene on that side and strand, or toward the end of the sequence: a gene dropped for an
+overlap counts as a neighbor, one overlapping the gene does not, and genes without a CDS never
+bound a flank, so that a transposon or lncRNA overlapping a coding gene cannot leave it without
+one. Like every mask, the flank covers only the gene's own strand. The flank
 reaches `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap: up to a gap of about 400 bp the
 flanks of two genes nearly meet, beyond it the middle of the gap stays usable as intergenic.
 

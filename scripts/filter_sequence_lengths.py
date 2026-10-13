@@ -101,23 +101,42 @@ def open_out(path: str, binary: bool = False) -> TextIO | BinaryIO:
     return open(path, 'wb' if binary else 'w')
 
 
-def coding_transcripts_by_seqid(gff_path: str) -> dict[str, int]:
-    """{sequence ID: how many transcripts with CDS lines lie on it}"""
-    parents = defaultdict(set)
+def coding_by_seqid(gff_path: str) -> dict[str, tuple[int, int]]:
+    """{sequence ID: (coding genes, coding transcripts) on it}. A coding transcript is a Parent of CDS
+    lines and its gene the top of its Parent chain, so a CDS line naming its gene directly counts the
+    gene as its own transcript."""
+    parent_of, cds_parents = {}, defaultdict(set)
     for line in gff_feature_lines(gff_path):
         columns = line.split('\t')
+        if columns[2] == 'exon':  # never a parent
+            continue
+        attributes = dict(a.split('=', 1) for a in columns[8].strip().split(';') if '=' in a)
+        parents = attributes['Parent'].split(',') if 'Parent' in attributes else []
         if columns[2] == 'CDS':
-            for attribute in columns[8].strip().split(';'):
-                if attribute.startswith('Parent='):
-                    parents[columns[0]].update(attribute[len('Parent='):].split(','))
-    return {seqid: len(ids) for seqid, ids in parents.items()}
+            cds_parents[columns[0]].update(parents)
+        elif 'ID' in attributes and parents:
+            parent_of[attributes['ID']] = parents[0]
+
+    def gene_of(feature_id: str) -> str:
+        seen = set()
+        while feature_id in parent_of and feature_id not in seen:
+            seen.add(feature_id)
+            feature_id = parent_of[feature_id]
+        return feature_id
+
+    return {seqid: (len({gene_of(t) for t in ids}), len(ids)) for seqid, ids in cds_parents.items()}
+
+
+def share(part: int, whole: int) -> str:
+    """'part of whole (x.xx%)'"""
+    return f'{part} of {whole} ({100 * part / whole if whole else 0:.2f}%)'
 
 
 def main(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
     logger.info(f'Length filtering "{os.path.basename(args.fasta)}" and "{os.path.basename(args.gff)}"')
     lengths = fasta_lengths(args.fasta)
-    coding = coding_transcripts_by_seqid(args.gff)
+    coding = coding_by_seqid(args.gff)
     clustered = set() if args.no_adaptive else gap_cluster_ids(lengths)
     below_floor = {seq_id for seq_id, length in lengths.items() if length < args.min_seq_len}
     to_remove = clustered | below_floor
@@ -137,12 +156,14 @@ def main(args: argparse.Namespace) -> None:
         return
 
     removed_lengths = [lengths[seq_id] for seq_id in removed]
-    n_coding, n_lost = sum(coding.values()), sum(coding.get(seq_id, 0) for seq_id in removed)
+    lost = [coding[seq_id] for seq_id in removed if seq_id in coding]
+    genes, transcripts = sum(g for g, _ in coding.values()), sum(t for _, t in coding.values())
+    lost_genes, lost_transcripts = sum(g for g, _ in lost), sum(t for _, t in lost)
     more = len(removed) - MAX_LOGGED_IDS
     logger.info(f'Removing {len(removed)} of {len(lengths)} sequences, {len(lengths) - len(removed)} remaining. '
                 f'The removed ones are {min(removed_lengths)}-{max(removed_lengths)} bp long, '
-                f'{sum(removed_lengths)} of {sum(lengths.values())} bp, and hold {n_lost} of {n_coding} '
-                f'coding transcripts ({100 * n_lost / n_coding if n_coding else 0:.2f}%); removed: '
+                f'{sum(removed_lengths)} of {sum(lengths.values())} bp, and hold {share(lost_genes, genes)} '
+                f'coding genes and {share(lost_transcripts, transcripts)} coding transcripts; removed: '
                 f'{", ".join(removed[:MAX_LOGGED_IDS])}' + (f', ... and {more} more' if more > 0 else ''))
     fasta_out = args.fasta_out or default_out_path(args.fasta)
     gff_out = args.gff_out or default_out_path(args.gff)

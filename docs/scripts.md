@@ -187,9 +187,10 @@ file and their lines from its GFF3 file before import:
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
 The output files default to the input files' names with `_length_filtered` before the extension,
 e.g. `genome.fna.gz` gives `genome_length_filtered.fna.gz`; `--fasta-out` and `--gff-out` set
-others. The log gives the removed sequences, their length range and the coding transcripts on
-them; `--removed-out` lists every removed ID with its length. The FASTA file is read in fixed-size
-chunks, so a sequence written on one line is never held in memory whole.
+others. The log gives the removed sequences, their length range and the coding genes and
+transcripts on them; genes are the better measure of the training data lost, as GeenuFF exporting
+one transcript per gene. `--removed-out` lists every removed ID with its length. The FASTA file
+is read in fixed-size chunks, so a sequence written on one line is never held in memory whole.
 
 Side note on the clustering itself: The cluster is the part below the largest gap between the
 sorted log10 lengths of all sequences, where that gap stands out from the others (a robust z-score

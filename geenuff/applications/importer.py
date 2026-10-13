@@ -330,6 +330,8 @@ class ImportStatistics(object):
             ], False),
             ('transcripts', [
                 (self.total_transcripts, 'transcripts imported, all isoforms'),
+                (self.longest_transcripts + n_unexported_transcripts, '  of them coding, exported or not '
+                                                                      '(see the training data section)'),
                 (self.floating_cds_transcripts, '  of them created to mask CDS lines without a transcript '
                                                 'line'),
                 (self.transcripts_with_exons_built, '  of them with exons built from their CDS and UTR '
@@ -361,8 +363,9 @@ class ImportStatistics(object):
             ] + [(count, f'  not exported, {UNEXPORTED_REASONS[reason]}')
                  for reason, count in sorted(self.unexported_coding_genes.items())
                  if reason != types.OVERLAP_DROPPED] + [
-                (n_unexported_transcripts, 'further coding transcripts, not exported: the isoforms besides '
-                                           'the one exported per gene, and those of genes not exported'),
+                (n_unexported_transcripts, 'coding transcripts not exported'),
+                (self.unselected_coding_transcripts, '  further isoforms of exported genes'),
+                (sum(self.unexported_coding_transcripts.values()), '  isoforms of genes not exported'),
                 (n_masked_bases, f'bases masked, of the genome\'s {both_strands} on both strands '
                                  f'({100 * n_masked_bases / both_strands if both_strands else 0:.2f}%), each '
                                  f'mask only on the strand of its gene; Helixer gets no labels there'),
