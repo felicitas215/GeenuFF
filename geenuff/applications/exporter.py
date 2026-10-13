@@ -5,6 +5,7 @@ import logging
 import intervaltree
 import argparse
 from collections import defaultdict
+from dataclasses import dataclass
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -21,6 +22,25 @@ from geenuff.base import types
 # messages show up through that same configured handler instead of being silently dropped
 # by the otherwise-unconfigured root logger
 logger = logging.getLogger('HelixerLogger')
+FEATURE_TYPES = {feature_type.value: feature_type for feature_type in types.GeenuffFeature}
+
+
+@dataclass(slots=True)
+class QueriedFeature:
+    """A feature as genome_query returns it, with the columns of orm.Feature as plain attributes. Its
+    callers only read them, and building one is many times faster than building an orm.Feature."""
+    id: int
+    given_name: str | None
+    type: types.GeenuffFeature
+    start: int
+    start_is_biological_start: bool
+    end: int
+    end_is_biological_end: bool
+    is_plus_strand: bool
+    score: float | None
+    source: str | None
+    phase: int | None
+    coordinate_id: int
 
 
 class ExportArgParser(object):
@@ -114,7 +134,7 @@ class GeenuffExportController(object):
     def _genome_query(self, longest_only, include_non_coding):
         # returns dictionary
         # {(coordinate pk, coordinate length):
-        #     [Feature 0, Feature 1, ...]
+        #     [QueriedFeature 0, QueriedFeature 1, ...]
         # }
         # a locus with no honest way to be exported is left out whatever else is asked for; its
         # features stay in the database (see orm.SuperLocus.excluded_from_export)
@@ -162,18 +182,7 @@ class GeenuffExportController(object):
 
         coord_features = defaultdict(list)
         for row in rows:
-            feature = Feature(id=row[0],
-                              given_name=row[1],
-                              type=types.GeenuffFeature(row[2]),
-                              start=row[3],
-                              start_is_biological_start=row[4],
-                              end=row[5],
-                              end_is_biological_end=row[6],
-                              is_plus_strand=row[7],
-                              score=row[8],
-                              source=row[9],
-                              phase=row[10],
-                              coordinate_id=row[11])
+            feature = QueriedFeature(row[0], row[1], FEATURE_TYPES[row[2]], *row[3:12])
             # reorganizing rows into genome centric dict
             coord_id, coord_len = row[12], row[13]
             coord_features[(coord_id, coord_len)].append(feature)

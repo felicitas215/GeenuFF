@@ -772,6 +772,22 @@ def test_case_8():
     assert not sl_objects
 
 
+def test_case_9_a_gene_without_errors_on_the_minus_strand():
+    """Test case 9 of dummyloci.gff, a gene without errors on the minus strand, keeps its transcript,
+    CDS and intron as given, with no error and no mask, and is selected for export. Minus strand
+    features run from their 0-based start down to their exclusive end."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/dummyloci.fa', 'testdata/dummyloci.gff', clean_gff=True)
+    x9 = transcripts_by_name(controller)['x9']
+
+    assert feature_ranges(x9, types.GEENUFF_TRANSCRIPT) == [(899, 699)]
+    assert feature_ranges(x9, types.GEENUFF_CDS) == [(870, 729)]
+    assert feature_ranges(x9, types.GEENUFF_INTRON) == [(840, 759)]
+    assert not error_types(x9)
+    assert not feature_ranges(x9, types.GEENUFF_MASK)
+    assert x9.longest and x9.super_locus.excluded_from_export is None
+
+
 def test_non_coding_intron():
     """checks non coding introns are handled correctly (cause no error)"""
     # test data has been simplified from an augustus run that previously resulted in erroneous masks

@@ -6,8 +6,8 @@ modifies the database. All take `--db-path-in` and write to stdout; all but
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, which is the
 only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout, as are
-`rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`, which prepare the
-files for import.
+`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`,
+which check and prepare the files for import.
 
 ## dump_filtered_gff3.py
 
@@ -97,6 +97,13 @@ severity, masks), `gene_ids` or `transcript_ids` (one per line, e.g. for `grep -
 (transcripts and genes per error type and severity). Non-coding transcripts and those of genes left
 out before the error checks show "not checked" and match no error filter. E.g. the genes masked in
 full although exported: `--masked-in-full --exported --output gene_ids`.
+
+## check_seqids.py
+
+Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first space).
+Where some are not, GeenuFF's import and many other tools fail or leave out the genes on them; the
+warning names them and points to `rename_gff_seqids.py` for sequences renamed after annotation. It
+exits with 1 then, 0 where the IDs match, so it can gate a pipeline.
 
 ## rename_gff_seqids.py
 

@@ -14,12 +14,11 @@ import logging
 import math
 import os
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterator
 from typing import BinaryIO, TextIO
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import gff_feature_lines
+from geenuff.base.helpers import fasta_lines, gff_feature_lines
 
 logger = logging.getLogger(__name__)
 
@@ -27,34 +26,8 @@ MIN_GAP_RANK = 3.0  # how far the largest gap must stand out from the others, as
 # below this many sequences, the gap statistics (median, MAD) are unreliable or degenerate
 MIN_SEQUENCES_FOR_CLUSTERING = 5
 DEFAULT_MIN_SEQ_LEN = 1000
-CHUNK_SIZE = 1 << 20
 SEQUENCE_WHITESPACE = b' \t\r\n'
 MAX_LOGGED_IDS = 10
-
-
-def open_binary(path: str) -> BinaryIO:
-    with open(path, 'rb') as f:
-        is_gzip = f.read(2) == b'\x1f\x8b'
-    return gzip.open(path, 'rb') if is_gzip else open(path, 'rb')
-
-
-def fasta_lines(path: str) -> Iterator[tuple[bool, bytes]]:
-    """Yields (whether it begins a line, piece) for the pieces of each FASTA line, a line longer than
-    CHUNK_SIZE coming in several pieces, without their line breaks."""
-    at_line_start, rest = True, b''
-    with open_binary(path) as f:
-        while chunk := f.read(CHUNK_SIZE):
-            lines = (rest + chunk).split(b'\n')
-            rest = lines.pop()
-            for line in lines:
-                yield at_line_start, line
-                at_line_start = True
-            # a line running on past the chunk is passed on in pieces, its header bytes kept whole
-            if rest and not (at_line_start and rest.startswith(b'>')) and len(rest) > CHUNK_SIZE:
-                yield at_line_start, rest
-                at_line_start, rest = False, b''
-    if rest:
-        yield at_line_start, rest
 
 
 def fasta_lengths(path: str) -> OrderedDict[str, int]:
@@ -89,7 +62,7 @@ def gap_cluster_ids(lengths: OrderedDict[str, int]) -> set[str]:
 
 def write_fasta_without(fasta_path: str, out_path: str, removed: set[str]) -> None:
     """Copies the FASTA file without the sequences of the removed IDs. A sequence line longer than
-    CHUNK_SIZE comes out wrapped into lines of up to that length, which FASTA allows."""
+    helpers.FASTA_CHUNK_SIZE comes out wrapped into lines of up to that length, which FASTA allows."""
     keep = True
     with open_out(out_path, binary=True) as out:
         for at_line_start, piece in fasta_lines(fasta_path):

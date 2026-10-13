@@ -1,10 +1,12 @@
 import copy
+import gzip
 import hashlib
 import logging
 import enum
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from types import GeneratorType
+from typing import BinaryIO
 
 import dustdas.fastahelper
 from dustdas.gffhelper import GFFObject
@@ -172,6 +174,42 @@ def gff_feature_lines(gff_file: str) -> Iterator[str]:
                 return
             if line.strip() and not line.startswith('#'):
                 yield line
+
+
+FASTA_CHUNK_SIZE = 1 << 20
+
+
+def open_binary(path: str) -> BinaryIO:
+    """Opens a file, gzipped or not, for reading bytes."""
+    with open(path, 'rb') as f:
+        is_gzip = f.read(2) == b'\x1f\x8b'
+    return gzip.open(path, 'rb') if is_gzip else open(path, 'rb')
+
+
+def fasta_lines(path: str) -> Iterator[tuple[bool, bytes]]:
+    """Yields (whether it begins a line, piece) for the pieces of each line of a (gzipped) FASTA file,
+    without line breaks. The file is read in chunks of FASTA_CHUNK_SIZE, a longer sequence line coming
+    in several pieces, so a sequence written on a single line is never held in memory whole; header
+    lines always come whole."""
+    at_line_start, rest = True, b''
+    with open_binary(path) as f:
+        while chunk := f.read(FASTA_CHUNK_SIZE):
+            lines = (rest + chunk).split(b'\n')
+            rest = lines.pop()
+            for line in lines:
+                yield at_line_start, line
+                at_line_start = True
+            if rest and not (at_line_start and rest.startswith(b'>')) and len(rest) > FASTA_CHUNK_SIZE:
+                yield at_line_start, rest
+                at_line_start, rest = False, b''
+    if rest:
+        yield at_line_start, rest
+
+
+def fasta_ids(path: str) -> list[str]:
+    """The sequence IDs (the header up to the first whitespace) of a (gzipped) FASTA file, in file order."""
+    return [piece[1:].split()[0].decode() for at_line_start, piece in fasta_lines(path)
+            if at_line_start and piece.startswith(b'>')]
 
 
 def get_seqids_from_gff(gff_file: str) -> set[str]:
