@@ -59,6 +59,9 @@ py.test
 cd ../..
 ```
 
+`tests/test_helixer_h5.py` runs the import and Helixer's `geenuff2h5.py` end to end. It is skipped
+where Helixer is not installed, and `py.test -m 'not helixer'` leaves it out where it is.
+
 Alternatively, install directly from GitHub via pip:
 
 ```bash

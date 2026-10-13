@@ -45,7 +45,19 @@ packages = [
     "geenuff.tests"
 ]
 package-data = {geenuff = ["testdata/*.fa", "testdata/*.gff3", "testdata/*.gff"]}
-script-files = ["import2geenuff.py"]
+script-files = [
+    "import2geenuff.py",
+    "scripts/add_gene_lines.py",
+    "scripts/check_seqids.py",
+    "scripts/dump_filtered_gff3.py",
+    "scripts/dump_json.py",
+    "scripts/dump_lengthinfo.py",
+    "scripts/dump_to_fasta.py",
+    "scripts/filter_sequence_lengths.py",
+    "scripts/list_transcripts.py",
+    "scripts/rename_gff_seqids.py",
+    "scripts/summarize_geenuff_db.py",
+]
 zip-safe = false
 
 [tool.pytest.ini_options]

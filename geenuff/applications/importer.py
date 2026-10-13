@@ -1055,7 +1055,7 @@ class OrganizedGFFEntries(object):
 
         Raises:
             MissingGeneLines: if transcripts name no Parent at all, which gene predictors write
-                without gene lines; scripts/add_gene_lines.py adds them
+                without gene lines; add_gene_lines.py adds them
         """
         parentless = [t_id for t_id, t in transcripts_by_id.items() if not t.get_Parent()]
         if parentless:
@@ -1063,7 +1063,7 @@ class OrganizedGFFEntries(object):
                 f'{len(parentless)} of {len(transcripts_by_id)} transcript lines name no Parent gene or '
                 f'"Parent=" attribute, e.g. {", ".join(parentless[:3])}, as gene predictors such as AUGUSTUS, '
                 f'BRAKER and Tiberius write them without gene lines. Add the gene lines with '
-                f'scripts/add_gene_lines.py and import the GFF3 file it writes.')
+                f'add_gene_lines.py and import the GFF3 file it writes.')
         named_missing_parent = defaultdict(list)
         for t_id, t in transcripts_by_id.items():
             parents = t.get_Parent() or []

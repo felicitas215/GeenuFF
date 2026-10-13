@@ -42,23 +42,23 @@ redo it, delete the database or pass `--replace-db`.
 
 ## extract fasta sequences from a database
 
-`scripts/dump_to_fasta.py` writes transcripts, CDS and other sequence breakdowns as FASTA (see
+`dump_to_fasta.py` writes transcripts, CDS and other sequence breakdowns as FASTA (see
 `docs/scripts.md` for all modes):
 
 ```
 # to obtain the CDS (ignoring phase) you can run
-python $geenuff_path/scripts/dump_to_fasta.py --db-path-in <GENUFF_DB> --mode CDS
+dump_to_fasta.py --db-path-in <GENUFF_DB> --mode CDS
 
 # to obtain the final mRNA sequence you can run
-python $geenuff_path/scripts/dump_to_fasta.py --db-path-in <GENUFF_DB> --mode mRNA
+dump_to_fasta.py --db-path-in <GENUFF_DB> --mode mRNA
 
 # to obtain the unspliced transcript you can run
-python $geenuff_path/scripts/dump_to_fasta.py --db-path-in <GENUFF_DB> --mode pre-mRNA
+dump_to_fasta.py --db-path-in <GENUFF_DB> --mode pre-mRNA
 ```
 
 ## extract sequence lengths from a database
 
-As above with `scripts/dump_lengthinfo.py`, or `--stats-only` for summary statistics.
+As above with `dump_lengthinfo.py`, or `--stats-only` for summary statistics.
 
 # GeenuFF API
 
@@ -99,14 +99,12 @@ for export_group in controller.export_ranges:
 For other breakdowns, see `RangeMaker` in `geenuff.applications.exporter`.
 
 ## gff3 output
-look at `geenuff.applications.exporters.gff3` (class `FilteredGff3ExportController`)
-
-Writes back a plain GFF3 file with just the longest CDS-containing (i.e. protein-coding)
-transcript per super locus that is not masked whole, i.e. the same set old Helixer's h5
-export gives labels from. Super loci with no coding transcript at all are skipped entirely.
+`FilteredGff3ExportController` in `geenuff.applications.exporters.gff3` writes a plain GFF3 file
+of the longest coding transcript per gene not masked whole, the set the h5 export gives labels
+from; genes without a coding transcript are skipped (see `scripts.md` for the options):
 
 ```
-python $geenuff_path/scripts/dump_filtered_gff3.py --db-path-in <GENUFF_DB> -o filtered.gff3
+dump_filtered_gff3.py --db-path-in <GENUFF_DB> -o filtered.gff3
 ```
 
 ```{python}

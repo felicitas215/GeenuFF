@@ -19,16 +19,15 @@ features (see the table below). Annotation stored directly in GeenuFF rather tha
 give errors more precise ranges.
 
 An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
-*flank*. It is measured from the gene's selected transcript toward the closest edge of another
-coding gene on that side and strand, or toward the end of the sequence: a gene dropped for an
-overlap counts as a neighbor, one overlapping the gene does not, and genes without a CDS never
+*flank*, reaching `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap toward the closest edge of
+another coding gene on that side and strand, or toward the end of the sequence. A gene dropped for
+an overlap counts as a neighbor, one overlapping the gene does not. Genes without a CDS never
 bound a flank, so that a transposon or lncRNA overlapping a coding gene cannot leave it without
-one. Like every mask, the flank covers only the gene's own strand. The flank
-reaches `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap: up to a gap of about 400 bp the
-flanks of two genes nearly meet, beyond it the middle of the gap stays usable as intergenic.
+one. Like every mask, the flank covers only the gene's own strand.
 
-**To watch: masking in dense genomes.** Up to a gap of about 400 bp an erroneous gene masks half of
-every gap next to it, and a gap between two erroneous genes is masked entirely, save one base:
+**To watch: masking in dense genomes.** Up to a gap of about 400 bp the flanks of two genes nearly
+meet: an erroneous gene masks half of every gap next to it, and a gap between two erroneous genes
+is masked entirely, save one base. Beyond it the middle of the gap stays usable as intergenic:
 
 | gap    | flank per erroneous side | gap masked, one erroneous neighbor  | gap masked, both erroneous |
 |--------|--------------------------|-------------------------------------|----------------------------|
@@ -40,10 +39,9 @@ every gap next to it, and a gap between two erroneous genes is masked entirely, 
 
 Within one gap this rarely masks clearly intergenic sequence, 50-200 bp being a typical UTR length.
 The risk is a bias: in compact genomes (fungi, many algae, gene-dense plant regions) short
-intergenic stretches are underrepresented in training, the unmasked intergenic sequence coming
-mostly from long gaps or gaps beside clean genes. To check on real data: the share of intergenic bp
-masked, by gap size, on a dense and a sparse genome; a possible remedy is a share below half the
-gap.
+intergenic stretches are underrepresented in training, unmasked intergenic sequence coming mostly
+from long gaps or gaps beside clean genes. To check on a dense and a sparse genome: the share of
+intergenic bp masked by gap size; a possible remedy is a share below half the gap.
 
 | type                     | cause                                                | masked                                  |
 |--------------------------|------------------------------------------------------|-----------------------------------------|
@@ -140,66 +138,61 @@ docs/trans_splicing.md): whether and where the intron between their parts lies i
 ##### stop codons left out of the CDS
 
 GTF writes the stop codon as a line of its own and leaves it out of the CDS, and GFF3 converted from
-GTF can keep it that way. Where a CDS is whole (no inframe stop, truncation, ...), only the stop
-codon is missing and the next 3 bases along the transcript's exons are a stop codon, the CDS is
-extended by them, across an intron if need be: translation ends there whatever the file says.
-Where the exons end before 3 bases (CDS lines only, or exons ending with the CDS), the bases right
-after the last exon are read, and the last exon and the transcript are extended to hold the stop
-codon. Only these 3 bases are read; a stop codon further on would make a longer protein than the
-file annotates. The start codon is not recovered, GTF counting it as part of the CDS, so a missing
-one is likely a legit error. The import summary counts the CDS extended, and apart those extended
-past their exons, so a file converted from GTF shows as such.
+GTF can keep it that way. Where a CDS is whole (no inframe stop, truncation, ...) but for its stop
+codon, and the next 3 bases along the transcript's exons are one, the CDS is extended by them,
+across an intron if need be: translation ends there whatever the file says. Where the exons end
+first (CDS lines only, or exons ending with the CDS), the 3 bases after the last exon are read and
+the last exon and the transcript are extended to hold them. A stop codon further on is not looked
+for, as it would make a longer protein than the file annotates. The start codon is not recovered,
+GTF counting it as part of the CDS, so a missing one is likely a real error. The import summary
+counts the CDS extended, and apart those extended past their exons, so a file converted from GTF
+shows as such.
 
 ##### grouping lines into genes
 
 Lines are grouped into genes by their `ID` and `Parent` attributes, whatever their order in the
 file. The import summary counts every line left out per reason and GFF type, the lines below it
 under the same reason (e.g. the transcripts of a gene line with a shared ID under `shared_id`),
-and states the coding transcripts, i.e. potential training data, each reason cost. CDS lines
-naming a gene that has transcripts are counted per gene, as perhaps an isoform without a
-transcript line.
+and the coding transcripts, i.e. potential training data, each reason cost.
+
+- Gene and transcript lines need an `ID`, being the lines others name as their parent; one without
+  an `ID`, or sharing it with another gene or transcript line, is left out. Exon, CDS and UTR lines
+  need no `ID`, and CDS lines sharing one `ID` are normal.
+- UTR lines are the Sequence Ontology's UTR types, e.g. `five_prime_UTR`; the lowercase
+  `five_prime_utr` and `three_prime_utr` some tools write are not SO types and are ignored.
+- A transcript names exactly one gene; one naming several genes or another transcript is left
+  out. Transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius write
+  them, stop the import with an error pointing to `add_gene_lines.py`. Transcripts naming a
+  `Parent` that matches no line share a gene inferred for them, spanning them all, unless they lie
+  on different sequences or strands: then which belong together cannot be told, and all are left
+  out.
+- An exon, CDS or UTR line is put under every transcript it names. One naming a gene that has
+  transcripts is left out unmasked, whether or not it duplicates a line of that gene's transcripts:
+  it could equally belong to an isoform without a transcript line (the summary counts such CDS
+  lines per gene). An exon or UTR line naming no transcript otherwise is left out as well.
+- CDS lines naming no transcript otherwise are masked (`floating_cds`) rather than turned into gene
+  models, whose CDS, exons and UTRs would have to be guessed from IDs every source writes
+  differently; masked, their sequence is not taught as intergenic. They are grouped by a shared
+  `ID` (else one by one) where they name no parent, by the `Parent` where it matches no line, and
+  by the gene where it has no transcripts. Each group gets a transcript spanning it, under its gene
+  or one created for it, masked whole with both flanks, and overlaps like any gene masked
+  outright. A group is left out if its lines lie on different sequences or strands, or on another
+  one than the gene they name.
+- A transcript with CDS lines but no exon lines gets exons built from its CDS and UTR lines, lines
+  that touch forming one exon. Overlapping lines stay apart, so that the overlap is found as an
+  error.
+- A line on another sequence than its parent is left out.
+
+##### import summary
 
 The training data section accounts for every coding gene, of which Helixer gets one transcript:
 exported and labeled in full, with or without sequence beside it masked, or masked in full, each
 by cause; or not exported, by reason, with how many genes dropped for an overlap would otherwise
-have been labeled. It ends with the bases masked, as a share of both strands of the genome: each
-mask covers only the strand of its gene, and overlapping masks on one strand count once. Errors are
+have been labeled. It ends with the bases masked as a share of both strands of the genome, each
+mask on its gene's strand only and overlapping masks on one strand counting once. Errors are
 counted over the exported transcripts only, and counts of 0 are shown only in that section. Where
 no coding transcript is imported at all, e.g. from a GFF3 file without CDS lines, a warning after
 the summary says that the genome gives no training data.
-
-- Gene and transcript lines need an `ID`, being the lines others name as their parent; one without
-  an `ID`, or sharing it with another gene or transcript line, is left out. Exon, CDS and UTR lines
-  need no `ID`, and CDS lines sharing one `ID` are normal. They need a `Parent` naming a transcript
-  to be part of a gene model; an exon or UTR line without one is left out, a CDS line without one
-  is masked (see below).
-- UTR lines are the Sequence Ontology's UTR types, e.g. `five_prime_UTR` and `three_prime_UTR`;
-  the lowercase `five_prime_utr` and `three_prime_utr` some tools write are not SO types and are
-  ignored.
-- A transcript names exactly one gene. One naming several genes or another transcript is left
-  out. Transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius write
-  them without gene lines, stop the import with an error pointing to `scripts/add_gene_lines.py`,
-  which adds the gene lines. Transcripts naming a `Parent` that matches no line share a gene
-  inferred for them, spanning them all. If they lie on different sequences or strands, they are
-  all left out: which of them belong together cannot be told.
-- An exon, CDS or UTR line is put under every transcript it names. One naming a gene that has
-  transcripts is left out, whether or not it duplicates a line of one of that gene's transcripts:
-  it could equally belong to an isoform the file gives no transcript line of its own. An exon or
-  UTR line naming no parent, a gene without transcripts or a `Parent` that matches no line is left
-  out as well.
-- CDS lines without a transcript line are masked (`floating_cds`) rather than turned into gene
-  models, whose CDS, exons and UTRs would have to be guessed from IDs every source writes
-  differently; masked, their sequence is not taught as intergenic. This covers CDS lines naming no
-  parent (grouped by a shared `ID`, else one by one), a `Parent` matching no line (grouped by it)
-  or a gene without transcripts (grouped by the gene). Each group gets a transcript spanning it,
-  under its gene or one created for it, masked whole with both flanks, and overlaps like any gene
-  masked outright. A group is left out if its lines lie on different sequences or strands, or on
-  another one than the gene they name. CDS lines naming a gene that has a transcript are left out
-  unmasked, the gene's transcripts deciding the region.
-- A transcript with CDS lines but no exon lines gets exons built from its CDS and
-  UTR lines, lines that touch forming one exon. Overlapping lines stay apart, so that the overlap
-  is found as an error.
-- A line on another sequence than its parent is left out.
 
 ##### reverse complement
 

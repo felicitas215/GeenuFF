@@ -4,10 +4,11 @@ Six scripts in `scripts/` read a GeenuFF database and write something out of it.
 modifies the database. All take `--db-path-in` and write to stdout; all but
 `summarize_geenuff_db.py` write to a file instead when given `-o`.
 
-Importing a genome is a separate script, `import2geenuff.py` in the repository root, which is the
-only one installed onto the PATH (see `pyproject.toml`). The rest are run from the checkout, as are
-`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`,
-which check and prepare the files for import.
+Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
+`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`
+check and prepare the files for import. Installing GeenuFF, directly or as a dependency of Helixer,
+puts all of them onto the PATH (see `pyproject.toml`), so they are called by name, e.g.
+`check_seqids.py --fasta genome.fa --gff genome.gff3`.
 
 ## dump_filtered_gff3.py
 
@@ -126,12 +127,12 @@ last genes (20 each) and the rest spread evenly between them. A right sequence p
 a wrong or shifted one about 9% by chance (a pair needs at least 50% in every window, 80% in all
 when found by sequence alone).
 
-A pair by ID or full name does not fit, the FASTA sequence having been changed after annotation,
-if the genes reach past its end, a `##sequence-region` length differs from its own, or, with at
-least 20 checks, fewer than half pass in any window of them (the first 20, the last 20, and about
-25 each in between). A cut or insertion shifts every check after it, so the windows show it
-wherever it lies before the last gene. With 20 checks a wrong sequence passes half in about 2 of a
-million cases, and a right one with a poor annotation passing 70% fails in about 2%.
+A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if the genes
+reach past its end, a `##sequence-region` length differs from its own, or, with 20 checks or more,
+fewer than half pass in any window (the first 20, the last 20, about 25 each in between). A cut or
+insertion shifts every check after it, so a window shows it wherever it lies before the last gene.
+With 20 checks a wrong sequence passes half in about 2 of a million cases; a right one whose
+annotation passes only 70% fails in about 2%.
 
 | case                                                                      | result                                                                                                                                               |
 |---------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -141,7 +142,7 @@ million cases, and a right one with a poor annotation passing 70% fails in about
 | GFF3 IDs whose genes fit only a FASTA sequence paired already             | left out as duplicates, counted apart                                                                                                                |
 | most pairs by ID or full name not fitting                                 | error: the files belong to different assemblies                                                                                                      |
 | coding transcripts changed above 5% or missing above 15%                  | error                                                                                                                                                |
-| stop codons right after the CDS                                           | counted (don't cause a check to not pass); GeenuFF adds them on import (see `spec_vs_gff.md`), those past the exons listed in a warning              |
+| stop codons right after the CDS                                           | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                       |
 
 Every warning gives the share of coding transcripts lost. `--pairs-out` writes every pair with its
 method, checks passed and FASTA full name.
@@ -153,9 +154,9 @@ after annotation) rather than stopping as for different assemblies.
 ## add_gene_lines.py
 
 Adds gene lines for transcripts without a `Parent`, as gene predictors such as AUGUSTUS, BRAKER
-and Tiberius write them; GeenuFF imports nothing of a transcript without a gene (unless it
-names a parent `Parent=gene1`, then the missing line is inferred). Each such transcript's gene
-ID is taken from the first source that gives one:
+and Tiberius write them, which stop GeenuFF's import (a transcript naming a `Parent` that matches
+no line gets a gene inferred instead). Each such transcript's gene ID is taken from the first
+source that gives one:
 
 | source                                                                                  | e.g. transcript line            | gene ID   |
 |-----------------------------------------------------------------------------------------|---------------------------------|-----------|
@@ -163,37 +164,31 @@ ID is taken from the first source that gives one:
 | the ID up to the last occurrence of a split text, by default `.` (`--split-at`)         | `ID=g653.t1` (AUGUSTUS)         | `g653`    |
 | neither: a gene of its own                                                              | `ID=X1`                         | `X1_gene` |
 
-The split text is cut at its last occurrence, so `.` gives `Glyma.01G000100` for
-`Glyma.01G000100.1`; for MAKER's `gene7-mRNA-2` give `--split-at -mRNA-`. The log shows a few
-example splits and warns where transcripts put into one gene do not overlap each other, as isoforms
-do, a sign of the wrong split text or attribute.
+Cutting at the last occurrence, `.` gives `Glyma.01G000100` for `Glyma.01G000100.1`; for MAKER's
+`gene7-mRNA-2` give `--split-at -mRNA-`. The log shows a few example splits and warns where
+transcripts put into one gene do not overlap each other as isoforms do, a sign of the wrong split
+text or attribute.
 
-Transcripts of one gene ID share a gene line spanning them, written before the first of them, and
-each gets it as `Parent`; a gene ID naming a gene line already is only set as `Parent`. A gene ID
-on several sequences or strands, or already the ID of another line, gets the sequence and strand
-appended (e.g. `g2_CHR_minus`), with a warning, as do transcripts given a gene of their own.
-Without transcripts lacking a `Parent`, no file is written.
+Transcripts of one gene ID get it as `Parent` and share a gene line spanning them, written before
+the first of them, unless a gene line of that ID exists already. A gene ID on several sequences or
+strands, or already the ID of another line, gets the sequence and strand appended (e.g.
+`g2_CHR_minus`) with a warning, as do transcripts given a gene of their own. Without transcripts
+lacking a `Parent`, no file is written.
 
 ## filter_sequence_lengths.py
 
 Removes short junk sequences, e.g. organelle genomes or small unplaced scaffolds, from a FASTA
 file and their lines from its GFF3 file before import:
 
-| removed                                                 | how                                                                                                                                                                        |
-|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score of at least 3); needs 5 sequences or more |
-| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                           |
+| removed                                                 | how                                                                                                                                                                                                                                                                        |
+|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score from their median and median absolute deviation, at least `MIN_GAP_RANK` = 3); needs 5 sequences or more (`MIN_SEQUENCES_FOR_CLUSTERING`) |
+| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                                                                                                                           |
 
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
 The output files default to the input files' names with `_length_filtered` before the extension,
 e.g. `genome.fna.gz` gives `genome_length_filtered.fna.gz`; `--fasta-out` and `--gff-out` set
 others. The log gives the removed sequences, their length range and the coding genes and
-transcripts on them; genes are the better measure of the training data lost, as GeenuFF exporting
-one transcript per gene. `--removed-out` lists every removed ID with its length. The FASTA file
-is read in fixed-size chunks, so a sequence written on one line is never held in memory whole.
-
-Side note on the clustering itself: The cluster is the part below the largest gap between the
-sorted log10 lengths of all sequences, where that gap stands out from the others (a robust z-score
-of at least MIN_GAP_RANK (3.0), from their median and median absolute deviation); with fewer than
-MIN_SEQUENCES_FOR_CLUSTERING (5) sequences, or no such gap, only the floor applies. Nothing is
-removed where no FASTA sequence or no sequence with coding transcripts would remain.
+transcripts on them, genes being the better measure of the training data lost as GeenuFF exports
+one transcript per gene. `--removed-out` lists every removed ID with its length. The FASTA file is
+read in fixed-size chunks, so a sequence written on one line is never held in memory whole.

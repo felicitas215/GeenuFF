@@ -75,7 +75,7 @@ Not for the gene, and not for the gaps between its pieces:
 
 The pieces themselves would be a well-defined mask, but an excluded gene exports none of its
 features, geenuff_mask included; masking the pieces would need a third state between exported and
-excluded. So the pieces are taught as intergenic although they code. That mislabelling is accepted:
+excluded. So the pieces are taught as intergenic although they code. That mislabeling is accepted:
 it affects a handful of genes per genome, a few kb each, the same kind of error any incompletely
 annotated genome presents in far greater quantity.
 
