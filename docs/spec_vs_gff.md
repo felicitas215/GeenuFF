@@ -51,6 +51,7 @@ intergenic bp masked by gap size; a possible remedy is a share below half the ga
 | missing_stop_codon       | spliced CDS does not end with a stop codon           | whole gene and both flanks              |
 | truncated_cds            | spliced CDS length is not a multiple of 3            | whole gene and both flanks              |
 | inframe_stop_codon       | a stop codon in frame before the end of the CDS      | whole gene and both flanks              |
+| too_short_cds            | spliced CDS shorter than `min_cds_length` (60 bp)    | whole gene and both flanks              |
 | truncated_intron         | the transcript line reaches past its outermost exon  | whole gene and both flanks              |
 | too_short_intron         | full intron shorter than `min_intron_length` (20 bp) | whole gene and both flanks              |
 | overlapping_exons        | two exon lines of one transcript overlap             | whole gene and both flanks              |
@@ -65,7 +66,12 @@ that masks means the CDS boundaries cannot be trusted, so the gene is masked who
 flanks: masking only part would leave a hole whose edges read as transitions that are not there
 (see `overlap_masking.md`). A too short intron typically stands in for an assembly frameshift an
 annotation pipeline bridged. An intron the transcript starts or ends in is a truncated intron,
-its length not checked, and the transcript's start or end counts as not biological.
+its length not checked, and the transcript's start or end counts as not biological. A CDS below
+60 bp, the stop codon included and counted after one left out of the CDS is added, is more likely a
+fragment or an artifact than a gene; Helixer also drops predicted genes with less coding sequence
+by default (HelixerPost's `--min-coding-length` of 60). Masked rather than left out, a real
+micropeptide gene is not taught as intergenic either. Both minimums can be changed with a config
+file given to `import2geenuff.py --config-file` (see `config/import.yml`).
 
 Overlapping exon or CDS lines cannot exist, so both ends of the transcript and CDS count as not
 biological and nothing else is checked, the spliced CDS repeating the shared bases. A wrong

@@ -17,7 +17,7 @@ We developed this to provide a way of unambiguously encoding gene models,
 (the way the DNA sequence is interpreted to produce proteins) that is both
 robust to partial information and biological complexity.
 
-A more extensive description can be found [here](https://weberlab-hhu.github.io/GeenuFF/).
+A more extensive description can be found [here](https://usadellab.github.io/GeenuFF/).
 
 ## Relation to Helixer
 
@@ -45,7 +45,7 @@ GeenuFF needs Python 3.10.12 or newer. Install it preferably in a
 for an editable installation:
 
 ```bash
-git clone https://github.com/weberlab-hhu/GeenuFF.git
+git clone https://github.com/usadellab/GeenuFF.git
 cd GeenuFF
 pip install .
 cd ..
@@ -65,7 +65,7 @@ where Helixer is not installed, and `py.test -m 'not helixer'` leaves it out whe
 Alternatively, install directly from GitHub via pip:
 
 ```bash
-pip install git+https://github.com/weberlab-hhu/GeenuFF.git
+pip install git+https://github.com/usadellab/GeenuFF.git
 ```
 
 ## usage
@@ -74,7 +74,7 @@ You can run `bash example.sh` for a quick start with public data.
 This will set up the folder 'three_algae', download public data in
 the expected format, and import it into a geenuff spec db for each
 species. For more information please see
-[the api docs](https://weberlab-hhu.github.io/GeenuFF/api.html).
+[the api docs](https://usadellab.github.io/GeenuFF/api.html).
 
 Each import ends with a summary: the GFF lines left out and what they cost, what Helixer gets from
 each coding gene (labeled in full, masked, or not exported, and why), and the errors of the

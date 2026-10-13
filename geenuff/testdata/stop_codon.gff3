@@ -1,44 +1,57 @@
 ##gff-version 3
-##sequence-region CHR 1 700
+##sequence-region CHR 1 1300
 # CDS lacking their stop codon, as in GFF3 converted from GTF (GTF itself is not read), with the
 # outcome each is expected to have (see OrganizedGeenuffImporterGroup._cds_extended_by_a_codon).
-# Each CDS starts with ATG, the sequence being C wherever no codon is named below.
+# Each CDS starts with ATG, the sequence being C wherever no codon is named below, and is at least
+# 60 bp (min_cds_length) once extended, so the stop codon is what each case is about. Two genes
+# with their stop codon follow for the CDS length check (too_short_cds).
 #
-# tPlus's CDS ends at 50, TAA following at 51-53: extended to 21-53
-CHR	test	gene	11	100	.	+	.	ID=gPlus
-CHR	test	mRNA	11	100	.	+	.	ID=tPlus;Parent=gPlus
-CHR	test	exon	11	100	.	+	.	Parent=tPlus
-CHR	test	CDS	21	50	.	+	0	Parent=tPlus
-# tSplit's CDS ends at 148, TA at 149-150 and A at 181 across the intron: extended to 122-150 and
-# 181-181
-CHR	test	gene	111	200	.	+	.	ID=gSplit
-CHR	test	mRNA	111	200	.	+	.	ID=tSplit;Parent=gSplit
-CHR	test	exon	111	150	.	+	.	Parent=tSplit
-CHR	test	exon	181	200	.	+	.	Parent=tSplit
-CHR	test	CDS	122	148	.	+	0	Parent=tSplit
-# tMinus's CDS ends at 241 on the minus strand, TAA following at 240-238: extended to 238-270
-CHR	test	gene	211	300	.	-	.	ID=gMinus
-CHR	test	mRNA	211	300	.	-	.	ID=tMinus;Parent=gMinus
-CHR	test	exon	211	300	.	-	.	Parent=tMinus
-CHR	test	CDS	241	270	.	-	0	Parent=tMinus
+# tPlus's CDS ends at 77, TAA following at 78-80: extended to 21-80
+CHR	test	gene	11	110	.	+	.	ID=gPlus
+CHR	test	mRNA	11	110	.	+	.	ID=tPlus;Parent=gPlus
+CHR	test	exon	11	110	.	+	.	Parent=tPlus
+CHR	test	CDS	21	77	.	+	0	Parent=tPlus
+# tSplit's CDS ends at 228, TA at 229-230 and A at 261 across the intron: extended to 172-230 and
+# 261-261
+CHR	test	gene	161	300	.	+	.	ID=gSplit
+CHR	test	mRNA	161	300	.	+	.	ID=tSplit;Parent=gSplit
+CHR	test	exon	161	230	.	+	.	Parent=tSplit
+CHR	test	exon	261	300	.	+	.	Parent=tSplit
+CHR	test	CDS	172	228	.	+	0	Parent=tSplit
+# tMinus's CDS ends at 341 on the minus strand, TAA following at 340-338: extended to 338-397
+CHR	test	gene	311	410	.	-	.	ID=gMinus
+CHR	test	mRNA	311	410	.	-	.	ID=tMinus;Parent=gMinus
+CHR	test	exon	311	410	.	-	.	Parent=tMinus
+CHR	test	CDS	341	397	.	-	0	Parent=tMinus
 # tNoStop's CDS is followed by CCC: left as it is, missing its stop codon
-CHR	test	gene	311	400	.	+	.	ID=gNoStop
-CHR	test	mRNA	311	400	.	+	.	ID=tNoStop;Parent=gNoStop
-CHR	test	exon	311	400	.	+	.	Parent=tNoStop
-CHR	test	CDS	321	350	.	+	0	Parent=tNoStop
-# tFrame's CDS is 29 bp, no whole number of codons, so the TAA after it is not taken: left as it is
-CHR	test	gene	411	500	.	+	.	ID=gFrame
-CHR	test	mRNA	411	500	.	+	.	ID=tFrame;Parent=gFrame
-CHR	test	exon	411	500	.	+	.	Parent=tFrame
-CHR	test	CDS	421	449	.	+	0	Parent=tFrame
+CHR	test	gene	461	560	.	+	.	ID=gNoStop
+CHR	test	mRNA	461	560	.	+	.	ID=tNoStop;Parent=gNoStop
+CHR	test	exon	461	560	.	+	.	Parent=tNoStop
+CHR	test	CDS	471	530	.	+	0	Parent=tNoStop
+# tFrame's CDS is 62 bp, no whole number of codons, so the TAA after it is not taken: left as it is
+CHR	test	gene	611	710	.	+	.	ID=gFrame
+CHR	test	mRNA	611	710	.	+	.	ID=tFrame;Parent=gFrame
+CHR	test	exon	611	710	.	+	.	Parent=tFrame
+CHR	test	CDS	621	682	.	+	0	Parent=tFrame
 # tCdsOnly has CDS lines only, so its exon is built from the CDS and ends with it; TAA following at
-# 551-553 past the exon: extended to 521-553, the exon and the transcript with it
-CHR	test	gene	521	550	.	+	.	ID=gCdsOnly
-CHR	test	mRNA	521	550	.	+	.	ID=tCdsOnly;Parent=gCdsOnly
-CHR	test	CDS	521	550	.	+	0	Parent=tCdsOnly
-# tExonEnd's exon ends with its CDS at 621 on the minus strand, TAA following at 620-618 past the
-# exon: extended to 618-650, the exon and the transcript with it
-CHR	test	gene	621	660	.	-	.	ID=gExonEnd
-CHR	test	mRNA	621	660	.	-	.	ID=tExonEnd;Parent=gExonEnd
-CHR	test	exon	621	660	.	-	.	Parent=tExonEnd
-CHR	test	CDS	621	650	.	-	0	Parent=tExonEnd
+# 818-820 past the exon: extended to 761-820, the exon and the transcript with it
+CHR	test	gene	761	817	.	+	.	ID=gCdsOnly
+CHR	test	mRNA	761	817	.	+	.	ID=tCdsOnly;Parent=gCdsOnly
+CHR	test	CDS	761	817	.	+	0	Parent=tCdsOnly
+# tExonEnd's exon ends with its CDS at 881 on the minus strand, TAA following at 880-878 past the
+# exon: extended to 878-937, the exon and the transcript with it
+CHR	test	gene	881	950	.	-	.	ID=gExonEnd
+CHR	test	mRNA	881	950	.	-	.	ID=tExonEnd;Parent=gExonEnd
+CHR	test	exon	881	950	.	-	.	Parent=tExonEnd
+CHR	test	CDS	881	937	.	-	0	Parent=tExonEnd
+# tShort's CDS is 57 bp, ATG at 1021-1023 to TAA at 1075-1077, and nothing else is wrong with it:
+# too_short_cds alone, masking the gene whole with both flanks
+CHR	test	gene	1011	1100	.	+	.	ID=gShort
+CHR	test	mRNA	1011	1100	.	+	.	ID=tShort;Parent=gShort
+CHR	test	exon	1011	1100	.	+	.	Parent=tShort
+CHR	test	CDS	1021	1077	.	+	0	Parent=tShort
+# tExact's CDS is 60 bp, ATG at 1171-1173 to TAA at 1228-1230, exactly min_cds_length: no error
+CHR	test	gene	1161	1260	.	+	.	ID=gExact
+CHR	test	mRNA	1161	1260	.	+	.	ID=tExact;Parent=gExact
+CHR	test	exon	1161	1260	.	+	.	Parent=tExact
+CHR	test	CDS	1171	1230	.	+	0	Parent=tExact

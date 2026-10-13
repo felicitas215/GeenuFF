@@ -1,7 +1,10 @@
 # GeenuFF
 
 ## Source & Install
-See [github repository](https://github.com/weberlab-hhu/GeenuFF)
+See the [github repository](https://github.com/usadellab/GeenuFF), its
+[README](https://github.com/usadellab/GeenuFF/blob/main/README.md) for installing GeenuFF and
+running the tests, and the [license](https://github.com/usadellab/GeenuFF/blob/main/LICENSE)
+(GNU GPL v3).
 
 ## What
 Relational db Schema & Api to store and interpret gene structure
@@ -213,9 +216,15 @@ keys to e.g. Coordinate or Genome, without changing the shared core.
 
 ## What (with details)
 
-### Comparison of spec to gff
-Quick start / reference for 1:1 comparison with gff:
-[spec_vs_gff.html](spec_vs_gff.html)
+### Further documentation
+* [spec_vs_gff.md](spec_vs_gff.md): quick start/reference for a 1:1 comparison with GFF, the
+  error types and what each of them masks
+* [overlap_masking.md](overlap_masking.md): what happens where two genes claim the same sequence,
+  which of them is kept, and why
+* [trans_splicing.md](trans_splicing.md): why trans-spliced genes are stored but never exported
+* [scripts.md](scripts.md): the scripts that check and prepare FASTA and GFF3 files for import and
+  read a database out
+* [api.md](api.md): importing a genome and the Python API
 
 ### Coordinate system
 GeenuFF coordinates count from 0, with the _start_ attribute marking the _inclusive_ start of a

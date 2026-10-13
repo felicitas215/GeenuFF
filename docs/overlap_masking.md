@@ -121,11 +121,11 @@ One ranking for a crossing pair, wherever either gene has coding sequence:
 The kept gene's labels cover the shared stretch, so coding sequence of the dropped gene there
 reads as the kept gene's UTR, intron or CDS.
 
-| level           | what its own errors mask                       | may be kept?            | errors                                                                                                                                                                                       |
-|-----------------|------------------------------------------------|-------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| none            | nothing                                        | yes                     | none, or a wrong starting phase                                                                                                                                                              |
-| flank masked    | the flank only, coding sequence still labeled  | yes, below a clean gene | a missing UTR                                                                                                                                                                                |
-| masked outright | the coding sequence itself                     | no, nothing to recover  | a missing start or stop codon, a truncated CDS, an in-frame stop codon, a truncated or too short intron, overlapping exon or CDS lines, floating CDS lines, a transcript beyond its sequence |
+| level           | what its own errors mask                      | may be kept?            | errors                                                                                                                                                                                                    |
+|-----------------|-----------------------------------------------|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| none            | nothing                                       | yes                     | none, or a wrong starting phase                                                                                                                                                                           |
+| flank masked    | the flank only, coding sequence still labeled | yes, below a clean gene | a missing UTR                                                                                                                                                                                             |
+| masked outright | the coding sequence itself                    | no, nothing to recover  | a missing start or stop codon, a truncated or too short CDS, an in-frame stop codon, a truncated or too short intron, overlapping exon or CDS lines, floating CDS lines, a transcript beyond its sequence |
 
 A missing UTR never disqualifies a gene from being kept: its own mask already covers the unknown
 boundary, and the coding sequence stays labeled, as for any gene with an unannotated UTR. A

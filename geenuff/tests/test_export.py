@@ -497,10 +497,10 @@ def test_get_CDS_with_a_codon_split_by_an_intron():
     spliced = {grp.seqid: ''.join(econtroller.get_seq(grp))
                for grp in econtroller.export_ranges}
     # the start codon is split in the first and third, the stop codon in the second, and the
-    # third is on the minus strand; all the same nine bases once spliced
-    assert spliced == {'rnaSplitStart': 'ATGAAATAA',
-                       'rnaSplitStop': 'ATGAAATAA',
-                       'rnaSplitStartMinus': 'ATGAAATAA'}
+    # third is on the minus strand, where the C filler reads as G; all 60 bp once spliced
+    assert spliced == {'rnaSplitStart': 'ATGAAA' + 'CCC' * 17 + 'TAA',
+                       'rnaSplitStop': 'ATGAAA' + 'CCC' * 17 + 'TAA',
+                       'rnaSplitStartMinus': 'ATGAAA' + 'GGG' * 17 + 'TAA'}
 
     # and the introns doing the splitting come back 5' to 3' too, so each reads GT...AG
     econtroller, lcontroller = seq_len_controllers('introns', db=SPLIT_CODON_DB)
@@ -671,8 +671,8 @@ def json_controller(tmp_path, name):
 
 
 def test_json_minus_strand_genes_are_found_with_an_ascending_range(tmp_path):
-    """The queried range is ascending, [start, end), on either strand. gMinus (GFF 211-300 on the
-    minus strand, i.e. bases 210-299) and gExonEnd (GFF 618-660) are the minus strand genes of
+    """The queried range is ascending, [start, end), on either strand. gMinus (GFF 311-410 on the
+    minus strand, i.e. bases 310-409) and gExonEnd (GFF 878-950) are the minus strand genes of
     testdata/stop_codon.gff3: found on the minus strand over the whole sequence, gMinus over a range
     containing it and partly contained in a range cutting it, and never on the plus strand."""
     controller = json_controller(tmp_path, 'stop_codon')
@@ -682,13 +682,13 @@ def test_json_minus_strand_genes_are_found_with_an_ascending_range(tmp_path):
         return out['coordinate_piece'], {sl['given_name']: sl['is_fully_contained'] for sl in out['super_loci']}
 
     piece, found = genes(0, None, False)
-    assert len(piece['sequence']) == 700
+    assert len(piece['sequence']) == 1300
     assert found == {'gMinus': True, 'gExonEnd': True}
     assert 'gMinus' not in genes(0, None, True)[1]
-    piece, found = genes(200, 300, False)
-    assert len(piece['sequence']) == 100
+    piece, found = genes(300, 410, False)
+    assert len(piece['sequence']) == 110
     assert found == {'gMinus': True}
-    assert genes(250, 400, False)[1] == {'gMinus': False}
+    assert genes(350, 500, False)[1] == {'gMinus': False}
 
 
 def test_json_marks_what_becomes_of_each_gene_and_transcript(tmp_path):

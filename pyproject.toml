@@ -30,8 +30,8 @@ authors = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/weberlab-hhu/GeenuFF"
-"Documentation" = "https://weberlab-hhu.github.io/GeenuFF/"
+"Homepage" = "https://github.com/usadellab/GeenuFF"
+"Documentation" = "https://usadellab.github.io/GeenuFF/"
 
 [project.license]
 text = "GNU General Public License v3 (GPLv3)"

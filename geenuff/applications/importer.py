@@ -732,6 +732,7 @@ class OrganizedGeenuffImporterGroup(object):
                                         has_start_codon=cds_seq[:3] == START_CODON,
                                         has_stop_codon=has_stop_codon,
                                         has_overlapping_pieces=overlapping_cds,
+                                        spliced_length=len(cds_seq),
                                         score=t.score,
                                         source=t.source,
                                         controller=self.controller)
@@ -1571,6 +1572,10 @@ class GFFErrorHandling(object):
             found.append(Finding(types.TRUNCATED_CDS, 'whole'))
         if cds.has_inframe_stop:
             found.append(Finding(types.INFRAME_STOP_CODON, 'whole'))
+        # more likely a fragment or an artifact than a gene; Helixer drops predicted genes with less
+        # coding sequence by default, too (HelixerPost's min_coding_length of 60)
+        if cds.spliced_length < self.controller.config['min_cds_length']:
+            found.append(Finding(types.TOO_SHORT_CDS, 'whole'))
         # cannot be spliced; an intron the transcript starts or ends in is only partly inside it,
         # so its length says nothing, and it is a truncated intron instead (see below)
         min_length = self.controller.config['min_intron_length']
@@ -1689,7 +1694,7 @@ class ImportController(object):
         self._mk_session(replace_db)
         # queues for adding to db
         self.insertion_queues = InsertionQueue(session=self.session, engine=self.engine)
-        self.config = {'min_intron_length': 20}  # the default config
+        self.config = {'min_intron_length': 20, 'min_cds_length': 60}  # the default config
         self.config.update(config)
 
     def _mk_session(self, replace_db):
@@ -1963,6 +1968,7 @@ class FeatureImporter(Insertable):
                  has_start_codon=True,
                  has_stop_codon=True,
                  has_overlapping_pieces=False,
+                 spliced_length=None,
                  score=None,
                  source=None):
         self.id = InsertCounterHolder.feature()
@@ -1983,6 +1989,7 @@ class FeatureImporter(Insertable):
         self.has_start_codon = has_start_codon  # only used for the MISSING_START_CODON check
         self.has_stop_codon = has_stop_codon  # only used for the MISSING_STOP_CODON check
         self.has_overlapping_pieces = has_overlapping_pieces  # only used for the OVERLAPPING_CDS check
+        self.spliced_length = spliced_length  # only used for the TOO_SHORT_CDS check
         self.score = score
         self.source = source
         self.start_is_biological_start = True

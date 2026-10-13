@@ -16,7 +16,7 @@ from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, Transcrip
                               Protein, TranscriptError)
 from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from geenuff.applications.importer import (ImportController, InsertCounterHolder, MissingGeneLines,
-                                           OrganizedGFFEntries)
+                                           OrganizedGFFEntries, error_severity)
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
@@ -492,17 +492,20 @@ def test_dummyloci_errors():
         # test case 1 - see gff file for more documentation. Every mask reaches int(sqrt(1199)) * 10
         # = 340 of the 1199bp gap to gene_no_ATG: gene_empty and gene_non_coding lie between the two
         # but have no CDS, so they do not bound a mask (see _buffered_span)
-        # x1's CDS ends where the transcript ends: the 3' flank from the CDS end
-        'x1': ({types.MISSING_UTR_3P}, [(120, 740)]),
+        # x1's CDS ends where the transcript ends, and its 21bp of CDS (11-21, 111-120) are below
+        # min_cds_length, masking the whole gene with both flanks as for y1 below, which takes in
+        # the 3' flank from the CDS end
+        'x1': ({types.MISSING_UTR_3P, types.TOO_SHORT_CDS}, [(0, 740)]),
         # y1's spliced CDS (11-21, 111-120, 201-301) is 122bp (not a multiple of 3) and contains
         # a premature stop codon; neither was designed on purpose, this is just what falls out of
         # the arbitrary dummy CDS boundaries chosen to test the other errors above. A wrong reading
         # frame masks the whole gene (0-400) and the flank on both sides: nothing lies before it
         'y1': ({types.TRUNCATED_CDS, types.INFRAME_STOP_CODON}, [(0, 740)]),
         # z1's CDS is the whole transcript, has no start codon, and its single 10bp piece (111-120)
-        # is not a multiple of 3, masking the whole gene, which takes in both missing UTR flanks
+        # is not a multiple of 3 and too short, masking the whole gene, which takes in both missing
+        # UTR flanks
         'z1': ({types.MISSING_UTR_5P, types.MISSING_UTR_3P, types.MISSING_START_CODON,
-                types.TRUNCATED_CDS}, [(0, 740)]),
+                types.TRUNCATED_CDS, types.TOO_SHORT_CDS}, [(0, 740)]),
         # test case 4 (test cases 2 and 3 are without errors): the whole gene (1599-1800) with 340
         # of the same 1199bp gap as test case 1 before it and none of the 1bp left to the sequence
         # end after it, 1 // 2 being 0
@@ -750,7 +753,7 @@ def test_case_8():
     feature = Feature(given_name=None,
                       type=types.GeenuffFeature.geenuff_cds,
                       start=1729,
-                      end=1699,
+                      end=1669,
                       start_is_biological_start=True,
                       end_is_biological_end=True,
                       is_plus_strand=False,
@@ -759,7 +762,7 @@ def test_case_8():
     assert orm_object_in_list(feature, sl_objects)
     feature = Feature(given_name=None,
                       type=types.GeenuffFeature.geenuff_intron,
-                      start=1678,
+                      start=1658,
                       end=1599,
                       start_is_biological_start=True,
                       end_is_biological_end=True,
@@ -1280,7 +1283,8 @@ def test_codon_split_by_an_intron_is_not_reported_as_missing():
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/split_codon.fa', 'testdata/split_codon.gff3', clean_gff=True)
 
-    # the three transcripts splice to ATG AAA TAA, two on the plus strand and one on the minus
+    # the three transcripts splice to ATG AAA, filler codons and TAA, two on the plus strand and one
+    # on the minus
     assert controller.stats.total_coding_transcripts == 3
     assert controller.stats.longest_error_free_transcripts == 3
     assert not controller.stats.errors
@@ -1515,20 +1519,56 @@ def test_a_cds_missing_only_its_stop_codon_gets_the_one_after_it():
     controller.add_genome('testdata/stop_codon.fa', 'testdata/stop_codon.gff3', clean_gff=True)
     transcripts = transcripts_by_name(controller)
 
-    expected = {'tPlus': (20, 53), 'tSplit': (121, 181), 'tMinus': (269, 236),
-                'tNoStop': (320, 350), 'tFrame': (420, 449), 'tCdsOnly': (520, 553), 'tExonEnd': (649, 616)}
+    expected = {'tPlus': (20, 80), 'tSplit': (171, 261), 'tMinus': (396, 336),
+                'tNoStop': (470, 530), 'tFrame': (620, 682), 'tCdsOnly': (760, 820), 'tExonEnd': (936, 876),
+                'tShort': (1020, 1077), 'tExact': (1170, 1230)}
     assert {name: feature_ranges(t, types.GEENUFF_CDS)[0] for name, t in transcripts.items()} == expected
+    # 57 bp of CDS in the file and 60 once extended, so none of them is too short either
     for name in ['tPlus', 'tSplit', 'tMinus']:
         assert not error_types(transcripts[name])
     # the stop codon recovered, only the UTRs their exons lack remain
     assert error_types(transcripts['tCdsOnly']) == {types.MISSING_UTR_5P, types.MISSING_UTR_3P}
     assert error_types(transcripts['tExonEnd']) == {types.MISSING_UTR_3P}
-    assert feature_ranges(transcripts['tCdsOnly'], types.GEENUFF_TRANSCRIPT) == [(520, 553)]
-    assert feature_ranges(transcripts['tExonEnd'], types.GEENUFF_TRANSCRIPT) == [(659, 616)]
+    assert feature_ranges(transcripts['tCdsOnly'], types.GEENUFF_TRANSCRIPT) == [(760, 820)]
+    assert feature_ranges(transcripts['tExonEnd'], types.GEENUFF_TRANSCRIPT) == [(949, 876)]
     assert types.MISSING_STOP_CODON in error_types(transcripts['tNoStop'])
     assert types.TRUNCATED_CDS in error_types(transcripts['tFrame'])
     assert controller.stats.stop_codons_recovered == 5
     assert controller.stats.stop_codons_recovered_past_exons == 2
+
+
+def test_a_cds_shorter_than_60_bp_masks_its_gene_whole():
+    """A spliced CDS below min_cds_length (60 bp) is too_short_cds, masking the whole gene with both
+    flanks like any error masking the coding sequence, while a CDS of exactly 60 bp is fine. See
+    testdata/stop_codon.gff3: gShort (bases 1010-1099, 57 bp of CDS) gets the flank of
+    min(gap // 2, int(sqrt(gap)) * 10) on each side, 95 bp of the 190 bp gap back to tCdsOnly's
+    extended end at 820 and 30 bp of the 60 bp gap to gExact at 1160; gExonEnd lies in the first gap
+    but on the minus strand, so it bounds nothing."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/stop_codon.fa', 'testdata/stop_codon.gff3', clean_gff=True)
+    transcripts = transcripts_by_name(controller)
+
+    short = transcripts['tShort']
+    assert error_types(short) == {types.TOO_SHORT_CDS}
+    assert feature_ranges(short, types.GEENUFF_MASK) == [(915, 1130)]
+    # exported, masked outright, so it would never be kept over an overlapping gene
+    assert short.longest and short.super_locus.excluded_from_export is None
+    assert error_severity(error_types(short)) == 'masked_outright'
+    assert controller.stats.errors[types.TOO_SHORT_CDS] == 1
+
+    exact = transcripts['tExact']
+    assert not error_types(exact)
+    assert not feature_ranges(exact, types.GEENUFF_MASK)
+
+
+def test_the_minimum_cds_length_comes_from_the_config():
+    """min_cds_length can be set like min_intron_length: at 57 bp, gShort's CDS of 57 bp is not
+    shorter than it."""
+    controller = ImportController(database_path='sqlite:///:memory:', config={'min_cds_length': 57})
+    controller.add_genome('testdata/stop_codon.fa', 'testdata/stop_codon.gff3', clean_gff=True)
+    short = transcripts_by_name(controller)['tShort']
+    assert not error_types(short)
+    assert not feature_ranges(short, types.GEENUFF_MASK)
 
 
 # section: types
