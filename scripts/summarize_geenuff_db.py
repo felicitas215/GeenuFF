@@ -63,7 +63,9 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
     stats.empty_super_loci = con.execute(
         'SELECT COUNT(*) FROM super_locus sl WHERE NOT EXISTS '
         '(SELECT 1 FROM transcript t WHERE t.super_locus_id = sl.id)').fetchone()[0]
-    stats.total_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
+    # dropped transcripts never reached the database, so the total is the imported ones
+    stats.total_transcripts = stats.imported_transcripts = con.execute(
+        'SELECT COUNT(*) FROM transcript').fetchone()[0]
     stats.genome_bases = con.execute('SELECT COALESCE(SUM(length), 0) FROM coordinate').fetchone()[0]
 
     logger.info(f'Found {stats.total_super_loci} genes with {stats.total_transcripts} transcripts')

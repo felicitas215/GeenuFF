@@ -9,6 +9,8 @@ from geenuff.applications.importer import ImportController
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CONFIG_FILE = 'config/import.yml'
+
 
 class PathFinder(object):
     INPUT = 'input'
@@ -21,7 +23,7 @@ class PathFinder(object):
         self.species = species
         self.input = '{}/{}/'.format(self.basedir, PathFinder.INPUT)
         self.output = '{}/{}/'.format(self.basedir, PathFinder.OUTPUT)
-        if args.basedir is not None:
+        if self.basedir is not None:
             for dir in [self.basedir, self.input, self.output]:
                 os.makedirs(dir, exist_ok=True)
             self.problems_out = '{}import.log'.format(self.output)
@@ -65,6 +67,9 @@ def main(args):
             "with --gff3, --fasta, --log-file and --db_path parameters"
     paths = PathFinder(args.db_path, args.basedir, args.species, fasta=args.fasta, gff=args.gff3,
                        logfile=args.log_file)
+    # checked before the log file is opened, which would overwrite the existing database's import log
+    if os.path.exists(paths.db_out.removeprefix('sqlite:///')) and not args.replace_db:
+        sys.exit(f'database already existing at {paths.db_out} and --replace-db not set')
 
     msg_fmt_str = '%(asctime)s - %(levelname)s: %(message)s'
     logging.basicConfig(filename=paths.problems_out,
@@ -77,15 +82,19 @@ def main(args):
     logging.getLogger().addHandler(stdout_handler)
 
     # try to load config
+    config = {}
     if os.path.isfile(args.config_file):
         with open(args.config_file, 'r') as f:
             try:
-                config = yaml.safe_load(f)
+                # an empty file loads as None
+                config = yaml.safe_load(f) or {}
             except yaml.YAMLError as e:
-                logger.error(f'An error occured during parsing of the YAML config file: {e}')
-                exit()
+                logger.error(f'An error occurred during parsing of the YAML config file: {e}')
+                sys.exit(1)
+    elif args.config_file != DEFAULT_CONFIG_FILE:
+        logger.error(f'Config file "{args.config_file}" not found')
+        sys.exit(1)
     else:
-        config = {}
         logger.info('No config file found, using default values')
 
     controller = ImportController(database_path=paths.db_out, config=config, replace_db=args.replace_db)
@@ -99,7 +108,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, all four custom'
                         'input parameters must be set.')
-    parser.add_argument('--config-file', type=str, default='config/import.yml')
+    parser.add_argument('--config-file', type=str, default=DEFAULT_CONFIG_FILE)
 
     custominput = parser.add_argument_group('Override default with custom input/output location:')
     custominput.add_argument('--gff3', help='gff3 formatted file to parse / standardize')

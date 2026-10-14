@@ -56,12 +56,13 @@ class Finding:
 
 # what each orm.SuperLocus.excluded_from_export value means, for the import summary
 UNEXPORTED_REASONS = {
-    types.UNPLACEABLE_STRAND: 'their transcript or its exon/CDS lines are not all on one '
+    types.UNPLACEABLE_STRAND: 'their gene, transcript or its exon/CDS lines are not all on one '
                               'definite strand',
     types.UNPLACEABLE_COORDINATES: 'a line of theirs runs backwards, its start past its end',
     types.OUTSIDE_SEQUENCE: 'a line of theirs starts before or ends past their sequence',
     types.OVERLAP_DROPPED: 'dropped so an overlapping partner could be kept whole',
 }
+
 
 class MissingGeneLines(Exception):
     """Transcript lines name no Parent, as gene predictors write them without gene lines."""
@@ -192,7 +193,8 @@ class ImportStatistics(object):
     def __init__(self) -> None:
         self.total_super_loci: int = 0
         self.coding_super_loci: int = 0  # with at least one transcript with CDS lines
-        self.total_transcripts: int = 0
+        self.total_transcripts: int = 0  # every transcript read, imported or dropped
+        self.imported_transcripts: int = 0  # of the above, the ones stored in the database
         self.total_coding_transcripts: int = 0
         # transcript.longest == True, one per exported gene; a gene left out of exports is not
         # counted, nothing about it having been checked either (see clean_and_insert)
@@ -248,6 +250,7 @@ class ImportStatistics(object):
         # masked whole, counted among the errors as beyond_sequence_edge
         self.unstorable_transcripts_dropped: int = 0
         self.transcripts_outside_sequence_dropped: int = 0
+        self.unstranded_transcripts_dropped: int = 0  # the transcripts of genes on neither strand
         # every pair of super loci sharing genomic range, of whatever kind, as recorded in the
         # super_locus_overlap table; these mask nothing, see _record_overlap_pairs
         self.overlap_pairs_recorded: int = 0
@@ -329,24 +332,27 @@ class ImportStatistics(object):
                 (self.unstranded_super_loci, "  of them on neither strand, e.g. '.' or NCBI's '?'"),
             ], False),
             ('transcripts', [
-                (self.total_transcripts, 'transcripts imported, all isoforms'),
+                (self.total_transcripts, 'transcripts, all isoforms'),
+                (self.imported_transcripts, '  of them imported'),
+                (self.floating_cds_transcripts, '    of those, created to mask CDS lines without a '
+                                                'transcript line'),
+                (self.transcripts_with_exons_built, '    of those, with exons built from their CDS and UTR '
+                                                    'lines, having no exon lines'),
+                (self.stop_codons_recovered, '    of those, with the stop codon after their CDS added to '
+                                             'it, the CDS missing only that, as in GFF3 converted from GTF '
+                                             '(GTF itself is not read)'),
+                (self.stop_codons_recovered_past_exons, '      of those, with the stop codon past the end '
+                                                        'of their exons, the last exon and the transcript '
+                                                        'extended to hold it; worth checking in the GFF3'),
                 (self.longest_transcripts + n_unexported_transcripts, '  of them coding, exported or not '
                                                                       '(see the training data section)'),
-                (self.floating_cds_transcripts, '  of them created to mask CDS lines without a transcript '
-                                                'line'),
-                (self.transcripts_with_exons_built, '  of them with exons built from their CDS and UTR '
-                                                    'lines, having no exon lines'),
-                (self.stop_codons_recovered, '  of them with the stop codon after their CDS added to it, '
-                                             'the CDS missing only that, as in GFF3 converted from GTF '
-                                             '(GTF itself is not read)'),
-                (self.stop_codons_recovered_past_exons, '    of those, with the stop codon past the end of '
-                                                        'their exons, the last exon and the transcript '
-                                                        'extended to hold it; worth checking in the GFF3'),
-                (self.unstorable_transcripts_dropped, 'transcripts dropped, no line of theirs having a '
+                (self.unstorable_transcripts_dropped, '  of them dropped, no line of theirs having a '
                                                       'storable range'),
-                (self.transcripts_outside_sequence_dropped, 'transcripts dropped, a line of theirs '
+                (self.transcripts_outside_sequence_dropped, '  of them dropped, a line of theirs '
                                                             'starting before or ending past their sequence '
                                                             'and no CDS line on it'),
+                (self.unstranded_transcripts_dropped, '  of them dropped with their gene, which is on '
+                                                      'neither strand'),
             ], False),
             ('TRAINING DATA, what Helixer gets from each coding gene', [
                 (n_coding_genes, 'coding genes imported'),
@@ -481,12 +487,13 @@ class OrganizedGeenuffImporterGroup(object):
                          f'{organized_gff_entries}')
             raise e
 
-    def _drop_unstorable_transcript(self, sl_i, t_id, what, gff_start, gff_end):
+    def _drop_unstorable_transcript(self, sl_i, t_id, what, gff_start, gff_end, coding):
         """Leaves a transcript out entirely because one of its lines has no range it could be
         stored as, its start running past its end. Trans-spliced organellar genes wrapping a
         circular molecule's origin are written this way; nothing can be made of them here, and
         the locus they belong to is kept out of exports."""
         sl_i.excluded_from_export = types.UNPLACEABLE_COORDINATES
+        sl_i.n_dropped_coding_transcripts += coding
         self.controller.stats.unstorable_transcripts_dropped += 1
         logger.warning(f"dropping transcript '{t_id}': its {what} runs from {gff_start} to "
                        f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
@@ -561,7 +568,7 @@ class OrganizedGeenuffImporterGroup(object):
             line.start, line.end = max(line.start, 1), min(line.end, length)
         return True
 
-    def _drop_transcript_outside_sequence(self, sl_i, t_id, line):
+    def _drop_transcript_outside_sequence(self, sl_i, t_id, line, coding):
         """Leaves a transcript with no CDS line on its sequence out entirely because one of its
         lines starts before its sequence or ends past it, which an annotation of another assembly
         version, or a gene crossing the origin of a circular molecule written with an end past
@@ -569,6 +576,7 @@ class OrganizedGeenuffImporterGroup(object):
         and one starting before it cannot be stored at all; the locus it belongs to is kept out
         of exports."""
         sl_i.excluded_from_export = types.OUTSIDE_SEQUENCE
+        sl_i.n_dropped_coding_transcripts += coding
         self.controller.stats.transcripts_outside_sequence_dropped += 1
         logger.warning(f"dropping transcript '{t_id}': its {line.type} runs from {line.start} to "
                        f"{line.end}, outside its sequence of {self.coord.length} bp; super locus "
@@ -594,13 +602,19 @@ class OrganizedGeenuffImporterGroup(object):
             logger.debug(f"super locus '{sl.get_ID()}' has strand '{sl.strand}' (not '+' "
                          f"or '-'), most likely a trans-spliced gene; saving it without "
                          f"any transcripts so it is never exported or masked")
-            self.importers['super_locus'] = SuperLocusImporter(entry_type=sl.type,
-                                                               given_name=sl.get_ID(),
-                                                               coord=self.coord,
-                                                               is_plus_strand=None,
-                                                               start=sl.start,
-                                                               end=sl.end,
-                                                               controller=self.controller)
+            n_coding = sum(bool(t_entries['cds']) for t_entries in entries['transcripts'].values())
+            sl_i = self.importers['super_locus'] = SuperLocusImporter(
+                entry_type=sl.type,
+                given_name=sl.get_ID(),
+                coord=self.coord,
+                is_plus_strand=None,
+                start=sl.start,
+                end=sl.end,
+                excluded_from_export=types.UNPLACEABLE_STRAND if n_coding else None,
+                controller=self.controller)
+            sl_i.n_dropped_coding_transcripts = n_coding
+            stats.total_transcripts += len(entries['transcripts'])
+            stats.unstranded_transcripts_dropped += len(entries['transcripts'])
             return
 
         sl_start, sl_end = get_geenuff_start_end(sl.start, sl.end, sl_is_plus_strand)
@@ -613,14 +627,12 @@ class OrganizedGeenuffImporterGroup(object):
                                                                   controller=self.controller)
         for t, t_entries in entries['transcripts'].items():
             stats.total_transcripts += 1
-            stats.floating_cds_transcripts += t_entries['floating']
-            stats.transcripts_with_exons_built += t_entries['exons_built']
             # masked whole without further checks, see GFFErrorHandling._find_errors
             t_importers = {'masks': [], 'detected_error_types': set(),
                            'mask_whole': types.FLOATING_CDS if t_entries['floating'] else None}
             t_id = t.get_ID()
             if t.start > t.end:
-                self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end)
+                self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end, bool(t_entries['cds']))
                 continue
             # GFF coordinates are 1-based and inclusive, so a line lies within its sequence from
             # 1 up to the sequence length
@@ -628,7 +640,7 @@ class OrganizedGeenuffImporterGroup(object):
                        if line.start < 1 or line.end > self.coord.length]
             if outside:
                 if not self._clip_to_sequence(t, t_entries):
-                    self._drop_transcript_outside_sequence(sl_i, t_id, outside[0])
+                    self._drop_transcript_outside_sequence(sl_i, t_id, outside[0], bool(t_entries['cds']))
                     continue
                 t_importers['mask_whole'] = types.BEYOND_SEQUENCE_EDGE
             t_is_plus_strand = strand_or_none(t)
@@ -669,17 +681,18 @@ class OrganizedGeenuffImporterGroup(object):
             # if it is not a non-coding gene or something like that
             if t_entries['cds']:
                 stats.total_coding_transcripts += 1
-                # a coding transcript that is not on one definite strand, or whose CDS lines
-                # disagree with it, cannot be analyzed; the locus is left out of exports while
-                # its features stay in the database (see docs/trans_splicing.md for why nothing
-                # is masked in its place either)
-                if unusable_strand or {strand_or_none(x) for x in t_entries['cds']} != {t_is_plus_strand}:
+                # a coding transcript that is not on one definite strand, or whose gene or CDS
+                # lines disagree with it, cannot be analyzed; the locus is left out of exports
+                # while its features stay in the database (see docs/trans_splicing.md for why
+                # nothing is masked in its place either)
+                if (unusable_strand or t_is_plus_strand != sl_is_plus_strand
+                        or {strand_or_none(x) for x in t_entries['cds']} != {t_is_plus_strand}):
                     sl_i.excluded_from_export = types.UNPLACEABLE_STRAND
-                    logger.debug(f"coding transcript '{t_id}' is not on a single definite strand; "
-                                 f"super locus '{sl.get_ID()}' will not be exported")
+                    logger.debug(f"coding transcript '{t_id}' is not on one definite strand, that of its "
+                                 f"gene; super locus '{sl.get_ID()}' will not be exported")
                 # create protein handler
                 # floating CDS lines masked together can name several proteins or none
-                protein_id = t_id if t_entries['floating'] else self._get_protein_id_from_cds_list(t_entries['cds'])
+                protein_id = t_id if t_entries['floating'] else self._protein_id(t_entries['cds']) or t_id
                 p_i = ProteinImporter(given_name=protein_id,
                                       super_locus_id=sl_i.id,
                                       controller=self.controller)
@@ -754,7 +767,7 @@ class OrganizedGeenuffImporterGroup(object):
                     gff_cds_end = t.end
 
                 if gff_cds_start > gff_cds_end:
-                    self._drop_unstorable_transcript(sl_i, t_id, 'CDS', gff_cds_start, gff_cds_end)
+                    self._drop_unstorable_transcript(sl_i, t_id, 'CDS', gff_cds_start, gff_cds_end, True)
                     continue
                 cds_i.set_start_end_from_gff(gff_cds_start, gff_cds_end)
 
@@ -833,6 +846,9 @@ class OrganizedGeenuffImporterGroup(object):
                 else:
                     t_importers['introns'] = introns[::-1]
             self.importers['transcripts'].append(t_importers)
+            stats.imported_transcripts += 1
+            stats.floating_cds_transcripts += t_entries['floating']
+            stats.transcripts_with_exons_built += t_entries['exons_built']
         self._set_longest_transript()
 
     def _set_longest_transript(self):
@@ -866,38 +882,15 @@ class OrganizedGeenuffImporterGroup(object):
         return length
 
     @staticmethod
-    def _get_protein_id_from_cds_entry(cds_entry):
-        # check if anything is labeled as protein_id
-        protein_id = cds_entry.attrib_filter(tag='protein_id')
-        # failing that, try and get parent ID (presumably transcript, maybe gene)
-        if not protein_id:
-            protein_id = cds_entry.get_Parent()
-        # hopefully take single hit
-        if len(protein_id) == 1:
-            protein_id = protein_id[0]
-            if isinstance(protein_id, gffhelper.GFFAttribute):
-                protein_id = protein_id.value
-                assert len(protein_id) == 1
-                protein_id = protein_id[0]
-        # or handle other cases
-        elif len(protein_id) == 0:
-            protein_id = None
-        else:
-            raise ValueError('indeterminate single protein id {}'.format(protein_id))
-        return protein_id
-
-    @staticmethod
-    def _get_protein_id_from_cds_list(cds_entry_list):
-        """Returns the protein id of a list of cds gff entries. If multiple ids or no id at all
-        are found, an error is raised."""
+    def _protein_id(cds_entry_list):
+        """The protein ID of a transcript's CDS lines: their protein_id attribute, else their
+        Parent, several joined by commas, so a CDS line shared by transcripts gives each the same;
+        None without either. Only stored, never used to decide anything."""
         protein_ids = set()
         for cds_entry in cds_entry_list:
-            protein_id = OrganizedGeenuffImporterGroup._get_protein_id_from_cds_entry(cds_entry)
-            if protein_id:
-                protein_ids.add(protein_id)
-        if len(protein_ids) != 1:
-            raise ValueError('No protein_id or more than one protein_ids for one transcript')
-        return protein_ids.pop()
+            attributes = cds_entry.attrib_filter(tag='protein_id')
+            protein_ids.update(attributes[0].value if attributes else cds_entry.get_Parent() or [])
+        return ','.join(sorted(protein_ids)) or None
 
 
 class OrganizedGFFEntryGroup(object):
@@ -1698,14 +1691,12 @@ class ImportController(object):
         self.config.update(config)
 
     def _mk_session(self, replace_db):
-        if os.path.exists(self.database_path):
-            if replace_db:
-                os.remove(self.database_path)
-                logger.info('removed existing database at {}'.format(self.database_path))
-            else:
-                logger.error('database already existing at {} and --replace-db not set'.format(
-                    self.database_path))
-                exit()
+        file_path = self.database_path.removeprefix('sqlite:///')
+        if os.path.exists(file_path):
+            if not replace_db:
+                raise FileExistsError(f'database already existing at {file_path} and --replace-db not set')
+            os.remove(file_path)
+            logger.info(f'removed existing database at {file_path}')
         self.engine = create_engine(helpers.full_db_path(self.database_path), echo=False)
         orm.Base.metadata.create_all(self.engine)
         self.session = sessionmaker(bind=self.engine)()
@@ -1831,9 +1822,11 @@ class ImportController(object):
                 reason = group['super_locus'].excluded_from_export
                 coding = [t for t in group['transcripts'] if 'cds' in t]
                 if reason is not None:
+                    # its coding transcripts left out of the database count as well
+                    n_coding = len(coding) + group['super_locus'].n_dropped_coding_transcripts
                     self.stats.unexported_super_loci[reason] += 1
-                    self.stats.unexported_coding_transcripts[reason] += len(coding)
-                    self.stats.unexported_coding_genes[reason] += bool(coding)
+                    self.stats.unexported_coding_transcripts[reason] += n_coding
+                    self.stats.unexported_coding_genes[reason] += bool(n_coding)
                     continue
                 for transcript in coding:
                     if not transcript['transcript'].longest:
@@ -1941,6 +1934,8 @@ class SuperLocusImporter(Insertable):
         self.end = end
         # a reason string from types, or None; see orm.SuperLocus.excluded_from_export
         self.excluded_from_export = excluded_from_export
+        # coding transcripts of it left out of the database, counted in the import summary
+        self.n_dropped_coding_transcripts = 0
 
     def add_to_queue(self):
         to_add = {'type': self.entry_type, 'given_name': self.given_name, 'id': self.id,

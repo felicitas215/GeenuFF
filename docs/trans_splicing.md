@@ -52,13 +52,16 @@ The parser reads a strand of `?` or `.` as no strand, and the importer meets it 
 
 | where `?` or `.` appears | what is stored                                                        | exported?                                 |
 |--------------------------|-----------------------------------------------------------------------|-------------------------------------------|
-| the **gene** line        | the gene record only, no transcripts and no features                  | no, nothing to select                     |
+| the **gene** line        | the gene record only, no transcripts and no features                  | no, `excluded_from_export` where it codes |
 | the **mRNA** line        | the transcript and its features, on the gene's strand                 | no, `excluded_from_export` where it codes |
 | an **exon** line         | the transcript and its features, without introns, none being invented | no, `excluded_from_export` where it codes |
 | a **CDS** line           | the transcript and its features, introns included                     | no, `excluded_from_export` is set         |
 
-A gene line on no strand is counted as `unstranded_super_loci`. A non-coding transcript on no
-strand is stored on the gene's strand unmarked, as non-coding transcripts are never exported.
+A gene line on no strand is counted as `unstranded_super_loci`, its transcripts as dropped in the
+import summary, and where one of them codes, the gene among the coding genes not exported. A
+coding transcript on the other strand than its gene is excluded from exports like one on no
+strand. A non-coding transcript on no strand is stored on the gene's strand unmarked, as
+non-coding transcripts are never exported.
 
 Storing them faithfully would take one `TranscriptPiece` per same-strand block, each with its own
 `geenuff_transcript` feature and introns chopped only within the block. The database is ready for
