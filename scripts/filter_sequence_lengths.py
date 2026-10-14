@@ -1,8 +1,9 @@
 #! /usr/bin/env python3
-"""Removes short 'junk' sequences from a FASTA file and their lines from its GFF3 file before import:
-sequences in a statistically distinct cluster of small ones, e.g. organelle genomes or unplaced
-scaffolds beside the chromosomes, and, either way, every sequence below a hard floor
-(--min-seq-len, by default 1000 bp) (for more see docs/scripts.md).
+"""Removes short 'junk' sequences from a FASTA file and, given one, their lines from its GFF3 file,
+before import or, the FASTA file alone, before prediction: sequences in a statistically distinct
+cluster of small ones, e.g. organelle genomes or unplaced scaffolds beside the chromosomes, and,
+either way, every sequence below a hard floor (--min-seq-len, by default 1000 bp) (for more see
+docs/scripts.md).
 
 The output files default to the input files' names with _length_filtered before the extension,
 e.g. genome.fna.gz -> genome_length_filtered.fa.gz. The FASTA file is read in fixed-size chunks,
@@ -18,7 +19,7 @@ from typing import BinaryIO, TextIO
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import fasta_lines, gff_feature_lines
+from geenuff.base.helpers import fasta_lines, gff_feature_lines, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -133,10 +134,11 @@ def share(part: int, whole: int) -> str:
 
 
 def main(args: argparse.Namespace) -> None:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
-    logger.info(f'Length filtering "{os.path.basename(args.fasta)}" and "{os.path.basename(args.gff)}"')
+    setup_logging(args.log_file)
+    names =' and '.join(f'"{os.path.basename(path)}"' for path in (args.fasta, args.gff) if path)
+    logger.info(f'Length filtering {names}')
     lengths = fasta_lengths(args.fasta)
-    coding = coding_by_seqid(args.gff)
+    coding = coding_by_seqid(args.gff) if args.gff else {}
     clustered = set() if args.no_adaptive else gap_cluster_ids(lengths)
     below_floor = {seq_id for seq_id, length in lengths.items() if length < args.min_seq_len}
     to_remove = clustered | below_floor
@@ -156,29 +158,36 @@ def main(args: argparse.Namespace) -> None:
         return
 
     removed_lengths = [lengths[seq_id] for seq_id in removed]
-    lost = [coding[seq_id] for seq_id in removed if seq_id in coding]
-    genes, transcripts = sum(g for g, _ in coding.values()), sum(t for _, t in coding.values())
-    lost_genes, lost_transcripts = sum(g for g, _ in lost), sum(t for _, t in lost)
+    held = ''
+    if args.gff:
+        lost = [coding[seq_id] for seq_id in removed if seq_id in coding]
+        genes, transcripts = sum(g for g, _ in coding.values()), sum(t for _, t in coding.values())
+        lost_genes, lost_transcripts = sum(g for g, _ in lost), sum(t for _, t in lost)
+        held = (f', and hold {share(lost_genes, genes)} coding genes and {share(lost_transcripts, transcripts)} '
+                f'coding transcripts')
     more = len(removed) - MAX_LOGGED_IDS
     logger.info(f'Removing {len(removed)} of {len(lengths)} sequences, {len(lengths) - len(removed)} remaining. '
                 f'The removed ones are {min(removed_lengths)}-{max(removed_lengths)} bp long, '
-                f'{sum(removed_lengths)} of {sum(lengths.values())} bp, and hold {share(lost_genes, genes)} '
-                f'coding genes and {share(lost_transcripts, transcripts)} coding transcripts; removed: '
+                f'{sum(removed_lengths)} of {sum(lengths.values())} bp{held}; removed: '
                 f'{", ".join(removed[:MAX_LOGGED_IDS])}' + (f', ... and {more} more' if more > 0 else ''))
-    fasta_out = args.fasta_out or default_out_path(args.fasta)
-    gff_out = args.gff_out or default_out_path(args.gff)
-    write_fasta_without(args.fasta, fasta_out, set(removed))
-    write_gff_without(args.gff, gff_out, set(removed))
+    out_paths = [args.fasta_out or default_out_path(args.fasta)]
+    write_fasta_without(args.fasta, out_paths[0], set(removed))
+    if args.gff:
+        out_paths.append(args.gff_out or default_out_path(args.gff))
+        write_gff_without(args.gff, out_paths[1], set(removed))
     if args.removed_out:
         with open(args.removed_out, 'w') as f:
             f.writelines(f'{seq_id}\t{lengths[seq_id]}\n' for seq_id in removed)
-    logger.info(f'Wrote "{fasta_out}" and "{gff_out}"')
+    written = ' and '.join(f'"{path}"' for path in out_paths)
+    logger.info(f'Wrote {written}')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--fasta', type=str, required=True, help='FASTA file (may be gzipped)')
-    parser.add_argument('--gff', type=str, required=True, help='GFF3 file of the FASTA file (may be gzipped)')
+    parser.add_argument('--gff', type=str,
+                        help='GFF3 file of the FASTA file (may be gzipped); left out to filter the FASTA file alone, '
+                             'e.g. before prediction')
     parser.add_argument('--fasta-out', type=str,
                         help=('filtered FASTA file, gzipped if it ends in .gz (default: the FASTA file\'s name with '
                               '_length_filtered before the extension, e.g. genome_length_filtered.fa.gz); not '
@@ -193,4 +202,8 @@ if __name__ == '__main__':
                              f'{DEFAULT_MIN_SEQ_LEN} bp)')
     parser.add_argument('--no-adaptive', action='store_true',
                         help='apply the hard floor alone, without the cluster of small sequences')
-    main(parser.parse_args())
+    parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
+    args = parser.parse_args()
+    if args.gff_out and not args.gff:
+        parser.error('--gff-out needs --gff')
+    main(args)

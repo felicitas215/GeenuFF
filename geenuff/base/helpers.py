@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import logging
 import enum
+import sys
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from types import GeneratorType
@@ -107,6 +108,18 @@ def get_repr(class_name, params, addition=''):
         return class_name + '[' + param_str + ', ' + addition + ']'
     else:
         return class_name + '[' + param_str + ']'
+
+
+def setup_logging(log_file: str | None = None) -> None:
+    """Logs INFO and above to stdout and, given a path, to that file as well, overwriting it.
+
+    Args:
+        log_file: the file to write the log to besides stdout, if given
+    """
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        handlers.append(logging.FileHandler(log_file, mode='w'))
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s', handlers=handlers)
 
 
 ##### Mapper #####

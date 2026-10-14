@@ -50,8 +50,8 @@ class ExportArgParser(object):
                                  help='Path to the Geenuff SQLite input database.')
         self.parser.add_argument('-l', '--longest', action="store_true",
                                  help="ignore all but the longest transcript per gene")
-        self.parser.add_argument('-o', '--out', type=str,
-                                 help="output fasta file path, (default is stdout)")
+        self.parser.add_argument('-o', '--out', type=str, required=True,
+                                 help="output file path")
 
         self.args = None
 

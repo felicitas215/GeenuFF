@@ -1,14 +1,19 @@
 # Command line scripts
 
 Six scripts in `scripts/` read a GeenuFF database and write something out of it. None of them
-modifies the database. All take `--db-path-in` and write to stdout; all but
-`summarize_geenuff_db.py` write to a file instead when given `-o`.
+modifies the database. All take `--db-path-in`. The four `dump_*` scripts write to the file given
+with `-o`, which they require; `list_transcripts.py` writes to stdout or, given `-o`, to a file,
+and `summarize_geenuff_db.py` to stdout.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
 `check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`
 check and prepare the files for import. Installing GeenuFF, directly or as a dependency of Helixer,
 puts all of them onto the PATH (see `pyproject.toml`), so they are called by name, e.g.
 `check_seqids.py --fasta genome.fa --gff genome.gff3`.
+
+`dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and
+`filter_sequence_lengths.py` log what they leave out or change; `--log-file` writes that log to a
+file as well as the terminal, to keep it beside the output.
 
 ## dump_filtered_gff3.py
 
@@ -134,15 +139,15 @@ insertion shifts every check after it, so a window shows it wherever it lies bef
 With 20 checks a wrong sequence passes half in about 2 of a million cases; a right one whose
 annotation passes only 70% fails in about 2%.
 
-| case                                                                      | result                                                                                                                                               |
-|---------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| all IDs match and fit                                                     | checked only, no file written                                                                                                                        |
-| sequences changed after annotation, up to 5% of the coding transcripts    | these are left out of the GFF3 and FASTA files, listed in a warning; the FASTA copy without them is written beside the output GFF3 file (`.fa(.gz)`) |
-| GFF3 IDs with no FASTA sequence, up to 15% of the coding transcripts lost | these lines are left out, counted in a warning                                                                                                       |
-| GFF3 IDs whose genes fit only a FASTA sequence paired already             | left out as duplicates, counted apart                                                                                                                |
-| most pairs by ID or full name not fitting                                 | error: the files belong to different assemblies                                                                                                      |
-| coding transcripts changed above 5% or missing above 15%                  | error                                                                                                                                                |
-| stop codons right after the CDS                                           | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                       |
+| case                                                                                                | result                                                                                                                                               |
+|-----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| all IDs match and fit                                                                               | checked only, no file written                                                                                                                        |
+| sequences changed after annotation, up to 5% of the coding transcripts                              | these are left out of the GFF3 and FASTA files, listed in a warning; the FASTA copy without them is written beside the output GFF3 file (`.fa(.gz)`) |
+| GFF3 IDs with no FASTA sequence, up to 15% of the coding transcripts lost (`--max-missing-percent`) | these lines are left out, counted in a warning                                                                                                       |
+| GFF3 IDs whose genes fit only a FASTA sequence paired already                                       | left out as duplicates, counted apart                                                                                                                |
+| most pairs by ID or full name not fitting                                                           | error: the files belong to different assemblies                                                                                                      |
+| coding transcripts changed above 5% or missing above 15%                                            | error, nothing written                                                                                                                               |
+| stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                       |
 
 Every warning gives the share of coding transcripts lost. `--pairs-out` writes every pair with its
 method, checks passed and FASTA full name.
@@ -192,3 +197,6 @@ others. The log gives the removed sequences, their length range and the coding g
 transcripts on them, genes being the better measure of the training data lost as GeenuFF exports
 one transcript per gene. `--removed-out` lists every removed ID with its length. The FASTA file is
 read in fixed-size chunks, so a sequence written on one line is never held in memory whole.
+
+Without `--gff` only the FASTA file is filtered, e.g. before predicting with Helixer, which saves
+compute otherwise spent on junk fragments.

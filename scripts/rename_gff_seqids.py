@@ -20,7 +20,7 @@ from typing import TextIO
 
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
-from geenuff.base.helpers import gff_feature_lines
+from geenuff.base.helpers import gff_feature_lines, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +310,7 @@ def pair_by_sequence(gff_sequences: dict[str, GffSequence], sequences: dict[str,
 
 
 def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str], full_names: dict[str, str],
-                gff_name: str, fasta_name: str) -> Pairing:
+                gff_name: str, fasta_name: str, max_missing_share: float = MAX_MISSING_SHARE) -> Pairing:
     """Pairs the GFF3 sequence IDs by ID or full name, then the rest by sequence. GFF3 sequences
     whose pair by ID or full name fails are taken for changed after annotation and left unpaired.
 
@@ -320,11 +320,13 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
         full_names: {FASTA ID: full name}
         gff_name: the GFF3 file name, for messages
         fasta_name: the FASTA file name, for messages
+        max_missing_share: the largest share of the coding transcripts the sequences matching no
+            FASTA sequence may hold
 
     Raises:
         MismatchedFiles: if most pairs by ID or full name fail, the changed sequences hold more than
             MAX_CHANGED_SHARE of the coding transcripts, or the sequences matching no FASTA sequence
-            more than MAX_MISSING_SHARE
+            more than max_missing_share
     """
     pairs, changed, n_tried = pair_by_id_or_full_name(gff_sequences, sequences, full_names)
     examples = [f'{gff_id} ({fasta_id}): {why}' for gff_id, (fasta_id, why) in changed.items()]
@@ -352,10 +354,11 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
     missing = sorted(unpaired.keys() - searched_pairs.keys() - duplicates.keys(),
                      key=lambda gff_id: -gff_sequences[gff_id].coding_transcripts)
     n_missing_coding = sum(gff_sequences[gff_id].coding_transcripts for gff_id in missing)
-    if n_missing_coding > MAX_MISSING_SHARE * n_coding:
+    if n_missing_coding > max_missing_share * n_coding:
         raise MismatchedFiles(
             f'{len(missing)} GFF3 sequences of "{gff_name}" match no sequence of "{fasta_name}" and hold '
-            f'{coding_share(n_missing_coding, n_coding)}, too many to leave out, the most in '
+            f'{coding_share(n_missing_coding, n_coding)}, more than the {100 * max_missing_share:g}% allowed '
+            f'to leave out (--max-missing-percent), the most in '
             f'{", ".join(missing[:5])}. The FASTA file lacks sequences the GFF3 file was made on, or they were '
             f'renamed and changed after annotation (e.g. trimmed on upload to NCBI). {ADVICE}')
     return Pairing(pairs | searched_pairs, changed, duplicates)
@@ -477,8 +480,8 @@ def write_pairs(path: str, pairs: dict[str, Pair], full_names: dict[str, str]) -
                     f'{full_names[pair.fasta_id]}\n')
 
 
-def rename(fasta_path: str, gff_path: str, out_path: str,
-           pairs_out_path: str | None = None) -> tuple[dict[str, GffSequence], Pairing, bool]:
+def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | None = None,
+           max_missing_share: float = MAX_MISSING_SHARE) -> tuple[dict[str, GffSequence], Pairing, bool]:
     """Pairs the sequence IDs of a GFF3 file with those of its FASTA file and writes the renamed GFF3
     file, with a FASTA copy where changed sequences are left out (see the module docstring).
 
@@ -487,6 +490,7 @@ def rename(fasta_path: str, gff_path: str, out_path: str,
         gff_path: the GFF3 file
         out_path: the renamed GFF3 file to write
         pairs_out_path: a TSV file to write the pairs to, if given
+        max_missing_share: see pair_seqids
 
     Returns:
         the GFF3 sequences (see read_gff), their pairing, and whether a file was written, none being
@@ -506,7 +510,7 @@ def rename(fasta_path: str, gff_path: str, out_path: str,
     logger.info(f'Reading "{gff_path}"')
     gff_sequences = read_gff(gff_path)
 
-    pairing = pair_seqids(gff_sequences, sequences, full_names, gff_name, fasta_name)
+    pairing = pair_seqids(gff_sequences, sequences, full_names, gff_name, fasta_name, max_missing_share)
     log_stop_codons(gff_sequences, pairing.pairs, sequences)
     pairs = pairing.pairs
     if len(pairs) == len(gff_sequences) and all(pair.method == 'id' for pair in pairs.values()):
@@ -527,9 +531,9 @@ def rename(fasta_path: str, gff_path: str, out_path: str,
 
 
 def main(args: argparse.Namespace) -> None:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    setup_logging(args.log_file)
     try:
-        rename(args.fasta, args.gff, args.out, args.pairs_out)
+        rename(args.fasta, args.gff, args.out, args.pairs_out, args.max_missing_percent / 100)
     except MismatchedFiles as e:
         logger.error(e)
         raise SystemExit(1)
@@ -546,4 +550,9 @@ if __name__ == '__main__':
     parser.add_argument('--pairs-out', type=str,
                         help=('TSV file listing each pair made, how, how many of its checks passed and the '
                               'full name of the FASTA sequence'))
+    parser.add_argument('--max-missing-percent', type=float, default=100 * MAX_MISSING_SHARE,
+                        help=('the most coding transcripts, in percent, the GFF3 sequences matching no FASTA '
+                              'sequence may hold to be left out; above it, nothing is written '
+                              f'(default: {100 * MAX_MISSING_SHARE:g})'))
+    parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     main(parser.parse_args())

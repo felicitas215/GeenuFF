@@ -19,7 +19,7 @@ from typing import TextIO
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
-from geenuff.base.helpers import gff_feature_lines
+from geenuff.base.helpers import gff_feature_lines, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def open_out(path: str) -> TextIO:
 
 
 def main(args: argparse.Namespace) -> None:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    setup_logging(args.log_file)
     logger.info(f'Adding gene lines to the transcripts without a Parent in "{os.path.basename(args.gff)}"')
     gene_attributes = [name for name in args.gene_id_attributes.split(',') if name]
     gene_of = genes_for_orphans(args.gff, gene_attributes, args.split_at)
@@ -176,4 +176,5 @@ if __name__ == '__main__':
                         help=(f'text at whose last occurrence a transcript ID is cut to get its gene ID, where no '
                               f'gene ID attribute is present (default: "{DEFAULT_SPLIT}"). E.g. "." turns g653.t1 '
                               f'into g653, and "-mRNA-" turns gene7-mRNA-2 into gene7'))
+    parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     main(parser.parse_args())

@@ -47,13 +47,13 @@ redo it, delete the database or pass `--replace-db`.
 
 ```
 # to obtain the CDS (ignoring phase) you can run
-dump_to_fasta.py --db-path-in <GENUFF_DB> --mode CDS
+dump_to_fasta.py --db-path-in <GENUFF_DB> --mode CDS -o cds.fa
 
 # to obtain the final mRNA sequence you can run
-dump_to_fasta.py --db-path-in <GENUFF_DB> --mode mRNA
+dump_to_fasta.py --db-path-in <GENUFF_DB> --mode mRNA -o mrna.fa
 
 # to obtain the unspliced transcript you can run
-dump_to_fasta.py --db-path-in <GENUFF_DB> --mode pre-mRNA
+dump_to_fasta.py --db-path-in <GENUFF_DB> --mode pre-mRNA -o pre_mrna.fa
 ```
 
 ## extract sequence lengths from a database
