@@ -19,7 +19,7 @@ from typing import BinaryIO, TextIO
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import fasta_lines, gff_feature_lines, setup_logging
+from geenuff.base.helpers import fasta_lines, gff_feature_lines, insert_before_extension, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ MIN_SEQUENCES_FOR_CLUSTERING = 5
 DEFAULT_MIN_SEQ_LEN = 1000
 SEQUENCE_WHITESPACE = b' \t\r\n'
 MAX_LOGGED_IDS = 10
+OUT_SUFFIX = '_length_filtered'  # inserted before the extension of the input files' names by default
 
 
 def fasta_lengths(path: str) -> OrderedDict[str, int]:
@@ -55,6 +56,8 @@ def gap_cluster_ids(lengths: OrderedDict[str, int]) -> set[str]:
     others = sorted(gaps[:max_i] + gaps[max_i + 1:])
     median = others[len(others) // 2]
     mad = sorted(abs(gap - median) for gap in others)[len(others) // 2]
+    # where nearly all lengths are identical (very, very unrealistic for a real assembly), the other
+    # gaps spread by 0 and any gap, however small, stands out
     if (gaps[max_i] - median) / max(mad, 1e-9) < MIN_GAP_RANK:
         return set()
     threshold = (sorted_logs[max_i] + sorted_logs[max_i + 1]) / 2
@@ -87,13 +90,6 @@ def write_gff_without(gff_path: str, out_path: str, removed: set[str]) -> None:
                 seqid = None
             if seqid not in removed:
                 f_out.write(line)
-
-
-def default_out_path(path: str) -> str:
-    """The path with _length_filtered before its extension, e.g. genome.fna.gz -> genome_length_filtered.fna.gz"""
-    gz = '.gz' if path.endswith('.gz') else ''
-    stem, extension = os.path.splitext(path[:len(path) - len(gz)])
-    return f'{stem}_length_filtered{extension}{gz}'
 
 
 def open_out(path: str, binary: bool = False) -> TextIO | BinaryIO:
@@ -170,10 +166,10 @@ def main(args: argparse.Namespace) -> None:
                 f'The removed ones are {min(removed_lengths)}-{max(removed_lengths)} bp long, '
                 f'{sum(removed_lengths)} of {sum(lengths.values())} bp{held}; removed: '
                 f'{", ".join(removed[:MAX_LOGGED_IDS])}' + (f', ... and {more} more' if more > 0 else ''))
-    out_paths = [args.fasta_out or default_out_path(args.fasta)]
+    out_paths = [args.fasta_out or insert_before_extension(args.fasta, OUT_SUFFIX)]
     write_fasta_without(args.fasta, out_paths[0], set(removed))
     if args.gff:
-        out_paths.append(args.gff_out or default_out_path(args.gff))
+        out_paths.append(args.gff_out or insert_before_extension(args.gff, OUT_SUFFIX))
         write_gff_without(args.gff, out_paths[1], set(removed))
     if args.removed_out:
         with open(args.removed_out, 'w') as f:

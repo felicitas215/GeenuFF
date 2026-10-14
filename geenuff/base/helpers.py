@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import logging
 import enum
+import os
 import sys
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
@@ -110,6 +111,14 @@ def get_repr(class_name, params, addition=''):
         return class_name + '[' + param_str + ']'
 
 
+def insert_before_extension(path: str, text: str) -> str:
+    """The path with text inserted before its extension, a final .gz kept last, e.g.
+    genome.fna.gz and _length_filtered give genome_length_filtered.fna.gz."""
+    gz = '.gz' if path.endswith('.gz') else ''
+    stem, extension = os.path.splitext(path[:len(path) - len(gz)])
+    return f'{stem}{text}{extension}{gz}'
+
+
 def setup_logging(log_file: str | None = None) -> None:
     """Logs INFO and above to stdout and, given a path, to that file as well, overwriting it.
 
@@ -137,7 +146,7 @@ def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, 
     the only one of the remaining FASTA IDs containing it (e.g. 'Chr1.v2' for 'Chr1').
 
     Args:
-        fasta_ids: the FASTA sequence IDs, i.e. the headers up to their first space
+        fasta_ids: the FASTA sequence IDs, i.e. the headers up to their first whitespace
         gff_ids: the sequence IDs of the GFF feature lines
 
     Returns:

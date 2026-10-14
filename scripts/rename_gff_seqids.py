@@ -1,8 +1,8 @@
 #! /usr/bin/env python3
 """Rewrites the sequence IDs of a GFF3 file to those of the FASTA file it annotates, for when the
 sequences were renamed after annotation, e.g. on upload to NCBI. A GFF3 sequence ID is paired with
-the FASTA sequence of the same ID (its header line up to the first space), else with the one whose
-full name (the whole header line) contains it as a word, else with the one its genes fit; every
+the FASTA sequence of the same ID (its header line up to the first whitespace), else with the one
+whose full name (the whole header line) contains it as a word, else with the one its genes fit; every
 pair is checked against the sequence, at the start and stop codons and the splice sites the GFF3
 places on it. Lines on sequence IDs without a FASTA sequence are left out. Sequences changed after
 annotation are left out of both files, the FASTA file then being copied without them.
@@ -20,7 +20,7 @@ from typing import TextIO
 
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
-from geenuff.base.helpers import gff_feature_lines, setup_logging
+from geenuff.base.helpers import gff_feature_lines, insert_before_extension, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +232,8 @@ def full_name_words(full_names: dict[str, str]) -> dict[str, list[str]]:
 def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: dict[str, str],
                             full_names: dict[str, str]) -> tuple[dict[str, Pair], dict[str, tuple[str, str]], int]:
     """Pairs each GFF3 sequence ID with the FASTA sequence of the same ID, else the only one whose
-    full name holds it as a word. A pair fails where the GFF3 genes reach past the FASTA sequence,
+    full name holds it as a word and whose ID is no GFF3 sequence ID, which would pair with it by
+    ID. A pair fails where the GFF3 genes reach past the FASTA sequence,
     its ##sequence-region length differs from the FASTA sequence's, or, where the GFF3 sequence has
     at least MIN_DECISIVE_CHECKS checks (a count), fewer than MIN_NAMED_SCORE of them (a share) pass
     in any window of them (see failing_window).
@@ -247,7 +248,7 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
     for gff_id, gff_sequence in gff_sequences.items():
         if gff_id in sequences:
             fasta_id, method = gff_id, 'id'
-        elif len(words.get(gff_id, ())) == 1:
+        elif len(words.get(gff_id, ())) == 1 and words[gff_id][0] not in gff_sequences:
             fasta_id, method = words[gff_id][0], 'full_name'
         else:
             continue
@@ -268,15 +269,20 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
     return pairs, failed, n_tried
 
 
+def share_passed(pair: Pair) -> float:
+    return pair.passed / pair.checks
+
+
 def pair_by_sequence(gff_sequences: dict[str, GffSequence], sequences: dict[str, str],
                      claimed: set[str]) -> tuple[dict[str, Pair], dict[str, str]]:
-    """Pairs each GFF3 sequence ID with the one FASTA sequence its genes fit in and pass at least
-    MIN_SEARCHED_SCORE of their checks on, where a random sequence doing so is unlikely enough for the
-    number of sequences searched.
+    """Pairs each GFF3 sequence ID with the FASTA sequence its genes fit in and pass the largest share
+    of their checks on, at least MIN_SEARCHED_SCORE, where a random sequence doing so is unlikely
+    enough for the number of sequences searched. Where several GFF3 sequence IDs fit one FASTA
+    sequence, the best fitting one pairs with it. A tie is logged and goes to the first.
 
     Returns:
-        the pairs, and {GFF3 sequence ID: claimed FASTA sequence ID} for those whose one fitting
-        sequence was claimed already, i.e. duplicates of another GFF3 sequence
+        the pairs, and {GFF3 sequence ID: FASTA sequence ID} for those whose fitting sequence was
+        claimed already or pairs with a better fitting GFF3 sequence, i.e. duplicates of another
     """
     by_length = sorted((len(seq), fasta_id) for fasta_id, seq in sequences.items())
     lengths = [length for length, _ in by_length]
@@ -297,15 +303,27 @@ def pair_by_sequence(gff_sequences: dict[str, GffSequence], sequences: dict[str,
                 passed = n_passed(sequence, checks)
                 if passed >= min_passed:
                     found.append(Pair(fasta_id, 'sequence', passed, len(checks)))
-        if len(found) == 1:
-            hits[gff_id] = found[0]
+        if found:
+            best = max(found, key=share_passed)
+            tied = [pair.fasta_id for pair in found if share_passed(pair) == share_passed(best)]
+            if len(tied) > 1:
+                logger.warning(f'The genes of GFF3 sequence ID {gff_id} fit the FASTA sequences {", ".join(tied)} '
+                               f'equally well; paired with the first')
+            hits[gff_id] = best
     duplicates = {gff_id: pair.fasta_id for gff_id, pair in hits.items() if pair.fasta_id in claimed}
-    # a FASTA sequence found for two GFF3 sequence IDs pairs with neither
-    n_found = defaultdict(int)
-    for pair in hits.values():
-        n_found[pair.fasta_id] += 1
-    pairs = {gff_id: pair for gff_id, pair in hits.items()
-             if n_found[pair.fasta_id] == 1 and gff_id not in duplicates}
+    by_fasta_id = defaultdict(list)
+    for gff_id, pair in hits.items():
+        if gff_id not in duplicates:
+            by_fasta_id[pair.fasta_id].append(gff_id)
+    pairs = {}
+    for fasta_id, gff_ids in by_fasta_id.items():
+        best = max(gff_ids, key=lambda gff_id: share_passed(hits[gff_id]))
+        tied = [gff_id for gff_id in gff_ids if share_passed(hits[gff_id]) == share_passed(hits[best])]
+        if len(tied) > 1:
+            logger.warning(f'The genes of GFF3 sequence IDs {", ".join(tied)} fit the FASTA sequence {fasta_id} '
+                           f'equally well; paired the first')
+        pairs[best] = hits[best]
+        duplicates.update({gff_id: fasta_id for gff_id in gff_ids if gff_id != best})
     return pairs, duplicates
 
 
@@ -349,8 +367,9 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
         return Pairing(pairs, changed)
     logger.info(f'Searching the FASTA sequences for {len(unpaired)} GFF3 sequence IDs not paired by ID or '
                 f'full name')
-    unclaimable = {pair.fasta_id for pair in pairs.values()} | {fasta_id for fasta_id, _ in changed.values()}
-    searched_pairs, duplicates = pair_by_sequence(unpaired, sequences, unclaimable)
+    # the FASTA sequence of a changed GFF3 sequence may pair with another, whose genes fit it
+    claimed = {pair.fasta_id for pair in pairs.values()}
+    searched_pairs, duplicates = pair_by_sequence(unpaired, sequences, claimed)
     missing = sorted(unpaired.keys() - searched_pairs.keys() - duplicates.keys(),
                      key=lambda gff_id: -gff_sequences[gff_id].coding_transcripts)
     n_missing_coding = sum(gff_sequences[gff_id].coding_transcripts for gff_id in missing)
@@ -386,7 +405,7 @@ def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str]) -> N
     with text_or_gzip_open(fasta_path) as f_in, open_out(out_path) as f_out:
         for line in f_in:
             if line.startswith('>'):
-                keep = line[1:].split(' ')[0].rstrip('\n') not in left_out
+                keep = line[1:].split()[0] not in left_out
             if keep:
                 f_out.write(line)
 
@@ -395,14 +414,11 @@ def open_out(path: str) -> TextIO:
     return gzip.open(path, 'wt', compresslevel=6) if path.endswith('.gz') else open(path, 'w')
 
 
-def fasta_out_path(gff_out_path: str) -> str:
-    """The FASTA copy's path beside the output GFF3 file: its name with .fa(.gz) for .gff3 or .gff."""
-    stem, gz = (gff_out_path[:-3], '.gz') if gff_out_path.endswith('.gz') else (gff_out_path, '')
-    for suffix in ('.gff3', '.gff'):
-        if stem.endswith(suffix):
-            stem = stem[:-len(suffix)]
-            break
-    return f'{stem}.fa{gz}'
+def fasta_out_path(fasta_path: str, gff_out_path: str) -> str:
+    """The FASTA copy's path beside the output GFF3 file: the FASTA file's name with
+    _sequences_dropped before its extension, e.g. genome_sequences_dropped.fna.gz."""
+    return os.path.join(os.path.dirname(gff_out_path),
+                        insert_before_extension(os.path.basename(fasta_path), '_sequences_dropped'))
 
 
 def coding_share(n: int, total: int) -> str:
@@ -435,13 +451,14 @@ def log_summary(gff_sequences: dict[str, GffSequence], pairing: Pairing, gff_nam
     changed_ids = sorted(changed)
     n_lost = log_left_out(changed_ids, 'found in the FASTA file by ID or full name whose FASTA sequence does not fit '
                                        'their genes, likely changed after annotation (e.g. trimmed on upload to '
-                                       'NCBI); their FASTA sequences are left out as well',
+                                       'NCBI); their FASTA sequences are left out as well, unless paired with '
+                                       'another GFF3 sequence ID',
                           'each: ' + '; '.join(f'{gff_id} ({changed[gff_id][0]}): {changed[gff_id][1]}'
                                                for gff_id in changed_ids))
     gff_id_by_fasta_id = {pair.fasta_id: gff_id for gff_id, pair in pairs.items()}
     duplicate_ids = sorted(duplicates)
-    n_lost += log_left_out(duplicate_ids, 'whose genes fit only a FASTA sequence paired with another GFF3 sequence '
-                                          'ID already, likely duplicate sequences removed from the FASTA file',
+    n_lost += log_left_out(duplicate_ids, 'whose genes fit a FASTA sequence paired with another GFF3 sequence ID, '
+                                          'likely duplicate sequences removed from the FASTA file',
                            'e.g. ' + ', '.join(f'{gff_id} (like {gff_id_by_fasta_id[duplicates[gff_id]]})'
                                                for gff_id in duplicate_ids[:5]))
     unpaired = sorted(set(gff_sequences) - pairs.keys() - changed.keys() - duplicates.keys())
@@ -505,7 +522,7 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
     logger.info(f'Reading "{fasta_path}"')
     sequences, full_names = {}, {}
     for full_name, sequence in FastaParser.read_fasta(fasta_path):
-        fasta_id = full_name.split(' ')[0]
+        fasta_id = full_name.split()[0]
         sequences[fasta_id], full_names[fasta_id] = sequence.upper(), full_name
     logger.info(f'Reading "{gff_path}"')
     gff_sequences = read_gff(gff_path)
@@ -520,11 +537,13 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
     log_summary(gff_sequences, pairing, gff_name, fasta_name)
 
     write_gff(gff_path, out_path, pairs)
-    if pairing.changed:
-        fasta_out = fasta_out_path(out_path)
-        write_fasta_without(fasta_path, fasta_out, {fasta_id for fasta_id, _ in pairing.changed.values()})
-        logger.warning(f'Wrote the FASTA file without the {len(pairing.changed)} changed sequences to '
-                       f'"{fasta_out}"; import it with the renamed GFF3 file')
+    # a FASTA sequence paired with one GFF3 sequence ID stays, whichever other one it did not fit
+    dropped = {fasta_id for fasta_id, _ in pairing.changed.values()} - {pair.fasta_id for pair in pairs.values()}
+    if dropped:
+        fasta_out = fasta_out_path(fasta_path, out_path)
+        write_fasta_without(fasta_path, fasta_out, dropped)
+        logger.warning(f'Wrote the FASTA file without the {len(dropped)} changed sequences to "{fasta_out}"; '
+                       f'import it with the renamed GFF3 file')
     if pairs_out_path:
         write_pairs(pairs_out_path, pairs, full_names)
     return gff_sequences, pairing, True
@@ -546,7 +565,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', type=str, required=True,
                         help=('output GFF3 file, gzipped if it ends in .gz; not written when all sequence IDs '
                               'match already. Where sequences changed after annotation are left out, the FASTA '
-                              'file is copied without them beside it, .gff3 or .gff replaced by .fa'))
+                              'file is copied without them beside it, named like the FASTA file with '
+                              '_sequences_dropped before its extension'))
     parser.add_argument('--pairs-out', type=str,
                         help=('TSV file listing each pair made, how, how many of its checks passed and the '
                               'full name of the FASTA sequence'))
@@ -555,4 +575,7 @@ if __name__ == '__main__':
                               'sequence may hold to be left out; above it, nothing is written '
                               f'(default: {100 * MAX_MISSING_SHARE:g})'))
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
-    main(parser.parse_args())
+    args = parser.parse_args()
+    if os.path.realpath(args.out) in {os.path.realpath(args.gff), os.path.realpath(args.fasta)}:
+        parser.error('-o/--out must not be the GFF3 or FASTA input file')
+    main(args)

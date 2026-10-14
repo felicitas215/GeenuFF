@@ -106,10 +106,10 @@ full although exported: `--masked-in-full --exported --output gene_ids`.
 
 ## check_seqids.py
 
-Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first space).
-Where some are not, GeenuFF's import and many other tools fail or leave out the genes on them; the
-warning names them and points to `rename_gff_seqids.py` for sequences renamed after annotation. It
-exits with 1 then, 0 where the IDs match, so it can gate a pipeline.
+Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first
+whitespace). Where some are not, GeenuFF's import and many other tools fail or leave out the genes
+on them; the warning names them and points to `rename_gff_seqids.py` for sequences renamed after
+annotation. It exits with 1 then, 0 where the IDs match, so it can gate a pipeline.
 
 ## rename_gff_seqids.py
 
@@ -119,11 +119,11 @@ uploaded to NCBI, which renames and may trim sequences, beside the GFF3 file mad
 
 Each GFF3 sequence ID is paired with the first FASTA sequence found by:
 
-| by        | FASTA sequence                                                               |
-|-----------|------------------------------------------------------------------------------|
-| ID        | of the same ID (its header line up to the first space)                       |
-| full name | whose whole header line holds the GFF3 ID as a word, e.g. `scaffold_12`      |
-| sequence  | the only one the genes fit, where they have enough checks to rule out chance |
+| by        | FASTA sequence                                                                                                         |
+|-----------|------------------------------------------------------------------------------------------------------------------------|
+| ID        | of the same ID (its header line up to the first whitespace)                                                            |
+| full name | whose whole header line holds the GFF3 ID as a word, e.g. `scaffold_12`                                                |
+| sequence  | the one the genes fit best, where they have enough checks to rule out chance; a tie is logged and goes to the first    |
 
 A check is one position where the GFF3 file places a start codon (ATG), a stop codon (TAA, TAG,
 TGA, also right after the CDS as in GFF3 converted from GTF) or an intron end (GT or GC, AG), so a
@@ -139,15 +139,15 @@ insertion shifts every check after it, so a window shows it wherever it lies bef
 With 20 checks a wrong sequence passes half in about 2 of a million cases; a right one whose
 annotation passes only 70% fails in about 2%.
 
-| case                                                                                                | result                                                                                                                                               |
-|-----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| all IDs match and fit                                                                               | checked only, no file written                                                                                                                        |
-| sequences changed after annotation, up to 5% of the coding transcripts                              | these are left out of the GFF3 and FASTA files, listed in a warning; the FASTA copy without them is written beside the output GFF3 file (`.fa(.gz)`) |
-| GFF3 IDs with no FASTA sequence, up to 15% of the coding transcripts lost (`--max-missing-percent`) | these lines are left out, counted in a warning                                                                                                       |
-| GFF3 IDs whose genes fit only a FASTA sequence paired already                                       | left out as duplicates, counted apart                                                                                                                |
-| most pairs by ID or full name not fitting                                                           | error: the files belong to different assemblies                                                                                                      |
-| coding transcripts changed above 5% or missing above 15%                                            | error, nothing written                                                                                                                               |
-| stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                       |
+| case                                                                                                | result                                                                                                                                                                                              |
+|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| all IDs match and fit                                                                               | checked only, no file written                                                                                                                                                                       |
+| sequences changed after annotation, up to 5% of the coding transcripts                              | these are left out of the GFF3 and FASTA files, listed in a warning; the FASTA copy without them is written beside the output GFF3 file, e.g. `genome_sequences_dropped.fna.gz` for `genome.fna.gz` |
+| GFF3 IDs with no FASTA sequence, up to 15% of the coding transcripts lost (`--max-missing-percent`) | these lines are left out, counted in a warning                                                                                                                                                      |
+| GFF3 IDs whose genes fit a FASTA sequence paired with another GFF3 ID                               | left out as duplicates, counted apart                                                                                                                                                               |
+| most pairs by ID or full name not fitting                                                           | error: the files belong to different assemblies                                                                                                                                                     |
+| coding transcripts changed above 5% or missing above 15%                                            | error, nothing written                                                                                                                                                                              |
+| stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                                                                      |
 
 Every warning gives the share of coding transcripts lost. `--pairs-out` writes every pair with its
 method, checks passed and FASTA full name.
@@ -191,7 +191,9 @@ file and their lines from its GFF3 file before import:
 | sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                                                                                                                           |
 
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
-The output files default to the input files' names with `_length_filtered` before the extension,
+With a very unusual length distribution, e.g. nearly all sequences of one length, the cluster can
+be a sequence barely shorter than the rest; the log lists what was removed, and `--no-adaptive`, or
+not filtering at all, keeps it. The output files default to the input files' names with `_length_filtered` before the extension,
 e.g. `genome.fna.gz` gives `genome_length_filtered.fna.gz`; `--fasta-out` and `--gff-out` set
 others. The log gives the removed sequences, their length range and the coding genes and
 transcripts on them, genes being the better measure of the training data lost as GeenuFF exports

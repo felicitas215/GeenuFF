@@ -120,11 +120,11 @@ stop codon.
 
 ##### matching sequence IDs
 
-Each GFF sequence ID is paired with the identical FASTA ID (the header up to its first space), else
-with the only FASTA ID containing it (`Chr1` with `Chr1.v2`), which the import logs as a warning.
-A GFF ID matching no FASTA ID or several stops the import with an error listing them. Two GFF IDs
-contained in the same FASTA ID are an error as well, and reading the GFF stops at a `##FASTA` line
-or a line starting with `>`.
+Each GFF sequence ID is paired with the identical FASTA ID (the header up to its first
+whitespace), else with the only FASTA ID containing it (`Chr1` with `Chr1.v2`), which the import
+logs as a warning. A GFF ID matching no FASTA ID or several stops the import with an error listing
+them. Two GFF IDs contained in the same FASTA ID are an error as well, and reading the GFF stops at
+a `##FASTA` line or a line starting with `>`.
 
 ##### lines outside their sequence
 

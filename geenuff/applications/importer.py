@@ -1912,11 +1912,11 @@ class FastaImporter(object):
                                    genome=self.genome)
             logger.info(f'Added coordinate object for FASTA sequence with seqid {seqid} to the queue')
 
-    def parse_fasta(self, seq_file, id_delim=' '):
+    def parse_fasta(self, seq_file):
         fp = fastahelper.FastaParser()
         for fasta_header, seq in fp.read_fasta(seq_file):
             seq = seq.upper()  # this may perform poorly
-            seqid = fasta_header.split(id_delim)[0]
+            seqid = fasta_header.split()[0]
             yield seqid, seq
 
 

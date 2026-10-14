@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 """Checks whether the sequence IDs of a GFF3 file are those of its FASTA file (the header up to the
-first space). Where they are not, GeenuFF's import and many other tools fail or leave the genes on
+first whitespace). Where they are not, GeenuFF's import and many other tools fail or leave the genes on
 those sequences out; the log says what to check. Exits with 1 where IDs do not match, 0 otherwise.
 """
 import argparse
