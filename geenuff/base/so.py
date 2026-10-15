@@ -1,6 +1,8 @@
 from geenuff.base.helpers import make_enum
 
-_so_version = '2.5.3'
+# data-version of so.obo; terms of the older release 2.5.3 that SO renamed or made obsolete stay, as
+# older GFF3 files still use them
+_so_version = '2026-08-07'
 
 HISTIDYL_TRNA = "histidyl_tRNA"
 C_D_BOX_SNORNA_PRIMARY_TRANSCRIPT = "C_D_box_snoRNA_primary_transcript"
@@ -1596,9 +1598,857 @@ H2AK5_ACETYLATION_SITE = "H2AK5_acetylation_site"
 MIRTRON = "miRtron"
 H3K36_METHYLATION_SITE = "H3K36_methylation_site"
 T7_RNA_POLYMERASE_PROMOTER = "T7_RNA_Polymerase_Promoter"
+_2A_SELF_CLEAVING_PEPTIDE_REGION = "2A_self_cleaving_peptide_region"
+_2KB_DOWNSTREAM_VARIANT = "2KB_downstream_variant"
+_2KB_UPSTREAM_VARIANT = "2KB_upstream_variant"
+_3D_POLYPEPTIDE_STRUCTURE_VARIANT = "3D_polypeptide_structure_variant"
+_3_PRIME_UTR_ELONGATION = "3_prime_UTR_elongation"
+_3_PRIME_UTR_EXON_VARIANT = "3_prime_UTR_exon_variant"
+_3_PRIME_UTR_INTRON_VARIANT = "3_prime_UTR_intron_variant"
+_3_PRIME_UTR_TRUNCATION = "3_prime_UTR_truncation"
+_3_PRIME_UTR_VARIANT = "3_prime_UTR_variant"
+_500B_DOWNSTREAM_VARIANT = "500B_downstream_variant"
+_5KB_DOWNSTREAM_VARIANT = "5KB_downstream_variant"
+_5KB_UPSTREAM_VARIANT = "5KB_upstream_variant"
+_5S_SINE_RETROTRANSPOSON = "5S_SINE_retrotransposon"
+_5_PRIME_UTR_ELONGATION = "5_prime_UTR_elongation"
+_5_PRIME_UTR_EXON_VARIANT = "5_prime_UTR_exon_variant"
+_5_PRIME_UTR_INTRON_VARIANT = "5_prime_UTR_intron_variant"
+_5_PRIME_UTR_PREMATURE_START_CODON_GAIN_VARIANT = "5_prime_UTR_premature_start_codon_gain_variant"
+_5_PRIME_UTR_PREMATURE_START_CODON_LOSS_VARIANT = "5_prime_UTR_premature_start_codon_loss_variant"
+_5_PRIME_UTR_PREMATURE_START_CODON_VARIANT = "5_prime_UTR_premature_start_codon_variant"
+_5_PRIME_UTR_TRUNCATION = "5_prime_UTR_truncation"
+_5_PRIME_UTR_UORF_FRAMESHIFT_VARIANT = "5_prime_UTR_uORF_frameshift_variant"
+_5_PRIME_UTR_UORF_STOP_CODON_GAIN_VARIANT = "5_prime_UTR_uORF_stop_codon_gain_variant"
+_5_PRIME_UTR_UORF_STOP_CODON_LOSS_VARIANT = "5_prime_UTR_uORF_stop_codon_loss_variant"
+_5_PRIME_UTR_UORF_STOP_CODON_VARIANT = "5_prime_UTR_uORF_stop_codon_variant"
+_5_PRIME_UTR_UORF_VARIANT = "5_prime_UTR_uORF_variant"
+_5_PRIME_UTR_VARIANT = "5_prime_UTR_variant"
+_7SL_SINE_RETROTRANSPOSON = "7SL_SINE_retrotransposon"
+AUG_INITIATED_UORF = "AUG_initiated_uORF"
+ALU_DELETION = "Alu_deletion"
+ALU_INSERTION = "Alu_insertion"
+BEL_PAO_LTR_RETROTRANSPOSON = "Bel_Pao_LTR_retrotransposon"
+C_D_H_ACA_BOX_SCARNA = "C-D_H_ACA_box_scaRNA"
+C_D_H_ACA_BOX_SCARNA_GENE = "C-D_H_ACA_box_scaRNA_gene"
+CAAX_BOX = "CAAX_box"
+CACTA_TIR_TRANSPOSON = "CACTA_TIR_transposon"
+CARG_BOX = "CArG_box"
+CDS_EXTENSION = "CDS_extension"
+CDS_FIVE_PRIME_EXTENSION = "CDS_five_prime_extension"
+CDS_SUPPORTED_BY_PEPTIDE_SPECTRUM_MATCH = "CDS_supported_by_peptide_spectrum_match"
+CDS_THREE_PRIME_EXTENSION = "CDS_three_prime_extension"
+C_D_BOX_SCARNA = "C_D_box_scaRNA"
+C_D_BOX_SCARNA_GENE = "C_D_box_scaRNA_gene"
+C_D_BOX_SNORNA_ENCODING = "C_D_box_snoRNA_encoding"
+C_D_BOX_SNORNA_GENE = "C_D_box_snoRNA_gene"
+COPIA_LTR_RETROTRANSPOSON = "Copia_LTR_retrotransposon"
+CRICK_STRAND = "Crick_strand"
+CRYPTON_YR_TRANSPOSON = "Crypton_YR_transposon"
+DIRS_YR_RETROTRANSPOSON = "DIRS_YR_retrotransposon"
+DNA = "DNA"
+DNA_LOOP = "DNA_loop"
+DNA_LOOP_ANCHOR = "DNA_loop_anchor"
+DNASEI_HYPERSENSITIVE_SITE_CURRENT_SPELLING = "DNaseI_hypersensitive_site"
+ENDOGENOUS_RETROVIRUS_LTR_RETROTRANSPOSON = "Endogenous_Retrovirus_LTR_retrotransposon"
+FRT_FLANKED = "FRT_flanked"
+GNA = "GNA"
+GYPSY_LTR_RETROTRANSPOSON = "Gypsy_LTR_retrotransposon"
+H2AZK11_ACETYLATION_SITE = "H2AZK11_acetylation_site"
+H2AZK13_ACETYLATION_SITE = "H2AZK13_acetylation_site"
+H2AZK15_ACETYLATION_SITE = "H2AZK15_acetylation_site"
+H2AZK4_ACETYLATION_SITE = "H2AZK4_acetylation_site"
+H2AZK7_ACETYLATION_SITE = "H2AZK7_acetylation_site"
+H2BK5_ACETYLATION_SITE = "H2BK5_acetylation_site"
+H3K23_ACETYLATION_SITE = "H3K23_acetylation_site"
+H3K4_ACETYLATION_SITE = "H3K4_acetylation_site"
+H4K16_ACETYLATION_SITE = "H4K16_acetylation_site"
+H4K5_ACETYLATION_SITE = "H4K5_acetylation_site"
+H4K8_ACETYLATION_SITE = "H4K8_acetylation_site"
+HERV_DELETION = "HERV_deletion"
+HERV_INSERTION = "HERV_insertion"
+H_ACA_BOX_SCARNA = "H_ACA_box_scaRNA"
+H_ACA_BOX_SCARNA_GENE = "H_ACA_box_scaRNA_gene"
+H_ACA_BOX_SNORNA_ENCODING = "H_ACA_box_snoRNA_encoding"
+H_ACA_BOX_SNORNA_GENE = "H_ACA_box_snoRNA_gene"
+IG_C_GENE = "IG_C_gene"
+IG_C_PSEUDOGENE = "IG_C_pseudogene"
+IG_D_GENE = "IG_D_gene"
+IG_J_GENE = "IG_J_gene"
+IG_J_PSEUDOGENE = "IG_J_pseudogene"
+IG_V_GENE = "IG_V_gene"
+IG_V_PSEUDOGENE = "IG_V_pseudogene"
+I_LINE_RETROTRANSPOSON = "I_LINE_retrotransposon"
+JOCKEY_LINE_RETROTRANSPOSON = "Jockey_LINE_retrotransposon"
+L1_LINE_RETROTRANSPOSON = "L1_LINE_retrotransposon"
+LARD = "LARD"
+LINE1_DELETION = "LINE1_deletion"
+LINE1_INSERTION = "LINE1_insertion"
+LNA = "LNA"
+LOZ1_RESPONSE_ELEMENT = "LOZ1_response_element"
+MNV_ARTIFACT = "MNV_artifact"
+MAT2P = "Mat2P"
+MAT3M = "Mat3M"
+MERLIN_TIR_TRANSPOSON = "Merlin_TIR_transposon"
+MUTATOR_TIR_TRANSPOSON = "Mutator_TIR_transposon"
+NMD_ESCAPING_VARIANT = "NMD_escaping_variant"
+NMD_POLYMORPHIC_PSEUDOGENE_TRANSCRIPT = "NMD_polymorphic_pseudogene_transcript"
+NMD_TRANSCRIPT = "NMD_transcript"
+NMD_TRANSCRIPT_VARIANT = "NMD_transcript_variant"
+NMD_TRIGGERING_VARIANT = "NMD_triggering_variant"
+NSD_TRANSCRIPT = "NSD_transcript"
+NGARO_YR_RETROTRANSPOSON = "Ngaro_YR_retrotransposon"
+PIF_HARBINGER_TIR_TRANSPOSON = "PIF_Harbinger_TIR_transposon"
+PNA = "PNA"
+P_TIR_TRANSPOSON = "P_TIR_transposon"
+PENELOPE_RETROTRANSPOSON = "Penelope_retrotransposon"
+PHO7_BINDING_SITE = "Pho7_binding_site"
+R2_LINE_RETROTRANSPOSON = "R2_LINE_retrotransposon"
+RNA = "RNA"
+RNA_7SK = "RNA_7SK"
+RNA_7SK_GENE = "RNA_7SK_gene"
+RNA_THERMOMETER = "RNA_thermometer"
+RTE_LINE_RETROTRANSPOSON = "RTE_LINE_retrotransposon"
+R_GNA = "R_GNA"
+RETROVIRUS_LTR_RETROTRANSPOSON = "Retrovirus_LTR_retrotransposon"
+ROBERTSONIAN_FUSION = "Robertsonian_fusion"
+SHP_BOX = "SHP_box"
+SNV_ARTIFACT = "SNV_artifact"
+SRP_RNA_ENCODING = "SRP_RNA_encoding"
+SUMO_INTERACTION_MOTIF = "SUMO_interaction_motif"
+SVA_DELETION = "SVA_deletion"
+SVA_INSERTION = "SVA_insertion"
+S_GNA = "S_GNA"
+TFBS_ABLATION = "TFBS_ablation"
+TFBS_AMPLIFICATION = "TFBS_amplification"
+TFBS_FUSION = "TFBS_fusion"
+TFBS_TRANSLOCATION = "TFBS_translocation"
+TFRS_COLLECTION = "TFRS_collection"
+TFRS_MODULE = "TFRS_module"
+TF_BINDING_SITE_VARIANT = "TF_binding_site_variant"
+TNA = "TNA"
+TRIM = "TRIM"
+TR_C_GENE = "TR_C_Gene"
+TR_D_GENE = "TR_D_Gene"
+TR_J_GENE = "TR_J_Gene"
+TR_J_PSEUDOGENE = "TR_J_pseudogene"
+TR_V_GENE = "TR_V_Gene"
+TR_V_PSEUDOGENE = "TR_V_pseudogene"
+T_CELL_RECEPTOR_GENE = "T_cell_receptor_gene"
+T_CELL_RECEPTOR_PSEUDOGENE = "T_cell_receptor_pseudogene"
+TC1_MARINER_TIR_TRANSPOSON = "Tc1_Mariner_TIR_transposon"
+TRANSIB_TIR_TRANSPOSON = "Transib_TIR_transposon"
+U14_SNORNA_GENE = "U14_snoRNA_gene"
+U3_SNORNA_GENE = "U3_snoRNA_gene"
+U7_SNRNA = "U7_snRNA"
+UNAAAC_MOTIF = "UNAAAC_motif"
+UTR_VARIANT = "UTR_variant"
+VIPER_YR_RETROTRANSPOSON = "Viper_YR_retrotransposon"
+WATSON_STRAND = "Watson_strand"
+YR_RETROTRANSPOSON = "YR_retrotransposon"
+Y_RNA_GENE = "Y_RNA_gene"
+ZAS1_RECOGNITION_MOTIF = "Zas1_recognition_motif"
+ABOLISHED_TRANSCRIPTION_LEVEL_VARIANT = "abolished_transcription_level_variant"
+ABSENT_GENE_PRODUCT = "absent_gene_product"
+ACCESSIBLE_DNA_REGION = "accessible_DNA_region"
+ALLELE = "allele"
+ALLELIC_FREQUENCY = "allelic_frequency"
+ALLELIC_PSEUDOGENE = "allelic_pseudogene"
+ALLELIC_PSEUDOGENIC_RRNA = "allelic_pseudogenic_rRNA"
+ALLELIC_PSEUDOGENIC_TRNA = "allelic_pseudogenic_tRNA"
+ALLELICALLY_EXCLUDED = "allelically_excluded"
+ALLOPOLYPLOID = "allopolyploid"
+ALTERATION_ATTRIBUTE = "alteration_attribute"
+ALTERED_GENE_PRODUCT_LEVEL = "altered_gene_product_level"
+ALTERED_GENE_PRODUCT_SEQUENCE = "altered_gene_product_sequence"
+ALTERNATIVELY_SPLICED = "alternatively_spliced"
+AMBER_STOP_CODON = "amber_stop_codon"
+AMINO_ACID_DELETION = "amino_acid_deletion"
+AMINO_ACID_INSERTION = "amino_acid_insertion"
+AMINO_ACID_SUBSTITUTION = "amino_acid_substitution"
+ANEUPLOID = "aneuploid"
+ANEUPLOID_CHROMOSOME = "aneuploid_chromosome"
+ANNOTATION_DIRECTED_IMPROVED_DRAFT = "annotation_directed_improved_draft"
+ANTISENSE = "antisense"
+ANTISENSE_LNCRNA_GENE = "antisense_lncRNA_gene"
+APICOPLAST_SEQUENCE = "apicoplast_sequence"
+ASSORTMENT_DERIVED_ANEUPLOID = "assortment_derived_aneuploid"
+ASSORTMENT_DERIVED_DEFICIENCY = "assortment_derived_deficiency"
+ASSORTMENT_DERIVED_DEFICIENCY_PLUS_DUPLICATION = "assortment_derived_deficiency_plus_duplication"
+ASSORTMENT_DERIVED_DUPLICATION = "assortment_derived_duplication"
+ASSORTMENT_DERIVED_VARIATION = "assortment_derived_variation"
+AUTOPOLYPLOID = "autopolyploid"
+AUTOREGULATED = "autoregulated"
+AUTOSYNAPTIC_CHROMOSOME = "autosynaptic_chromosome"
+BACTERIAL_RNAPOL_PROMOTER_SIGMA54_ELEMENT = "bacterial_RNApol_promoter_sigma54_element"
+BACTERIAL_RNAPOL_PROMOTER_SIGMA_70_ELEMENT = "bacterial_RNApol_promoter_sigma_70_element"
+BACTERIAL_RNAPOL_PROMOTER_SIGMA_ECF_ELEMENT = "bacterial_RNApol_promoter_sigma_ecf_element"
+BENIGN_VARIANT = "benign_variant"
+BIDIRECTIONAL_GENE_FUSION = "bidirectional_gene_fusion"
+BIDIRECTIONAL_PROMOTER_LNCRNA = "bidirectional_promoter_lncRNA"
+BIDIRECTIONAL_PROMOTER_LNCRNA_GENE = "bidirectional_promoter_lncRNA_gene"
+BIOSYNTHETIC_GENE_CLUSTER = "biosynthetic_gene_cluster"
+BIPARTITE_DUPLICATION = "bipartite_duplication"
+BIPARTITE_INVERSION = "bipartite_inversion"
+BOUND_BY_FACTOR = "bound_by_factor"
+BOUND_BY_NUCLEIC_ACID = "bound_by_nucleic_acid"
+BOUND_BY_PROTEIN = "bound_by_protein"
+CDNA = "cDNA"
+CAPPED = "capped"
+CASSETTE_ARRAY_MEMBER = "cassette_array_member"
+CELLULAR_MISLOCALIZATION_VARIANT = "cellular_mislocalization_variant"
+CHLOROPLAST_DNA = "chloroplast_DNA"
+CHLOROPLAST_SEQUENCE = "chloroplast_sequence"
+CHROMATIN_REGULATORY_REGION = "chromatin_regulatory_region"
+CHROMOPLAST_SEQUENCE = "chromoplast_sequence"
+CHROMOSOMAL_DELETION = "chromosomal_deletion"
+CHROMOSOMAL_DUPLICATION = "chromosomal_duplication"
+CHROMOSOMAL_INVERSION = "chromosomal_inversion"
+CHROMOSOMAL_TRANSLOCATION = "chromosomal_translocation"
+CHROMOSOMAL_TRANSPOSITION = "chromosomal_transposition"
+CHROMOSOMAL_VARIATION_ATTRIBUTE = "chromosomal_variation_attribute"
+CHROMOSOMALLY_ABERRANT_GENOME = "chromosomally_aberrant_genome"
+CHROMOSOME_FISSION = "chromosome_fission"
+CHROMOSOME_NUMBER_VARIATION = "chromosome_number_variation"
+CHROMOSOME_STRUCTURE_VARIATION = "chromosome_structure_variation"
+CHROMOSOME_VARIATION = "chromosome_variation"
+CIRCULAR = "circular"
+CIRCULAR_MRNA = "circular_mRNA"
+CIRCULAR_NCRNA = "circular_ncRNA"
+CIRCULAR_PLASMID = "circular_plasmid"
+CIS_REGULATORY_MODULE = "cis_regulatory_module"
+CODING_SEQUENCE_VARIANT = "coding_sequence_variant"
+CODING_TRANSCRIPT_INTRON_VARIANT = "coding_transcript_intron_variant"
+CODING_TRANSCRIPT_VARIANT = "coding_transcript_variant"
+CODING_TRANSCRIPT_WITH_RETAINED_INTRON = "coding_transcript_with_retained_intron"
+CODING_VARIANT_QUALITY = "coding_variant_quality"
+CODON_REDEFINED = "codon_redefined"
+COMMON_FRAGILE_SITE = "common_fragile_site"
+COMMON_VARIANT = "common_variant"
+COMPENSATORY_TRANSCRIPT_SECONDARY_STRUCTURE_VARIANT = "compensatory_transcript_secondary_structure_variant"
+COMPLEX_3D_STRUCTURAL_VARIANT = "complex_3D_structural_variant"
+COMPLEX_CHANGE_OF_TRANSLATIONAL_PRODUCT_VARIANT = "complex_change_of_translational_product_variant"
+COMPLEX_CHROMOSOMAL_REARRANGEMENT = "complex_chromosomal_rearrangement"
+COMPLEX_OPERON = "complex_operon"
+COMPLEX_REGULON = "complex_regulon"
+COMPLEX_TRANSCRIPT_VARIANT = "complex_transcript_variant"
+COMPOUND_CHROMOSOME = "compound_chromosome"
+COMPOUND_CHROMOSOME_ARM = "compound_chromosome_arm"
+CONFORMATIONAL_CHANGE_VARIANT = "conformational_change_variant"
+CONSENSUS = "consensus"
+CONSERVATIVE_AMINO_ACID_SUBSTITUTION = "conservative_amino_acid_substitution"
+CONSERVATIVE_INFRAME_DELETION = "conservative_inframe_deletion"
+CONSERVATIVE_INFRAME_INSERTION = "conservative_inframe_insertion"
+CONSERVATIVE_MISSENSE_VARIANT = "conservative_missense_variant"
+CONSERVED = "conserved"
+CONSERVED_INTERGENIC_VARIANT = "conserved_intergenic_variant"
+CONSERVED_INTRON_VARIANT = "conserved_intron_variant"
+COPY_NUMBER_CHANGE = "copy_number_change"
+COPY_NUMBER_DECREASE = "copy_number_decrease"
+COPY_NUMBER_INCREASE = "copy_number_increase"
+CORE_EUKARYOTIC_PROMOTER_ELEMENT = "core_eukaryotic_promoter_element"
+CORE_PROKARYOTIC_PROMOTER_ELEMENT = "core_prokaryotic_promoter_element"
+CORE_VIRAL_PROMOTER_ELEMENT = "core_viral_promoter_element"
+CRYPTIC = "cryptic"
+CRYPTIC_PROMOTER = "cryptic_promoter"
+CRYPTIC_SPLICE_ACCEPTOR = "cryptic_splice_acceptor"
+CRYPTIC_SPLICE_DONOR = "cryptic_splice_donor"
+CRYPTIC_SPLICE_SITE_VARIANT = "cryptic_splice_site_variant"
+CYANELLE_SEQUENCE = "cyanelle_sequence"
+CYCLIC_TRANSLOCATION = "cyclic_translocation"
+CYTOSOLIC_16S_RRNA = "cytosolic_16S_rRNA"
+CYTOSOLIC_18S_RRNA = "cytosolic_18S_rRNA"
+CYTOSOLIC_23S_RRNA = "cytosolic_23S_rRNA"
+CYTOSOLIC_25S_RRNA = "cytosolic_25S_rRNA"
+CYTOSOLIC_28S_RRNA = "cytosolic_28S_rRNA"
+CYTOSOLIC_2S_RRNA = "cytosolic_2S_rRNA"
+CYTOSOLIC_5S_RRNA = "cytosolic_5S_rRNA"
+CYTOSOLIC_5_8S_RRNA = "cytosolic_5_8S_rRNA"
+CYTOSOLIC_LSU_RRNA = "cytosolic_LSU_rRNA"
+CYTOSOLIC_LSU_RRNA_GENE = "cytosolic_LSU_rRNA_gene"
+CYTOSOLIC_SSU_RRNA = "cytosolic_SSU_rRNA"
+CYTOSOLIC_SSU_RRNA_GENE = "cytosolic_SSU_rRNA_gene"
+CYTOSOLIC_RRNA = "cytosolic_rRNA"
+CYTOSOLIC_RRNA_16S_GENE = "cytosolic_rRNA_16S_gene"
+CYTOSOLIC_RRNA_18S_GENE = "cytosolic_rRNA_18S_gene"
+CYTOSOLIC_RRNA_23S_GENE = "cytosolic_rRNA_23S_gene"
+CYTOSOLIC_RRNA_25S_GENE = "cytosolic_rRNA_25S_gene"
+CYTOSOLIC_RRNA_28S_GENE = "cytosolic_rRNA_28S_gene"
+CYTOSOLIC_RRNA_2S_GENE = "cytosolic_rRNA_2S_gene"
+CYTOSOLIC_RRNA_5S_GENE = "cytosolic_rRNA_5S_gene"
+CYTOSOLIC_RRNA_5_8S_GENE = "cytosolic_rRNA_5_8S_gene"
+CYTOSOLIC_RRNA_GENE = "cytosolic_rRNA_gene"
+DE_NOVO_VARIANT = "de_novo_variant"
+DECREASED_ENZYME_ACTIVITY_VARIANT = "decreased_enzyme_activity_variant"
+DECREASED_GENE_PRODUCT_LEVEL = "decreased_gene_product_level"
+DECREASED_POLYADENYLATION_VARIANT = "decreased_polyadenylation_variant"
+DECREASED_POLYPEPTIDE_LEVEL = "decreased_polypeptide_level"
+DECREASED_TRANSCRIPT_LEVEL_VARIANT = "decreased_transcript_level_variant"
+DECREASED_TRANSCRIPT_STABILITY_VARIANT = "decreased_transcript_stability_variant"
+DECREASED_TRANSCRIPTION_RATE_VARIANT = "decreased_transcription_rate_variant"
+DECREASED_TRANSLATIONAL_PRODUCT_LEVEL = "decreased_translational_product_level"
+DEFICIENT_INTERCHROMOSOMAL_TRANSPOSITION = "deficient_interchromosomal_transposition"
+DEFICIENT_INTRACHROMOSOMAL_TRANSPOSITION = "deficient_intrachromosomal_transposition"
+DEFICIENT_INVERSION = "deficient_inversion"
+DEFICIENT_TRANSLOCATION = "deficient_translocation"
+DELETION_ARTIFACT = "deletion_artifact"
+DELINS = "delins"
+DESIGNED_SEQUENCE = "designed_sequence"
+DEXTROSYNAPTIC_CHROMOSOME = "dextrosynaptic_chromosome"
+DICISTRONIC = "dicistronic"
+DIPLOTYPE = "diplotype"
+DIRECT = "direct"
+DIRECTION_ATTRIBUTE = "direction_attribute"
+DISEASE_ASSOCIATED_VARIANT = "disease_associated_variant"
+DISEASE_CAUSING_VARIANT = "disease_causing_variant"
+DISRUPTIVE_INFRAME_DELETION = "disruptive_inframe_deletion"
+DISRUPTIVE_INFRAME_INSERTION = "disruptive_inframe_insertion"
+DOMINANT_NEGATIVE_VARIANT = "dominant_negative_variant"
+DOUBLE = "double"
+DOUBLE_STRANDED_CDNA = "double_stranded_cDNA"
+DOWNSTREAM_GENE_VARIANT = "downstream_gene_variant"
+DOWNSTREAM_INTERGENIC_FUSION = "downstream_intergenic_fusion"
+DOWNSTREAM_TRANSCRIPT_VARIANT = "downstream_transcript_variant"
+DUPLICATION_ARTIFACT = "duplication_artifact"
+DUPLICATION_ATTRIBUTE = "duplication_attribute"
+EARLY_ORIGIN_OF_REPLICATION = "early_origin_of_replication"
+EDITED = "edited"
+EDITING_VARIANT = "editing_variant"
+ELONGATED_IN_FRAME_POLYPEPTIDE_C_TERMINAL = "elongated_in_frame_polypeptide_C_terminal"
+ELONGATED_IN_FRAME_POLYPEPTIDE_N_TERMINAL_ELONGATION = "elongated_in_frame_polypeptide_N_terminal_elongation"
+ELONGATED_OUT_OF_FRAME_POLYPEPTIDE_C_TERMINAL = "elongated_out_of_frame_polypeptide_C_terminal"
+ELONGATED_OUT_OF_FRAME_POLYPEPTIDE_N_TERMINAL = "elongated_out_of_frame_polypeptide_N_terminal"
+ELONGATED_POLYPEPTIDE = "elongated_polypeptide"
+ELONGATED_POLYPEPTIDE_C_TERMINAL = "elongated_polypeptide_C_terminal"
+ELONGATED_POLYPEPTIDE_N_TERMINAL = "elongated_polypeptide_N_terminal"
+ENCODES_1_POLYPEPTIDE = "encodes_1_polypeptide"
+ENCODES_ALTERNATE_TRANSCRIPTION_START_SITES = "encodes_alternate_transcription_start_sites"
+ENCODES_ALTERNATELY_SPLICED_TRANSCRIPTS = "encodes_alternately_spliced_transcripts"
+ENCODES_DIFFERENT_POLYPEPTIDES_DIFFERENT_STOP = "encodes_different_polypeptides_different_stop"
+ENCODES_DISJOINT_POLYPEPTIDES = "encodes_disjoint_polypeptides"
+ENCODES_GREATER_THAN_1_POLYPEPTIDE = "encodes_greater_than_1_polypeptide"
+ENCODES_OVERLAPPING_PEPTIDES = "encodes_overlapping_peptides"
+ENCODES_OVERLAPPING_PEPTIDES_DIFFERENT_START = "encodes_overlapping_peptides_different_start"
+ENCODES_OVERLAPPING_POLYPEPTIDES_DIFFERENT_START_AND_STOP = "encodes_overlapping_polypeptides_different_start_and_stop"
+ENDOGENOUS_RETROVIRAL_SEQUENCE = "endogenous_retroviral_sequence"
+ENGINEERED = "engineered"
+ENHANCER_BLOCKING_ELEMENT = "enhancer_blocking_element"
+ENZYMATIC = "enzymatic"
+ENZYMATIC_RNA_GENE = "enzymatic_RNA_gene"
+EPIGENETICALLY_MODIFIED = "epigenetically_modified"
+EPIGENOMICALLY_MODIFIED_REGION = "epigenomically_modified_region"
+EUKARYOTIC_PROMOTER = "eukaryotic_promoter"
+EXEMPLAR = "exemplar"
+EXON_LOSS_VARIANT = "exon_loss_variant"
+EXON_VARIANT = "exon_variant"
+EXONIC_SPLICE_REGION_VARIANT = "exonic_splice_region_variant"
+EXPERIMENTAL_FEATURE_ATTRIBUTE = "experimental_feature_attribute"
+EXPERIMENTALLY_DETERMINED = "experimentally_determined"
+EXTENDED_INTRONIC_SPLICE_REGION_VARIANT = "extended_intronic_splice_region_variant"
+FEATURE_ABLATION = "feature_ablation"
+FEATURE_AMPLIFICATION = "feature_amplification"
+FEATURE_ATTRIBUTE = "feature_attribute"
+FEATURE_ELONGATION = "feature_elongation"
+FEATURE_FUSION = "feature_fusion"
+FEATURE_TRANSLOCATION = "feature_translocation"
+FEATURE_TRUNCATION = "feature_truncation"
+FEATURE_VARIANT = "feature_variant"
+FINISHED_GENOME = "finished_genome"
+FIVE_PRIME_UTR_PREMATURE_START_CODON_LOCATION_VARIANT = "five_prime_UTR_premature_start_codon_location_variant"
+FIVE_PRIME_DUPLICATED_TRANSCRIPT = "five_prime_duplicated_transcript"
+FIVE_PRIME_FIVE_PRIME_OVERLAP = "five_prime_five_prime_overlap"
+FIVE_PRIME_GENE_FUSION = "five_prime_gene_fusion"
+FIVE_PRIME_THREE_PRIME_OVERLAP = "five_prime_three_prime_overlap"
+FIXED_VARIANT = "fixed_variant"
+FLANKED = "flanked"
+FLANKING_REPEAT = "flanking_repeat"
+FLOXED = "floxed"
+FOREIGN = "foreign"
+FORWARD = "forward"
+FRAGILE_SITE = "fragile_site"
+FRAGMENTARY = "fragmentary"
+FRAME_RESTORING_VARIANT = "frame_restoring_variant"
+FRAMESHIFT = "frameshift"
+FRAMESHIFT_ELONGATION = "frameshift_elongation"
+FRAMESHIFT_TRUNCATION = "frameshift_truncation"
+FRAMESHIFT_UNIDIRECTIONAL_GENE_FUSION = "frameshift_unidirectional_gene_fusion"
+FRAMESHIFT_VARIANT = "frameshift_variant"
+FRAMESHIFT_VARIANT_NMD_ESCAPING = "frameshift_variant_NMD_escaping"
+FRAMESHIFT_VARIANT_NMD_TRIGGERING = "frameshift_variant_NMD_triggering"
+FREE = "free"
+FREE_CHROMOSOME_ARM = "free_chromosome_arm"
+FREE_DUPLICATION = "free_duplication"
+FREE_RING_DUPLICATION = "free_ring_duplication"
+FUNCTION_UNCERTAIN_VARIANT = "function_uncertain_variant"
+FUNCTIONAL_EFFECT_VARIANT = "functional_effect_variant"
+FUNCTIONAL_GENE_REGION = "functional_gene_region"
+FUNCTIONALLY_ABNORMAL = "functionally_abnormal"
+FUNCTIONALLY_NORMAL = "functionally_normal"
+FUSION = "fusion"
+GRNA_ENCODING = "gRNA_encoding"
+GAIN_OF_FUNCTION_VARIANT = "gain_of_function_variant"
+GENE_ARRAY_MEMBER = "gene_array_member"
+GENE_ATTRIBUTE = "gene_attribute"
+GENE_CASSETTE_MEMBER = "gene_cassette_member"
+GENE_FUSION = "gene_fusion"
+GENE_SUBARRAY_MEMBER = "gene_subarray_member"
+GENE_TO_GENE_FEATURE = "gene_to_gene_feature"
+GENE_VARIANT = "gene_variant"
+GENIC_DOWNSTREAM_TRANSCRIPT_VARIANT = "genic_downstream_transcript_variant"
+GENIC_UPSTREAM_TRANSCRIPT_VARIANT = "genic_upstream_transcript_variant"
+GENOME = "genome"
+GENOMIC_DNA = "genomic_DNA"
+GENOMIC_DNA_CONTIG = "genomic_DNA_contig"
+GENOMICALLY_IMPRINTED = "genomically_imprinted"
+GENOTYPE = "genotype"
+GERMLINE_VARIANT = "germline_variant"
+GROUP_IIC_INTRON = "group_IIC_intron"
+HAT_TIR_TRANSPOSON = "hAT_TIR_transposon"
+HAPLOTYPE = "haplotype"
+HETERO_COMPOUND_CHROMOSOME = "hetero_compound_chromosome"
+HIGH_QUALITY_DRAFT = "high_quality_draft"
+HISTONE_2AZ_ACETYLATION_SITE = "histone_2AZ_acetylation_site"
+HISTONE_2A_ACETYLATION_SITE = "histone_2A_acetylation_site"
+HISTONE_2B_ACETYLATION_SITE = "histone_2B_acetylation_site"
+HISTONE_4_ACETYLATION_SITE = "histone_4_acetylation_site"
+HOMO_COMPOUND_CHROMOSOME = "homo_compound_chromosome"
+HOMOLOGOUS = "homologous"
+HOMOLOGOUS_CHROMOSOME_RECOGNITION_AND_PAIRING_LOCUS = "homologous_chromosome_recognition_and_pairing_locus"
+HPRNA = "hpRNA"
+HPRNA_GENE = "hpRNA_gene"
+HYPERPLOID = "hyperploid"
+HYPOPLOID = "hypoploid"
+IMMUNOGLOBULIN_GENE = "immunoglobulin_gene"
+IMMUNOGLOBULIN_PSEUDOGENE = "immunoglobulin_pseudogene"
+IMPRINTING_CONTROL_REGION = "imprinting_control_region"
+IMPROVED_HIGH_QUALITY_DRAFT = "improved_high_quality_draft"
+INACTIVE_CATALYTIC_SITE = "inactive_catalytic_site"
+INACTIVE_LIGAND_BINDING_SITE = "inactive_ligand_binding_site"
+INCOMPLETE_TERMINAL_CODON_VARIANT = "incomplete_terminal_codon_variant"
+INCOMPLETE_TRANSCRIPT_3UTR_VARIANT = "incomplete_transcript_3UTR_variant"
+INCOMPLETE_TRANSCRIPT_5UTR_VARIANT = "incomplete_transcript_5UTR_variant"
+INCOMPLETE_TRANSCRIPT_CDS = "incomplete_transcript_CDS"
+INCOMPLETE_TRANSCRIPT_CODING_SPLICE_VARIANT = "incomplete_transcript_coding_splice_variant"
+INCOMPLETE_TRANSCRIPT_EXONIC_VARIANT = "incomplete_transcript_exonic_variant"
+INCOMPLETE_TRANSCRIPT_INTRONIC_VARIANT = "incomplete_transcript_intronic_variant"
+INCOMPLETE_TRANSCRIPT_SPLICE_REGION_VARIANT = "incomplete_transcript_splice_region_variant"
+INCOMPLETE_TRANSCRIPT_VARIANT = "incomplete_transcript_variant"
+INCREASED_ENZYME_ACTIVITY_VARIANT = "increased_enzyme_activity_variant"
+INCREASED_GENE_PRODUCT_LEVEL = "increased_gene_product_level"
+INCREASED_POLYADENYLATION_VARIANT = "increased_polyadenylation_variant"
+INCREASED_TRANSCRIPT_LEVEL_VARIANT = "increased_transcript_level_variant"
+INCREASED_TRANSCRIPT_STABILITY_VARIANT = "increased_transcript_stability_variant"
+INCREASED_TRANSCRIPTION_RATE_VARIANT = "increased_transcription_rate_variant"
+INCREASED_TRANSLATIONAL_PRODUCT_LEVEL = "increased_translational_product_level"
+INDEL_ARTIFACT = "indel_artifact"
+INDEPENDENTLY_KNOWN = "independently_known"
+INERT_DNA_SPACER = "inert_DNA_spacer"
+INFRAME = "inframe"
+INFRAME_DELETION = "inframe_deletion"
+INFRAME_INDEL = "inframe_indel"
+INFRAME_INSERTION = "inframe_insertion"
+INFRAME_UNIDIRECTIONAL_GENE_FUSION = "inframe_unidirectional_gene_fusion"
+INFRAME_VARIANT = "inframe_variant"
+INITIATOR_CODON_VARIANT = "initiator_codon_variant"
+INSERTION_ARTIFACT = "insertion_artifact"
+INSERTION_ATTRIBUTE = "insertion_attribute"
+INSERTIONAL = "insertional"
+INSERTIONAL_DUPLICATION = "insertional_duplication"
+INSIDE_INTRON = "inside_intron"
+INSIDE_INTRON_ANTIPARALLEL = "inside_intron_antiparallel"
+INSIDE_INTRON_PARALLEL = "inside_intron_parallel"
+INTEIN_CONTAINING = "intein_containing"
+INTERCHROMOSOMAL = "interchromosomal"
+INTERCHROMOSOMAL_DUPLICATION = "interchromosomal_duplication"
+INTERCHROMOSOMAL_MUTATION = "interchromosomal_mutation"
+INTERCHROMOSOMAL_TRANSLOCATION = "interchromosomal_translocation"
+INTERCHROMOSOMAL_TRANSPOSITION = "interchromosomal_transposition"
+INTERGENIC_1KB_VARIANT = "intergenic_1kb_variant"
+INTERGENIC_VARIANT = "intergenic_variant"
+INTERMEDIATE = "intermediate"
+INTERNAL_FEATURE_ELONGATION = "internal_feature_elongation"
+INTRACHROMOSOMAL = "intrachromosomal"
+INTRACHROMOSOMAL_DUPLICATION = "intrachromosomal_duplication"
+INTRACHROMOSOMAL_MUTATION = "intrachromosomal_mutation"
+INTRACHROMOSOMAL_TRANSLOCATION = "intrachromosomal_translocation"
+INTRACHROMOSOMAL_TRANSPOSITION = "intrachromosomal_transposition"
+INTRAGENIC_VARIANT = "intragenic_variant"
+INTRON_GAIN_VARIANT = "intron_gain_variant"
+INTRON_VARIANT = "intron_variant"
+INVALIDATED = "invalidated"
+INVALIDATED_BY_CHIMERIC_CDNA = "invalidated_by_chimeric_cDNA"
+INVALIDATED_BY_GENOMIC_CONTAMINATION = "invalidated_by_genomic_contamination"
+INVALIDATED_BY_GENOMIC_POLYA_PRIMED_CDNA = "invalidated_by_genomic_polyA_primed_cDNA"
+INVALIDATED_BY_PARTIAL_PROCESSING = "invalidated_by_partial_processing"
+INVERSION_ATTRIBUTE = "inversion_attribute"
+INVERSION_CUM_TRANSLOCATION = "inversion_cum_translocation"
+INVERSION_DERIVED_ANEUPLOID_CHROMOSOME = "inversion_derived_aneuploid_chromosome"
+INVERSION_DERIVED_BIPARTITE_DEFICIENCY = "inversion_derived_bipartite_deficiency"
+INVERSION_DERIVED_BIPARTITE_DUPLICATION = "inversion_derived_bipartite_duplication"
+INVERSION_DERIVED_DEFICIENCY_PLUS_ANEUPLOID = "inversion_derived_deficiency_plus_aneuploid"
+INVERSION_DERIVED_DEFICIENCY_PLUS_DUPLICATION = "inversion_derived_deficiency_plus_duplication"
+INVERSION_DERIVED_DUPLICATION_PLUS_ANEUPLOID = "inversion_derived_duplication_plus_aneuploid"
+INVERTED = "inverted"
+INVERTED_INSERTIONAL_DUPLICATION = "inverted_insertional_duplication"
+INVERTED_INTERCHROMOSOMAL_TRANSPOSITION = "inverted_interchromosomal_transposition"
+INVERTED_INTRACHROMOSOMAL_TRANSPOSITION = "inverted_intrachromosomal_transposition"
+INVERTED_RING_CHROMOSOME = "inverted_ring_chromosome"
+ISOMIR = "isomiR"
+KINETOPLAST = "kinetoplast"
+KNOB = "knob"
+LAEVOSYNAPTIC_CHROMOSOME = "laevosynaptic_chromosome"
+LATE_ORIGIN_OF_REPLICATION = "late_origin_of_replication"
+LETHAL_VARIANT = "lethal_variant"
+LEUCOPLAST_SEQUENCE = "leucoplast_sequence"
+LEVEL_OF_TRANSCRIPT_VARIANT = "level_of_transcript_variant"
+LINEAR = "linear"
+LINEAR_PLASMID = "linear_plasmid"
+LNCRNA_GENE = "lncRNA_gene"
+LNCRNA_WITH_RETAINED_INTRON = "lncRNA_with_retained_intron"
+LONG_TERMINAL_REPEAT_TRANSCRIPT = "long_terminal_repeat_transcript"
+LOOP = "loop"
+LOSS_OF_FUNCTION_VARIANT = "loss_of_function_variant"
+LOSS_OF_HETEROZYGOSITY = "loss_of_heterozygosity"
+LOST_POLYPEPTIDE = "lost_polypeptide"
+LOW_COMPLEXITY = "low_complexity"
+MRNA_ATTRIBUTE = "mRNA_attribute"
+MACRONUCLEAR_SEQUENCE = "macronuclear_sequence"
+MATERNAL_VARIANT = "maternal_variant"
+MATERNALLY_IMPRINTED = "maternally_imprinted"
+MATURE_MIRNA_VARIANT = "mature_miRNA_variant"
+MATURE_PROTEIN_REGION_OF_CDS = "mature_protein_region_of_CDS"
+MEIOTIC_RECOMBINATION_REGION = "meiotic_recombination_region"
+MEMBER_OF_REGULON = "member_of_regulon"
+METHYLATION_GUIDE_SNORNA_GENE = "methylation_guide_snoRNA_gene"
+MIRNA_ENCODING = "miRNA_encoding"
+MICRONUCLEAR_SEQUENCE = "micronuclear_sequence"
+MINUS_1_FRAMESHIFT = "minus_1_frameshift"
+MINUS_1_FRAMESHIFT_VARIANT = "minus_1_frameshift_variant"
+MINUS_1_TRANSLATIONAL_FRAMESHIFT = "minus_1_translational_frameshift"
+MINUS_1_TRANSLATIONALLY_FRAMESHIFTED = "minus_1_translationally_frameshifted"
+MINUS_2_FRAMESHIFT = "minus_2_frameshift"
+MINUS_2_FRAMESHIFT_VARIANT = "minus_2_frameshift_variant"
+MINUS_2_TRANSLATIONAL_FRAMESHIFT = "minus_2_translational_frameshift"
+MISSENSE_VARIANT = "missense_variant"
+MITOCHONDRIAL_DNA = "mitochondrial_DNA"
+MITOCHONDRIAL_D_LOOP = "mitochondrial_D_loop"
+MITOCHONDRIAL_CONTROL_REGION = "mitochondrial_control_region"
+MITOCHONDRIAL_SEQUENCE = "mitochondrial_sequence"
+MITOTIC_RECOMBINATION_REGION = "mitotic_recombination_region"
+MOBILE = "mobile"
+MOBILE_ELEMENT_DELETION = "mobile_element_deletion"
+MONOCISTRONIC = "monocistronic"
+MORPHOLINO_BACKBONE = "morpholino_backbone"
+MT_LSU_RRNA = "mt_LSU_rRNA"
+MT_LSU_RRNA_GENE = "mt_LSU_rRNA_gene"
+MT_SSU_RRNA = "mt_SSU_rRNA"
+MT_SSU_RRNA_GENE = "mt_SSU_rRNA_gene"
+MT_RRNA = "mt_rRNA"
+MT_RRNA_GENE = "mt_rRNA_gene"
+MT_TRNA = "mt_tRNA"
+MUTATIONAL_HOTSPOT = "mutational_hotspot"
+NATURAL = "natural"
+NEGATIVELY_AUTOREGULATED = "negatively_autoregulated"
+NO_SEQUENCE_ALTERATION = "no_sequence_alteration"
+NON_AUG_INITIATED_UORF = "non_AUG_initiated_uORF"
+NON_ALLELIC_HOMOLOGOUS_RECOMBINATION_REGION = "non_allelic_homologous_recombination_region"
+NON_CODING_TRANSCRIPT_EXON_VARIANT = "non_coding_transcript_exon_variant"
+NON_CODING_TRANSCRIPT_INTRON_VARIANT = "non_coding_transcript_intron_variant"
+NON_CODING_TRANSCRIPT_SPLICE_REGION_VARIANT = "non_coding_transcript_splice_region_variant"
+NON_CODING_TRANSCRIPT_VARIANT = "non_coding_transcript_variant"
+NON_COMPLIMENTARY_STEM = "non_complimentary_stem"
+NON_CONSERVATIVE_AMINO_ACID_SUBSTITUTION = "non_conservative_amino_acid_substitution"
+NON_CONSERVATIVE_MISSENSE_VARIANT = "non_conservative_missense_variant"
+NON_PROTEIN_CODING = "non_protein_coding"
+NON_SYNONYMOUS = "non_synonymous"
+NONCONTIGUOUS_FINISHED = "noncontiguous_finished"
+NONSYNONYMOUS_VARIANT = "nonsynonymous_variant"
+NUCLEAR_SEQUENCE = "nuclear_sequence"
+NUCLEIC_ACID = "nucleic_acid"
+NUCLEOMORPHIC_SEQUENCE = "nucleomorphic_sequence"
+NUCLEOTIDE_CLEAVAGE_SITE = "nucleotide_cleavage_site"
+NULL_MUTATION = "null_mutation"
+OCHRE_STOP_CODON = "ochre_stop_codon"
+ONCOGENIC_VARIANT = "oncogenic_variant"
+OPAL_STOP_CODON = "opal_stop_codon"
+OPERON_MEMBER = "operon_member"
+ORGANELLE_SEQUENCE = "organelle_sequence"
+ORPHAN = "orphan"
+ORTHOLOGOUS = "orthologous"
+OVERLAPPING = "overlapping"
+PARACENTRIC = "paracentric"
+PARACENTRIC_INVERSION = "paracentric_inversion"
+PARALOGOUS = "paralogous"
+PARTIALLY_CHARACTERIZED_CHROMOSOMAL_MUTATION = "partially_characterized_chromosomal_mutation"
+PARTIALLY_DUPLICATED_TRANSCRIPT = "partially_duplicated_transcript"
+PATERNAL_VARIANT = "paternal_variant"
+PATERNALLY_IMPRINTED = "paternally_imprinted"
+PEDIGREE_SPECIFIC_VARIANT = "pedigree_specific_variant"
+PEPTIDE_COLLECTION = "peptide_collection"
+PEPTIDYL = "peptidyl"
+PERICENTRIC = "pericentric"
+PERICENTRIC_INVERSION = "pericentric_inversion"
+PIGGYBAC_TIR_TRANSPOSON = "piggyBac_TIR_transposon"
+PLASMID_LOCATION = "plasmid_location"
+PLASTID_LSU_RRNA = "plastid_LSU_rRNA"
+PLASTID_LSU_RRNA_GENE = "plastid_LSU_rRNA_gene"
+PLASTID_SSU_RRNA = "plastid_SSU_rRNA"
+PLASTID_SSU_RRNA_GENE = "plastid_SSU_rRNA_gene"
+PLASTID_RRNA = "plastid_rRNA"
+PLASTID_RRNA_GENE = "plastid_rRNA_gene"
+PLASTID_SEQUENCE = "plastid_sequence"
+PLUS_1_FRAMESHIFT = "plus_1_frameshift"
+PLUS_1_FRAMESHIFT_VARIANT = "plus_1_frameshift_variant"
+PLUS_1_TRANSLATIONALLY_FRAMESHIFTED = "plus_1_translationally_frameshifted"
+PLUS_2_FRAMESHIFT_VARIANT = "plus_2_frameshift_variant"
+PLUS_2_FRAMSHIFT = "plus_2_framshift"
+POLYA_SITE_CLUSTER = "polyA_site_cluster"
+POLYADENYLATED = "polyadenylated"
+POLYADENYLATION_VARIANT = "polyadenylation_variant"
+POLYCISTRONIC = "polycistronic"
+POLYMER_ATTRIBUTE = "polymer_attribute"
+POLYMORPHIC_PSEUDOGENE_PROCESSED_TRANSCRIPT = "polymorphic_pseudogene_processed_transcript"
+POLYMORPHIC_PSEUDOGENE_WITH_RETAINED_INTRON = "polymorphic_pseudogene_with_retained_intron"
+POLYMORPHIC_SEQUENCE_VARIANT = "polymorphic_sequence_variant"
+POLYMORPHIC_VARIANT = "polymorphic_variant"
+POLYPEPTIDE_FUNCTION_VARIANT = "polypeptide_function_variant"
+POLYPEPTIDE_FUSION = "polypeptide_fusion"
+POLYPEPTIDE_GAIN_OF_FUNCTION_VARIANT = "polypeptide_gain_of_function_variant"
+POLYPEPTIDE_LOCALIZATION_VARIANT = "polypeptide_localization_variant"
+POLYPEPTIDE_LOSS_OF_FUNCTION_VARIANT = "polypeptide_loss_of_function_variant"
+POLYPEPTIDE_PARTIAL_LOSS_OF_FUNCTION = "polypeptide_partial_loss_of_function"
+POLYPEPTIDE_POST_TRANSLATIONAL_PROCESSING_VARIANT = "polypeptide_post_translational_processing_variant"
+POLYPEPTIDE_SEQUENCE_VARIANT = "polypeptide_sequence_variant"
+POLYPEPTIDE_TRUNCATION = "polypeptide_truncation"
+POLYPLOID = "polyploid"
+POPULATION_SPECIFIC_VARIANT = "population_specific_variant"
+POSITIVELY_AUTOREGULATED = "positively_autoregulated"
+POST_TRANSLATIONALLY_REGULATED = "post_translationally_regulated"
+POST_TRANSLATIONALLY_REGULATED_BY_PROTEIN_MODIFICATION = "post_translationally_regulated_by_protein_modification"
+POST_TRANSLATIONALLY_REGULATED_BY_PROTEIN_STABILITY = "post_translationally_regulated_by_protein_stability"
+PRECURSOR_RNA = "precursor_RNA"
+PREDICTED = "predicted"
+PREDICTED_BY_AB_INITIO_COMPUTATION = "predicted_by_ab_initio_computation"
+PREDICTED_TRANSCRIPT = "predicted_transcript"
+PRESENCE_ABSENCE_VARIATION = "presence_absence_variation"
+PROCESSED_PSEUDOGENIC_RRNA = "processed_pseudogenic_rRNA"
+PROCESSED_PSEUDOGENIC_TRNA = "processed_pseudogenic_tRNA"
+PROKARYOTIC_PROMOTER = "prokaryotic_promoter"
+PROPEPTIDE_REGION_OF_CDS = "propeptide_region_of_CDS"
+PROPLASTID_SEQUENCE = "proplastid_sequence"
+PROTEIN_ALTERING_VARIANT = "protein_altering_variant"
+PROTEIN_CODING = "protein_coding"
+PROVIRAL_LOCATION = "proviral_location"
+PSEUDOEXON_VARIANT = "pseudoexon_variant"
+PSEUDOGENE_PROCESSED_TRANSCRIPT = "pseudogene_processed_transcript"
+PSEUDOGENIC_CDS = "pseudogenic_CDS"
+PSEUDOGENIC_TRANSCRIPT_WITH_RETAINED_INTRON = "pseudogenic_transcript_with_retained_intron"
+PSEUDOURIDYLATION_GUIDE_SNORNA_GENE = "pseudouridylation_guide_snoRNA_gene"
+PUMILIO_RESPONSE_ELEMENT = "pumilio_response_element"
+PYRROLYSINE_LOSS = "pyrrolysine_loss"
+QUALITY_VALUE = "quality_value"
+QUANTITATIVE_VARIANT = "quantitative_variant"
+RRNA_ENCODING = "rRNA_encoding"
+RANDOM_SEQUENCE = "random_sequence"
+RANGE_EXTENDER_ELEMENT = "range_extender_element"
+RARE_AMINO_ACID_VARIANT = "rare_amino_acid_variant"
+RARE_FRAGILE_SITE = "rare_fragile_site"
+RARE_VARIANT = "rare_variant"
+RATE_OF_TRANSCRIPTION_VARIANT = "rate_of_transcription_variant"
+REARRANGED_AT_DNA_LEVEL = "rearranged_at_DNA_level"
+REARRANGEMENT_REGION = "rearrangement_region"
+RECIPROCAL = "reciprocal"
+RECIPROCAL_CHROMOSOMAL_TRANSLOCATION = "reciprocal_chromosomal_translocation"
+RECODED = "recoded"
+RECODED_BY_TRANSLATIONAL_BYPASS = "recoded_by_translational_bypass"
+RECOMBINATIONALLY_REARRANGED = "recombinationally_rearranged"
+REDUNDANT_INSERTED_STOP_GAINED = "redundant_inserted_stop_gained"
+REF_MIRNA = "ref_miRNA"
+REFERENCE_GENOME = "reference_genome"
+REGULATED = "regulated"
+REGULATORY_REGION_ABLATION = "regulatory_region_ablation"
+REGULATORY_REGION_AMPLIFICATION = "regulatory_region_amplification"
+REGULATORY_REGION_FUSION = "regulatory_region_fusion"
+REGULATORY_REGION_TRANSLOCATION = "regulatory_region_translocation"
+REGULATORY_REGION_VARIANT = "regulatory_region_variant"
+REPEAT_INSTABILITY_REGION = "repeat_instability_region"
+REPLICATION_START_SITE = "replication_start_site"
+RESCUE = "rescue"
+RESPONSE_ELEMENT = "response_element"
+RETROTRANSPOSED = "retrotransposed"
+REVERSE = "reverse"
+RIBOZYME_GENE = "ribozyme_gene"
+RIBOZYMIC = "ribozymic"
+RING_CHROMOSOME = "ring_chromosome"
+SBRNA = "sbRNA"
+SBRNA_GENE = "sbRNA_gene"
+SCRNA_ENCODING = "scRNA_encoding"
+SCARNA = "scaRNA"
+SCARNA_GENE = "scaRNA_gene"
+SCORE = "score"
+SELECTION_MARKER = "selection_marker"
+SELENOCYSTEINE_GAIN = "selenocysteine_gain"
+SELENOCYSTEINE_LOSS = "selenocysteine_loss"
+SELF_CLEAVING_RIBOZYME = "self_cleaving_ribozyme"
+SENSE_INTRONIC_LNCRNA = "sense_intronic_lncRNA"
+SENSE_INTRONIC_LNCRNA_GENE = "sense_intronic_lncRNA_gene"
+SENSE_OVERLAP_LNCRNA = "sense_overlap_lncRNA"
+SENSE_OVERLAP_LNCRNA_GENE = "sense_overlap_lncRNA_gene"
+SEQUENCE_ALTERATION_ARTIFACT = "sequence_alteration_artifact"
+SEQUENCE_ATTRIBUTE = "sequence_attribute"
+SEQUENCE_COLLECTION = "sequence_collection"
+SEQUENCE_COMPARISON = "sequence_comparison"
+SEQUENCE_LENGTH_ALTERATION = "sequence_length_alteration"
+SEQUENCE_LENGTH_VARIANT = "sequence_length_variant"
+SEQUENCE_LOCATION = "sequence_location"
+SEQUENCE_SOURCE = "sequence_source"
+SEQUENCE_VARIANT = "sequence_variant"
+SHORT_TANDEM_REPEAT_CHANGE = "short_tandem_repeat_change"
+SHORT_TANDEM_REPEAT_CONTRACTION = "short_tandem_repeat_contraction"
+SHORT_TANDEM_REPEAT_EXPANSION = "short_tandem_repeat_expansion"
+SHORT_TANDEM_REPEAT_VARIATION = "short_tandem_repeat_variation"
+SIGNAL_PEPTIDE_REGION_OF_CDS = "signal_peptide_region_of_CDS"
+SILENCED = "silenced"
+SILENCED_BY_DNA_METHYLATION = "silenced_by_DNA_methylation"
+SILENCED_BY_DNA_MODIFICATION = "silenced_by_DNA_modification"
+SILENCED_BY_RNA_INTERFERENCE = "silenced_by_RNA_interference"
+SILENCED_BY_HISTONE_DEACETYLATION = "silenced_by_histone_deacetylation"
+SILENCED_BY_HISTONE_METHYLATION = "silenced_by_histone_methylation"
+SILENCED_BY_HISTONE_MODIFICATION = "silenced_by_histone_modification"
+SILENT_MUTATION = "silent_mutation"
+SIMPLE_OPERON = "simple_operon"
+SIMPLE_REGULON = "simple_regulon"
+SINGLE = "single"
+SINGLE_STRANDED_CDNA = "single_stranded_cDNA"
+SISRNA = "sisRNA"
+SNRNA_ENCODING = "snRNA_encoding"
+SNCRNA = "sncRNA"
+SNCRNA_GENE = "sncRNA_gene"
+SNORNA_ENCODING = "snoRNA_encoding"
+SOMATIC_VARIANT = "somatic_variant"
+SPLICE_ACCEPTOR_VARIANT = "splice_acceptor_variant"
+SPLICE_ACCEPTOR_VARIANT_NMD_ESCAPING = "splice_acceptor_variant_NMD_escaping"
+SPLICE_ACCEPTOR_VARIANT_NMD_TRIGGERING = "splice_acceptor_variant_NMD_triggering"
+SPLICE_DONOR_5TH_BASE_VARIANT = "splice_donor_5th_base_variant"
+SPLICE_DONOR_REGION_VARIANT = "splice_donor_region_variant"
+SPLICE_DONOR_VARIANT = "splice_donor_variant"
+SPLICE_DONOR_VARIANT_NMD_ESCAPING = "splice_donor_variant_NMD_escaping"
+SPLICE_DONOR_VARIANT_NMD_TRIGGERING = "splice_donor_variant_NMD_triggering"
+SPLICE_POLYPYRIMIDINE_TRACT_VARIANT = "splice_polypyrimidine_tract_variant"
+SPLICE_REGION_VARIANT = "splice_region_variant"
+SPLICE_SITE_VARIANT = "splice_site_variant"
+SPLICING_VARIANT = "splicing_variant"
+SPURIOUS_PROTEIN = "spurious_protein"
+STRNA_ENCODING = "stRNA_encoding"
+STANDARD_DRAFT = "standard_draft"
+START_LOST = "start_lost"
+START_RETAINED_VARIANT = "start_retained_variant"
+STATUS = "status"
+STEM = "stem"
+STEM_LOOP_REGION = "stem_loop_region"
+STOP_GAINED = "stop_gained"
+STOP_GAINED_NMD_ESCAPING = "stop_gained_NMD_escaping"
+STOP_GAINED_NMD_TRIGGERING = "stop_gained_NMD_triggering"
+STOP_LOST = "stop_lost"
+STOP_RETAINED_VARIANT = "stop_retained_variant"
+STRAND_ATTRIBUTE = "strand_attribute"
+STRUCTURAL_INTERACTION_VARIANT = "structural_interaction_variant"
+STRUCTURAL_VARIANT = "structural_variant"
+SUBSTITUTION_ARTIFACT = "substitution_artifact"
+SUPPORTED_BY_EST_OR_CDNA = "supported_by_EST_or_cDNA"
+SUPPORTED_BY_DOMAIN_MATCH = "supported_by_domain_match"
+SUPPORTED_BY_SEQUENCE_SIMILARITY = "supported_by_sequence_similarity"
+SYNONYMOUS = "synonymous"
+SYNONYMOUS_VARIANT = "synonymous_variant"
+SYNTENIC = "syntenic"
+SYNTHETIC_SEQUENCE = "synthetic_sequence"
+TRNA_SINE_RETROTRANSPOSON = "tRNA_SINE_retrotransposon"
+TRNA_ENCODING = "tRNA_encoding"
+TANDEM = "tandem"
+TEB1_RECOGNITION_MOTIF = "teb1_recognition_motif"
+TELOMERIC_D_LOOP = "telomeric_D_loop"
+TERMINAL_REPEAT = "terminal_repeat"
+TERMINATOR_CODON_VARIANT = "terminator_codon_variant"
+THREE_PRIME_DUPLICATED_TRANSCRIPT = "three_prime_duplicated_transcript"
+THREE_PRIME_FIVE_PRIME_OVERLAP = "three_prime_five_prime_overlap"
+THREE_PRIME_GENE_FUSION = "three_prime_gene_fusion"
+THREE_PRIME_OVERLAPPING_NCRNA = "three_prime_overlapping_ncrna"
+THREE_PRIME_THREE_PRIME_OVERLAP = "three_prime_three_prime_overlap"
+TMRNA_ENCODING = "tmRNA_encoding"
+TOPOLOGICALLY_ASSOCIATED_DOMAIN = "topologically_associated_domain"
+TOPOLOGICALLY_ASSOCIATED_DOMAIN_BOUNDARY = "topologically_associated_domain_boundary"
+TOPOLOGY_ATTRIBUTE = "topology_attribute"
+TRANS_SPLICED = "trans_spliced"
+TRANSCRIBED_PROCESSED_PSEUDOGENE = "transcribed_processed_pseudogene"
+TRANSCRIBED_UNITARY_PSEUDOGENE = "transcribed_unitary_pseudogene"
+TRANSCRIBED_UNPROCESSED_PSEUDOGENE = "transcribed_unprocessed_pseudogene"
+TRANSCRIPT_ABLATION = "transcript_ablation"
+TRANSCRIPT_AMPLIFICATION = "transcript_amplification"
+TRANSCRIPT_ATTRIBUTE = "transcript_attribute"
+TRANSCRIPT_FUNCTION_VARIANT = "transcript_function_variant"
+TRANSCRIPT_FUSION = "transcript_fusion"
+TRANSCRIPT_PROCESSING_VARIANT = "transcript_processing_variant"
+TRANSCRIPT_REGULATORY_REGION_FUSION = "transcript_regulatory_region_fusion"
+TRANSCRIPT_SECONDARY_STRUCTURE_VARIANT = "transcript_secondary_structure_variant"
+TRANSCRIPT_STABILITY_VARIANT = "transcript_stability_variant"
+TRANSCRIPT_TRANSLOCATION = "transcript_translocation"
+TRANSCRIPT_VARIANT = "transcript_variant"
+TRANSCRIPTION_FACTOR_REGULATORY_SITE = "transcription_factor_regulatory_site"
+TRANSCRIPTION_TERMINATION_SIGNAL = "transcription_termination_signal"
+TRANSCRIPTION_UNIT = "transcription_unit"
+TRANSCRIPTION_VARIANT = "transcription_variant"
+TRANSCRIPTIONALLY_CONSTITUTIVE = "transcriptionally_constitutive"
+TRANSCRIPTIONALLY_INDUCED = "transcriptionally_induced"
+TRANSCRIPTIONALLY_REGULATED = "transcriptionally_regulated"
+TRANSCRIPTIONALLY_REPRESSED = "transcriptionally_repressed"
+TRANSGENIC = "transgenic"
+TRANSIT_PEPTIDE_REGION_OF_CDS = "transit_peptide_region_of_CDS"
+TRANSLATED_PROCESSED_PSEUDOGENE = "translated_processed_pseudogene"
+TRANSLATED_UNPROCESSED_PSEUDOGENE = "translated_unprocessed_pseudogene"
+TRANSLATIONAL_PRODUCT_FUNCTION_VARIANT = "translational_product_function_variant"
+TRANSLATIONAL_PRODUCT_LEVEL_VARIANT = "translational_product_level_variant"
+TRANSLATIONAL_PRODUCT_STRUCTURE_VARIANT = "translational_product_structure_variant"
+TRANSLATIONALLY_FRAMESHIFTED = "translationally_frameshifted"
+TRANSLATIONALLY_REGULATED = "translationally_regulated"
+TRANSLOCATION_ELEMENT = "translocation_element"
+TRANSLOCATON_ATTRIBUTE = "translocaton_attribute"
+TRINUCLEOTIDE_REPEAT_EXPANSION = "trinucleotide_repeat_expansion"
+UNCHARACTERIZED_CHROMOSOMAL_MUTATION = "uncharacterized_chromosomal_mutation"
+UNCONFIRMED_TRANSCRIPT = "unconfirmed_transcript"
+UNIDIRECTIONAL_GENE_FUSION = "unidirectional_gene_fusion"
+UNIDIRECTIONAL_INTERGENIC_FUSION = "unidirectional_intergenic_fusion"
+UNINVERTED_INSERTIONAL_DUPLICATION = "uninverted_insertional_duplication"
+UNINVERTED_INTERCHROMOSOMAL_TRANSPOSITION = "uninverted_interchromosomal_transposition"
+UNINVERTED_INTRACHROMOSOMAL_TRANSPOSITION = "uninverted_intrachromosomal_transposition"
+UNIQUE_VARIANT = "unique_variant"
+UNIT_OF_GENE_EXPRESSION = "unit_of_gene_expression"
+UNITARY_PSEUDOGENIC_RRNA = "unitary_pseudogenic_rRNA"
+UNITARY_PSEUDOGENIC_TRNA = "unitary_pseudogenic_tRNA"
+UNORIENTED_INSERTIONAL_DUPLICATION = "unoriented_insertional_duplication"
+UNORIENTED_INTERCHROMOSOMAL_TRANSPOSITION = "unoriented_interchromosomal_transposition"
+UNORIENTED_INTRACHROMOSOMAL_TRANSPOSITION = "unoriented_intrachromosomal_transposition"
+UNPROCESSED_PSEUDOGENIC_RRNA = "unprocessed_pseudogenic_rRNA"
+UNPROCESSED_PSEUDOGENIC_TRNA = "unprocessed_pseudogenic_tRNA"
+UNSPECIFIED_INDEL = "unspecified_indel"
+UPSTREAM_GENE_VARIANT = "upstream_gene_variant"
+UPSTREAM_INTERGENIC_FUSION = "upstream_intergenic_fusion"
+UPSTREAM_TRANSCRIPT_VARIANT = "upstream_transcript_variant"
+VALIDATED = "validated"
+VARIANT_COLLECTION = "variant_collection"
+VARIANT_FREQUENCY = "variant_frequency"
+VARIANT_GENOME = "variant_genome"
+VARIANT_ORIGIN = "variant_origin"
+VARIANT_PHENOTYPE = "variant_phenotype"
+VARIANT_QUALITY = "variant_quality"
+VAULT_RNA_GENE = "vault_RNA_gene"
+VERTEBRATE_IMMUNE_SYSTEM_GENE = "vertebrate_immune_system_gene"
+VERTEBRATE_IMMUNE_SYSTEM_PSEUDOGENE = "vertebrate_immune_system_pseudogene"
+VIRAL_PROMOTER = "viral_promoter"
+WHOLE_GENOME_SEQUENCE_STATUS = "whole_genome_sequence_status"
+WILD_TYPE = "wild_type"
 
-SOSequenceFeatures = make_enum("SOSequenceFeatures",
-                               HISTIDYL_TRNA,
+# every SO term; a set rather than an enum, being only used to look up GFF3 types
+SO_SEQUENCE_TERMS = frozenset({HISTIDYL_TRNA,
                                C_D_BOX_SNORNA_PRIMARY_TRANSCRIPT,
                                POLYCISTRONIC_MRNA,
                                RRNA_23S,
@@ -3192,7 +4042,855 @@ SOSequenceFeatures = make_enum("SOSequenceFeatures",
                                MIRTRON,
                                H3K36_METHYLATION_SITE,
                                T7_RNA_POLYMERASE_PROMOTER,
-)
+                               _2A_SELF_CLEAVING_PEPTIDE_REGION,
+                               _2KB_DOWNSTREAM_VARIANT,
+                               _2KB_UPSTREAM_VARIANT,
+                               _3D_POLYPEPTIDE_STRUCTURE_VARIANT,
+                               _3_PRIME_UTR_ELONGATION,
+                               _3_PRIME_UTR_EXON_VARIANT,
+                               _3_PRIME_UTR_INTRON_VARIANT,
+                               _3_PRIME_UTR_TRUNCATION,
+                               _3_PRIME_UTR_VARIANT,
+                               _500B_DOWNSTREAM_VARIANT,
+                               _5KB_DOWNSTREAM_VARIANT,
+                               _5KB_UPSTREAM_VARIANT,
+                               _5S_SINE_RETROTRANSPOSON,
+                               _5_PRIME_UTR_ELONGATION,
+                               _5_PRIME_UTR_EXON_VARIANT,
+                               _5_PRIME_UTR_INTRON_VARIANT,
+                               _5_PRIME_UTR_PREMATURE_START_CODON_GAIN_VARIANT,
+                               _5_PRIME_UTR_PREMATURE_START_CODON_LOSS_VARIANT,
+                               _5_PRIME_UTR_PREMATURE_START_CODON_VARIANT,
+                               _5_PRIME_UTR_TRUNCATION,
+                               _5_PRIME_UTR_UORF_FRAMESHIFT_VARIANT,
+                               _5_PRIME_UTR_UORF_STOP_CODON_GAIN_VARIANT,
+                               _5_PRIME_UTR_UORF_STOP_CODON_LOSS_VARIANT,
+                               _5_PRIME_UTR_UORF_STOP_CODON_VARIANT,
+                               _5_PRIME_UTR_UORF_VARIANT,
+                               _5_PRIME_UTR_VARIANT,
+                               _7SL_SINE_RETROTRANSPOSON,
+                               AUG_INITIATED_UORF,
+                               ALU_DELETION,
+                               ALU_INSERTION,
+                               BEL_PAO_LTR_RETROTRANSPOSON,
+                               C_D_H_ACA_BOX_SCARNA,
+                               C_D_H_ACA_BOX_SCARNA_GENE,
+                               CAAX_BOX,
+                               CACTA_TIR_TRANSPOSON,
+                               CARG_BOX,
+                               CDS_EXTENSION,
+                               CDS_FIVE_PRIME_EXTENSION,
+                               CDS_SUPPORTED_BY_PEPTIDE_SPECTRUM_MATCH,
+                               CDS_THREE_PRIME_EXTENSION,
+                               C_D_BOX_SCARNA,
+                               C_D_BOX_SCARNA_GENE,
+                               C_D_BOX_SNORNA_ENCODING,
+                               C_D_BOX_SNORNA_GENE,
+                               COPIA_LTR_RETROTRANSPOSON,
+                               CRICK_STRAND,
+                               CRYPTON_YR_TRANSPOSON,
+                               DIRS_YR_RETROTRANSPOSON,
+                               DNA,
+                               DNA_LOOP,
+                               DNA_LOOP_ANCHOR,
+                               DNASEI_HYPERSENSITIVE_SITE_CURRENT_SPELLING,
+                               ENDOGENOUS_RETROVIRUS_LTR_RETROTRANSPOSON,
+                               FRT_FLANKED,
+                               GNA,
+                               GYPSY_LTR_RETROTRANSPOSON,
+                               H2AZK11_ACETYLATION_SITE,
+                               H2AZK13_ACETYLATION_SITE,
+                               H2AZK15_ACETYLATION_SITE,
+                               H2AZK4_ACETYLATION_SITE,
+                               H2AZK7_ACETYLATION_SITE,
+                               H2BK5_ACETYLATION_SITE,
+                               H3K23_ACETYLATION_SITE,
+                               H3K4_ACETYLATION_SITE,
+                               H4K16_ACETYLATION_SITE,
+                               H4K5_ACETYLATION_SITE,
+                               H4K8_ACETYLATION_SITE,
+                               HERV_DELETION,
+                               HERV_INSERTION,
+                               H_ACA_BOX_SCARNA,
+                               H_ACA_BOX_SCARNA_GENE,
+                               H_ACA_BOX_SNORNA_ENCODING,
+                               H_ACA_BOX_SNORNA_GENE,
+                               IG_C_GENE,
+                               IG_C_PSEUDOGENE,
+                               IG_D_GENE,
+                               IG_J_GENE,
+                               IG_J_PSEUDOGENE,
+                               IG_V_GENE,
+                               IG_V_PSEUDOGENE,
+                               I_LINE_RETROTRANSPOSON,
+                               JOCKEY_LINE_RETROTRANSPOSON,
+                               L1_LINE_RETROTRANSPOSON,
+                               LARD,
+                               LINE1_DELETION,
+                               LINE1_INSERTION,
+                               LNA,
+                               LOZ1_RESPONSE_ELEMENT,
+                               MNV_ARTIFACT,
+                               MAT2P,
+                               MAT3M,
+                               MERLIN_TIR_TRANSPOSON,
+                               MUTATOR_TIR_TRANSPOSON,
+                               NMD_ESCAPING_VARIANT,
+                               NMD_POLYMORPHIC_PSEUDOGENE_TRANSCRIPT,
+                               NMD_TRANSCRIPT,
+                               NMD_TRANSCRIPT_VARIANT,
+                               NMD_TRIGGERING_VARIANT,
+                               NSD_TRANSCRIPT,
+                               NGARO_YR_RETROTRANSPOSON,
+                               PIF_HARBINGER_TIR_TRANSPOSON,
+                               PNA,
+                               P_TIR_TRANSPOSON,
+                               PENELOPE_RETROTRANSPOSON,
+                               PHO7_BINDING_SITE,
+                               R2_LINE_RETROTRANSPOSON,
+                               RNA,
+                               RNA_7SK,
+                               RNA_7SK_GENE,
+                               RNA_THERMOMETER,
+                               RTE_LINE_RETROTRANSPOSON,
+                               R_GNA,
+                               RETROVIRUS_LTR_RETROTRANSPOSON,
+                               ROBERTSONIAN_FUSION,
+                               SHP_BOX,
+                               SNV_ARTIFACT,
+                               SRP_RNA_ENCODING,
+                               SUMO_INTERACTION_MOTIF,
+                               SVA_DELETION,
+                               SVA_INSERTION,
+                               S_GNA,
+                               TFBS_ABLATION,
+                               TFBS_AMPLIFICATION,
+                               TFBS_FUSION,
+                               TFBS_TRANSLOCATION,
+                               TFRS_COLLECTION,
+                               TFRS_MODULE,
+                               TF_BINDING_SITE_VARIANT,
+                               TNA,
+                               TRIM,
+                               TR_C_GENE,
+                               TR_D_GENE,
+                               TR_J_GENE,
+                               TR_J_PSEUDOGENE,
+                               TR_V_GENE,
+                               TR_V_PSEUDOGENE,
+                               T_CELL_RECEPTOR_GENE,
+                               T_CELL_RECEPTOR_PSEUDOGENE,
+                               TC1_MARINER_TIR_TRANSPOSON,
+                               TRANSIB_TIR_TRANSPOSON,
+                               U14_SNORNA_GENE,
+                               U3_SNORNA_GENE,
+                               U7_SNRNA,
+                               UNAAAC_MOTIF,
+                               UTR_VARIANT,
+                               VIPER_YR_RETROTRANSPOSON,
+                               WATSON_STRAND,
+                               YR_RETROTRANSPOSON,
+                               Y_RNA_GENE,
+                               ZAS1_RECOGNITION_MOTIF,
+                               ABOLISHED_TRANSCRIPTION_LEVEL_VARIANT,
+                               ABSENT_GENE_PRODUCT,
+                               ACCESSIBLE_DNA_REGION,
+                               ALLELE,
+                               ALLELIC_FREQUENCY,
+                               ALLELIC_PSEUDOGENE,
+                               ALLELIC_PSEUDOGENIC_RRNA,
+                               ALLELIC_PSEUDOGENIC_TRNA,
+                               ALLELICALLY_EXCLUDED,
+                               ALLOPOLYPLOID,
+                               ALTERATION_ATTRIBUTE,
+                               ALTERED_GENE_PRODUCT_LEVEL,
+                               ALTERED_GENE_PRODUCT_SEQUENCE,
+                               ALTERNATIVELY_SPLICED,
+                               AMBER_STOP_CODON,
+                               AMINO_ACID_DELETION,
+                               AMINO_ACID_INSERTION,
+                               AMINO_ACID_SUBSTITUTION,
+                               ANEUPLOID,
+                               ANEUPLOID_CHROMOSOME,
+                               ANNOTATION_DIRECTED_IMPROVED_DRAFT,
+                               ANTISENSE,
+                               ANTISENSE_LNCRNA_GENE,
+                               APICOPLAST_SEQUENCE,
+                               ASSORTMENT_DERIVED_ANEUPLOID,
+                               ASSORTMENT_DERIVED_DEFICIENCY,
+                               ASSORTMENT_DERIVED_DEFICIENCY_PLUS_DUPLICATION,
+                               ASSORTMENT_DERIVED_DUPLICATION,
+                               ASSORTMENT_DERIVED_VARIATION,
+                               AUTOPOLYPLOID,
+                               AUTOREGULATED,
+                               AUTOSYNAPTIC_CHROMOSOME,
+                               BACTERIAL_RNAPOL_PROMOTER_SIGMA54_ELEMENT,
+                               BACTERIAL_RNAPOL_PROMOTER_SIGMA_70_ELEMENT,
+                               BACTERIAL_RNAPOL_PROMOTER_SIGMA_ECF_ELEMENT,
+                               BENIGN_VARIANT,
+                               BIDIRECTIONAL_GENE_FUSION,
+                               BIDIRECTIONAL_PROMOTER_LNCRNA,
+                               BIDIRECTIONAL_PROMOTER_LNCRNA_GENE,
+                               BIOSYNTHETIC_GENE_CLUSTER,
+                               BIPARTITE_DUPLICATION,
+                               BIPARTITE_INVERSION,
+                               BOUND_BY_FACTOR,
+                               BOUND_BY_NUCLEIC_ACID,
+                               BOUND_BY_PROTEIN,
+                               CDNA,
+                               CAPPED,
+                               CASSETTE_ARRAY_MEMBER,
+                               CELLULAR_MISLOCALIZATION_VARIANT,
+                               CHLOROPLAST_DNA,
+                               CHLOROPLAST_SEQUENCE,
+                               CHROMATIN_REGULATORY_REGION,
+                               CHROMOPLAST_SEQUENCE,
+                               CHROMOSOMAL_DELETION,
+                               CHROMOSOMAL_DUPLICATION,
+                               CHROMOSOMAL_INVERSION,
+                               CHROMOSOMAL_TRANSLOCATION,
+                               CHROMOSOMAL_TRANSPOSITION,
+                               CHROMOSOMAL_VARIATION_ATTRIBUTE,
+                               CHROMOSOMALLY_ABERRANT_GENOME,
+                               CHROMOSOME_FISSION,
+                               CHROMOSOME_NUMBER_VARIATION,
+                               CHROMOSOME_STRUCTURE_VARIATION,
+                               CHROMOSOME_VARIATION,
+                               CIRCULAR,
+                               CIRCULAR_MRNA,
+                               CIRCULAR_NCRNA,
+                               CIRCULAR_PLASMID,
+                               CIS_REGULATORY_MODULE,
+                               CODING_SEQUENCE_VARIANT,
+                               CODING_TRANSCRIPT_INTRON_VARIANT,
+                               CODING_TRANSCRIPT_VARIANT,
+                               CODING_TRANSCRIPT_WITH_RETAINED_INTRON,
+                               CODING_VARIANT_QUALITY,
+                               CODON_REDEFINED,
+                               COMMON_FRAGILE_SITE,
+                               COMMON_VARIANT,
+                               COMPENSATORY_TRANSCRIPT_SECONDARY_STRUCTURE_VARIANT,
+                               COMPLEX_3D_STRUCTURAL_VARIANT,
+                               COMPLEX_CHANGE_OF_TRANSLATIONAL_PRODUCT_VARIANT,
+                               COMPLEX_CHROMOSOMAL_REARRANGEMENT,
+                               COMPLEX_OPERON,
+                               COMPLEX_REGULON,
+                               COMPLEX_TRANSCRIPT_VARIANT,
+                               COMPOUND_CHROMOSOME,
+                               COMPOUND_CHROMOSOME_ARM,
+                               CONFORMATIONAL_CHANGE_VARIANT,
+                               CONSENSUS,
+                               CONSERVATIVE_AMINO_ACID_SUBSTITUTION,
+                               CONSERVATIVE_INFRAME_DELETION,
+                               CONSERVATIVE_INFRAME_INSERTION,
+                               CONSERVATIVE_MISSENSE_VARIANT,
+                               CONSERVED,
+                               CONSERVED_INTERGENIC_VARIANT,
+                               CONSERVED_INTRON_VARIANT,
+                               COPY_NUMBER_CHANGE,
+                               COPY_NUMBER_DECREASE,
+                               COPY_NUMBER_INCREASE,
+                               CORE_EUKARYOTIC_PROMOTER_ELEMENT,
+                               CORE_PROKARYOTIC_PROMOTER_ELEMENT,
+                               CORE_VIRAL_PROMOTER_ELEMENT,
+                               CRYPTIC,
+                               CRYPTIC_PROMOTER,
+                               CRYPTIC_SPLICE_ACCEPTOR,
+                               CRYPTIC_SPLICE_DONOR,
+                               CRYPTIC_SPLICE_SITE_VARIANT,
+                               CYANELLE_SEQUENCE,
+                               CYCLIC_TRANSLOCATION,
+                               CYTOSOLIC_16S_RRNA,
+                               CYTOSOLIC_18S_RRNA,
+                               CYTOSOLIC_23S_RRNA,
+                               CYTOSOLIC_25S_RRNA,
+                               CYTOSOLIC_28S_RRNA,
+                               CYTOSOLIC_2S_RRNA,
+                               CYTOSOLIC_5S_RRNA,
+                               CYTOSOLIC_5_8S_RRNA,
+                               CYTOSOLIC_LSU_RRNA,
+                               CYTOSOLIC_LSU_RRNA_GENE,
+                               CYTOSOLIC_SSU_RRNA,
+                               CYTOSOLIC_SSU_RRNA_GENE,
+                               CYTOSOLIC_RRNA,
+                               CYTOSOLIC_RRNA_16S_GENE,
+                               CYTOSOLIC_RRNA_18S_GENE,
+                               CYTOSOLIC_RRNA_23S_GENE,
+                               CYTOSOLIC_RRNA_25S_GENE,
+                               CYTOSOLIC_RRNA_28S_GENE,
+                               CYTOSOLIC_RRNA_2S_GENE,
+                               CYTOSOLIC_RRNA_5S_GENE,
+                               CYTOSOLIC_RRNA_5_8S_GENE,
+                               CYTOSOLIC_RRNA_GENE,
+                               DE_NOVO_VARIANT,
+                               DECREASED_ENZYME_ACTIVITY_VARIANT,
+                               DECREASED_GENE_PRODUCT_LEVEL,
+                               DECREASED_POLYADENYLATION_VARIANT,
+                               DECREASED_POLYPEPTIDE_LEVEL,
+                               DECREASED_TRANSCRIPT_LEVEL_VARIANT,
+                               DECREASED_TRANSCRIPT_STABILITY_VARIANT,
+                               DECREASED_TRANSCRIPTION_RATE_VARIANT,
+                               DECREASED_TRANSLATIONAL_PRODUCT_LEVEL,
+                               DEFICIENT_INTERCHROMOSOMAL_TRANSPOSITION,
+                               DEFICIENT_INTRACHROMOSOMAL_TRANSPOSITION,
+                               DEFICIENT_INVERSION,
+                               DEFICIENT_TRANSLOCATION,
+                               DELETION_ARTIFACT,
+                               DELINS,
+                               DESIGNED_SEQUENCE,
+                               DEXTROSYNAPTIC_CHROMOSOME,
+                               DICISTRONIC,
+                               DIPLOTYPE,
+                               DIRECT,
+                               DIRECTION_ATTRIBUTE,
+                               DISEASE_ASSOCIATED_VARIANT,
+                               DISEASE_CAUSING_VARIANT,
+                               DISRUPTIVE_INFRAME_DELETION,
+                               DISRUPTIVE_INFRAME_INSERTION,
+                               DOMINANT_NEGATIVE_VARIANT,
+                               DOUBLE,
+                               DOUBLE_STRANDED_CDNA,
+                               DOWNSTREAM_GENE_VARIANT,
+                               DOWNSTREAM_INTERGENIC_FUSION,
+                               DOWNSTREAM_TRANSCRIPT_VARIANT,
+                               DUPLICATION_ARTIFACT,
+                               DUPLICATION_ATTRIBUTE,
+                               EARLY_ORIGIN_OF_REPLICATION,
+                               EDITED,
+                               EDITING_VARIANT,
+                               ELONGATED_IN_FRAME_POLYPEPTIDE_C_TERMINAL,
+                               ELONGATED_IN_FRAME_POLYPEPTIDE_N_TERMINAL_ELONGATION,
+                               ELONGATED_OUT_OF_FRAME_POLYPEPTIDE_C_TERMINAL,
+                               ELONGATED_OUT_OF_FRAME_POLYPEPTIDE_N_TERMINAL,
+                               ELONGATED_POLYPEPTIDE,
+                               ELONGATED_POLYPEPTIDE_C_TERMINAL,
+                               ELONGATED_POLYPEPTIDE_N_TERMINAL,
+                               ENCODES_1_POLYPEPTIDE,
+                               ENCODES_ALTERNATE_TRANSCRIPTION_START_SITES,
+                               ENCODES_ALTERNATELY_SPLICED_TRANSCRIPTS,
+                               ENCODES_DIFFERENT_POLYPEPTIDES_DIFFERENT_STOP,
+                               ENCODES_DISJOINT_POLYPEPTIDES,
+                               ENCODES_GREATER_THAN_1_POLYPEPTIDE,
+                               ENCODES_OVERLAPPING_PEPTIDES,
+                               ENCODES_OVERLAPPING_PEPTIDES_DIFFERENT_START,
+                               ENCODES_OVERLAPPING_POLYPEPTIDES_DIFFERENT_START_AND_STOP,
+                               ENDOGENOUS_RETROVIRAL_SEQUENCE,
+                               ENGINEERED,
+                               ENHANCER_BLOCKING_ELEMENT,
+                               ENZYMATIC,
+                               ENZYMATIC_RNA_GENE,
+                               EPIGENETICALLY_MODIFIED,
+                               EPIGENOMICALLY_MODIFIED_REGION,
+                               EUKARYOTIC_PROMOTER,
+                               EXEMPLAR,
+                               EXON_LOSS_VARIANT,
+                               EXON_VARIANT,
+                               EXONIC_SPLICE_REGION_VARIANT,
+                               EXPERIMENTAL_FEATURE_ATTRIBUTE,
+                               EXPERIMENTALLY_DETERMINED,
+                               EXTENDED_INTRONIC_SPLICE_REGION_VARIANT,
+                               FEATURE_ABLATION,
+                               FEATURE_AMPLIFICATION,
+                               FEATURE_ATTRIBUTE,
+                               FEATURE_ELONGATION,
+                               FEATURE_FUSION,
+                               FEATURE_TRANSLOCATION,
+                               FEATURE_TRUNCATION,
+                               FEATURE_VARIANT,
+                               FINISHED_GENOME,
+                               FIVE_PRIME_UTR_PREMATURE_START_CODON_LOCATION_VARIANT,
+                               FIVE_PRIME_DUPLICATED_TRANSCRIPT,
+                               FIVE_PRIME_FIVE_PRIME_OVERLAP,
+                               FIVE_PRIME_GENE_FUSION,
+                               FIVE_PRIME_THREE_PRIME_OVERLAP,
+                               FIXED_VARIANT,
+                               FLANKED,
+                               FLANKING_REPEAT,
+                               FLOXED,
+                               FOREIGN,
+                               FORWARD,
+                               FRAGILE_SITE,
+                               FRAGMENTARY,
+                               FRAME_RESTORING_VARIANT,
+                               FRAMESHIFT,
+                               FRAMESHIFT_ELONGATION,
+                               FRAMESHIFT_TRUNCATION,
+                               FRAMESHIFT_UNIDIRECTIONAL_GENE_FUSION,
+                               FRAMESHIFT_VARIANT,
+                               FRAMESHIFT_VARIANT_NMD_ESCAPING,
+                               FRAMESHIFT_VARIANT_NMD_TRIGGERING,
+                               FREE,
+                               FREE_CHROMOSOME_ARM,
+                               FREE_DUPLICATION,
+                               FREE_RING_DUPLICATION,
+                               FUNCTION_UNCERTAIN_VARIANT,
+                               FUNCTIONAL_EFFECT_VARIANT,
+                               FUNCTIONAL_GENE_REGION,
+                               FUNCTIONALLY_ABNORMAL,
+                               FUNCTIONALLY_NORMAL,
+                               FUSION,
+                               GRNA_ENCODING,
+                               GAIN_OF_FUNCTION_VARIANT,
+                               GENE_ARRAY_MEMBER,
+                               GENE_ATTRIBUTE,
+                               GENE_CASSETTE_MEMBER,
+                               GENE_FUSION,
+                               GENE_SUBARRAY_MEMBER,
+                               GENE_TO_GENE_FEATURE,
+                               GENE_VARIANT,
+                               GENIC_DOWNSTREAM_TRANSCRIPT_VARIANT,
+                               GENIC_UPSTREAM_TRANSCRIPT_VARIANT,
+                               GENOME,
+                               GENOMIC_DNA,
+                               GENOMIC_DNA_CONTIG,
+                               GENOMICALLY_IMPRINTED,
+                               GENOTYPE,
+                               GERMLINE_VARIANT,
+                               GROUP_IIC_INTRON,
+                               HAT_TIR_TRANSPOSON,
+                               HAPLOTYPE,
+                               HETERO_COMPOUND_CHROMOSOME,
+                               HIGH_QUALITY_DRAFT,
+                               HISTONE_2AZ_ACETYLATION_SITE,
+                               HISTONE_2A_ACETYLATION_SITE,
+                               HISTONE_2B_ACETYLATION_SITE,
+                               HISTONE_4_ACETYLATION_SITE,
+                               HOMO_COMPOUND_CHROMOSOME,
+                               HOMOLOGOUS,
+                               HOMOLOGOUS_CHROMOSOME_RECOGNITION_AND_PAIRING_LOCUS,
+                               HPRNA,
+                               HPRNA_GENE,
+                               HYPERPLOID,
+                               HYPOPLOID,
+                               IMMUNOGLOBULIN_GENE,
+                               IMMUNOGLOBULIN_PSEUDOGENE,
+                               IMPRINTING_CONTROL_REGION,
+                               IMPROVED_HIGH_QUALITY_DRAFT,
+                               INACTIVE_CATALYTIC_SITE,
+                               INACTIVE_LIGAND_BINDING_SITE,
+                               INCOMPLETE_TERMINAL_CODON_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_3UTR_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_5UTR_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_CDS,
+                               INCOMPLETE_TRANSCRIPT_CODING_SPLICE_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_EXONIC_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_INTRONIC_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_SPLICE_REGION_VARIANT,
+                               INCOMPLETE_TRANSCRIPT_VARIANT,
+                               INCREASED_ENZYME_ACTIVITY_VARIANT,
+                               INCREASED_GENE_PRODUCT_LEVEL,
+                               INCREASED_POLYADENYLATION_VARIANT,
+                               INCREASED_TRANSCRIPT_LEVEL_VARIANT,
+                               INCREASED_TRANSCRIPT_STABILITY_VARIANT,
+                               INCREASED_TRANSCRIPTION_RATE_VARIANT,
+                               INCREASED_TRANSLATIONAL_PRODUCT_LEVEL,
+                               INDEL_ARTIFACT,
+                               INDEPENDENTLY_KNOWN,
+                               INERT_DNA_SPACER,
+                               INFRAME,
+                               INFRAME_DELETION,
+                               INFRAME_INDEL,
+                               INFRAME_INSERTION,
+                               INFRAME_UNIDIRECTIONAL_GENE_FUSION,
+                               INFRAME_VARIANT,
+                               INITIATOR_CODON_VARIANT,
+                               INSERTION_ARTIFACT,
+                               INSERTION_ATTRIBUTE,
+                               INSERTIONAL,
+                               INSERTIONAL_DUPLICATION,
+                               INSIDE_INTRON,
+                               INSIDE_INTRON_ANTIPARALLEL,
+                               INSIDE_INTRON_PARALLEL,
+                               INTEIN_CONTAINING,
+                               INTERCHROMOSOMAL,
+                               INTERCHROMOSOMAL_DUPLICATION,
+                               INTERCHROMOSOMAL_MUTATION,
+                               INTERCHROMOSOMAL_TRANSLOCATION,
+                               INTERCHROMOSOMAL_TRANSPOSITION,
+                               INTERGENIC_1KB_VARIANT,
+                               INTERGENIC_VARIANT,
+                               INTERMEDIATE,
+                               INTERNAL_FEATURE_ELONGATION,
+                               INTRACHROMOSOMAL,
+                               INTRACHROMOSOMAL_DUPLICATION,
+                               INTRACHROMOSOMAL_MUTATION,
+                               INTRACHROMOSOMAL_TRANSLOCATION,
+                               INTRACHROMOSOMAL_TRANSPOSITION,
+                               INTRAGENIC_VARIANT,
+                               INTRON_GAIN_VARIANT,
+                               INTRON_VARIANT,
+                               INVALIDATED,
+                               INVALIDATED_BY_CHIMERIC_CDNA,
+                               INVALIDATED_BY_GENOMIC_CONTAMINATION,
+                               INVALIDATED_BY_GENOMIC_POLYA_PRIMED_CDNA,
+                               INVALIDATED_BY_PARTIAL_PROCESSING,
+                               INVERSION_ATTRIBUTE,
+                               INVERSION_CUM_TRANSLOCATION,
+                               INVERSION_DERIVED_ANEUPLOID_CHROMOSOME,
+                               INVERSION_DERIVED_BIPARTITE_DEFICIENCY,
+                               INVERSION_DERIVED_BIPARTITE_DUPLICATION,
+                               INVERSION_DERIVED_DEFICIENCY_PLUS_ANEUPLOID,
+                               INVERSION_DERIVED_DEFICIENCY_PLUS_DUPLICATION,
+                               INVERSION_DERIVED_DUPLICATION_PLUS_ANEUPLOID,
+                               INVERTED,
+                               INVERTED_INSERTIONAL_DUPLICATION,
+                               INVERTED_INTERCHROMOSOMAL_TRANSPOSITION,
+                               INVERTED_INTRACHROMOSOMAL_TRANSPOSITION,
+                               INVERTED_RING_CHROMOSOME,
+                               ISOMIR,
+                               KINETOPLAST,
+                               KNOB,
+                               LAEVOSYNAPTIC_CHROMOSOME,
+                               LATE_ORIGIN_OF_REPLICATION,
+                               LETHAL_VARIANT,
+                               LEUCOPLAST_SEQUENCE,
+                               LEVEL_OF_TRANSCRIPT_VARIANT,
+                               LINEAR,
+                               LINEAR_PLASMID,
+                               LNCRNA_GENE,
+                               LNCRNA_WITH_RETAINED_INTRON,
+                               LONG_TERMINAL_REPEAT_TRANSCRIPT,
+                               LOOP,
+                               LOSS_OF_FUNCTION_VARIANT,
+                               LOSS_OF_HETEROZYGOSITY,
+                               LOST_POLYPEPTIDE,
+                               LOW_COMPLEXITY,
+                               MRNA_ATTRIBUTE,
+                               MACRONUCLEAR_SEQUENCE,
+                               MATERNAL_VARIANT,
+                               MATERNALLY_IMPRINTED,
+                               MATURE_MIRNA_VARIANT,
+                               MATURE_PROTEIN_REGION_OF_CDS,
+                               MEIOTIC_RECOMBINATION_REGION,
+                               MEMBER_OF_REGULON,
+                               METHYLATION_GUIDE_SNORNA_GENE,
+                               MIRNA_ENCODING,
+                               MICRONUCLEAR_SEQUENCE,
+                               MINUS_1_FRAMESHIFT,
+                               MINUS_1_FRAMESHIFT_VARIANT,
+                               MINUS_1_TRANSLATIONAL_FRAMESHIFT,
+                               MINUS_1_TRANSLATIONALLY_FRAMESHIFTED,
+                               MINUS_2_FRAMESHIFT,
+                               MINUS_2_FRAMESHIFT_VARIANT,
+                               MINUS_2_TRANSLATIONAL_FRAMESHIFT,
+                               MISSENSE_VARIANT,
+                               MITOCHONDRIAL_DNA,
+                               MITOCHONDRIAL_D_LOOP,
+                               MITOCHONDRIAL_CONTROL_REGION,
+                               MITOCHONDRIAL_SEQUENCE,
+                               MITOTIC_RECOMBINATION_REGION,
+                               MOBILE,
+                               MOBILE_ELEMENT_DELETION,
+                               MONOCISTRONIC,
+                               MORPHOLINO_BACKBONE,
+                               MT_LSU_RRNA,
+                               MT_LSU_RRNA_GENE,
+                               MT_SSU_RRNA,
+                               MT_SSU_RRNA_GENE,
+                               MT_RRNA,
+                               MT_RRNA_GENE,
+                               MT_TRNA,
+                               MUTATIONAL_HOTSPOT,
+                               NATURAL,
+                               NEGATIVELY_AUTOREGULATED,
+                               NO_SEQUENCE_ALTERATION,
+                               NON_AUG_INITIATED_UORF,
+                               NON_ALLELIC_HOMOLOGOUS_RECOMBINATION_REGION,
+                               NON_CODING_TRANSCRIPT_EXON_VARIANT,
+                               NON_CODING_TRANSCRIPT_INTRON_VARIANT,
+                               NON_CODING_TRANSCRIPT_SPLICE_REGION_VARIANT,
+                               NON_CODING_TRANSCRIPT_VARIANT,
+                               NON_COMPLIMENTARY_STEM,
+                               NON_CONSERVATIVE_AMINO_ACID_SUBSTITUTION,
+                               NON_CONSERVATIVE_MISSENSE_VARIANT,
+                               NON_PROTEIN_CODING,
+                               NON_SYNONYMOUS,
+                               NONCONTIGUOUS_FINISHED,
+                               NONSYNONYMOUS_VARIANT,
+                               NUCLEAR_SEQUENCE,
+                               NUCLEIC_ACID,
+                               NUCLEOMORPHIC_SEQUENCE,
+                               NUCLEOTIDE_CLEAVAGE_SITE,
+                               NULL_MUTATION,
+                               OCHRE_STOP_CODON,
+                               ONCOGENIC_VARIANT,
+                               OPAL_STOP_CODON,
+                               OPERON_MEMBER,
+                               ORGANELLE_SEQUENCE,
+                               ORPHAN,
+                               ORTHOLOGOUS,
+                               OVERLAPPING,
+                               PARACENTRIC,
+                               PARACENTRIC_INVERSION,
+                               PARALOGOUS,
+                               PARTIALLY_CHARACTERIZED_CHROMOSOMAL_MUTATION,
+                               PARTIALLY_DUPLICATED_TRANSCRIPT,
+                               PATERNAL_VARIANT,
+                               PATERNALLY_IMPRINTED,
+                               PEDIGREE_SPECIFIC_VARIANT,
+                               PEPTIDE_COLLECTION,
+                               PEPTIDYL,
+                               PERICENTRIC,
+                               PERICENTRIC_INVERSION,
+                               PIGGYBAC_TIR_TRANSPOSON,
+                               PLASMID_LOCATION,
+                               PLASTID_LSU_RRNA,
+                               PLASTID_LSU_RRNA_GENE,
+                               PLASTID_SSU_RRNA,
+                               PLASTID_SSU_RRNA_GENE,
+                               PLASTID_RRNA,
+                               PLASTID_RRNA_GENE,
+                               PLASTID_SEQUENCE,
+                               PLUS_1_FRAMESHIFT,
+                               PLUS_1_FRAMESHIFT_VARIANT,
+                               PLUS_1_TRANSLATIONALLY_FRAMESHIFTED,
+                               PLUS_2_FRAMESHIFT_VARIANT,
+                               PLUS_2_FRAMSHIFT,
+                               POLYA_SITE_CLUSTER,
+                               POLYADENYLATED,
+                               POLYADENYLATION_VARIANT,
+                               POLYCISTRONIC,
+                               POLYMER_ATTRIBUTE,
+                               POLYMORPHIC_PSEUDOGENE_PROCESSED_TRANSCRIPT,
+                               POLYMORPHIC_PSEUDOGENE_WITH_RETAINED_INTRON,
+                               POLYMORPHIC_SEQUENCE_VARIANT,
+                               POLYMORPHIC_VARIANT,
+                               POLYPEPTIDE_FUNCTION_VARIANT,
+                               POLYPEPTIDE_FUSION,
+                               POLYPEPTIDE_GAIN_OF_FUNCTION_VARIANT,
+                               POLYPEPTIDE_LOCALIZATION_VARIANT,
+                               POLYPEPTIDE_LOSS_OF_FUNCTION_VARIANT,
+                               POLYPEPTIDE_PARTIAL_LOSS_OF_FUNCTION,
+                               POLYPEPTIDE_POST_TRANSLATIONAL_PROCESSING_VARIANT,
+                               POLYPEPTIDE_SEQUENCE_VARIANT,
+                               POLYPEPTIDE_TRUNCATION,
+                               POLYPLOID,
+                               POPULATION_SPECIFIC_VARIANT,
+                               POSITIVELY_AUTOREGULATED,
+                               POST_TRANSLATIONALLY_REGULATED,
+                               POST_TRANSLATIONALLY_REGULATED_BY_PROTEIN_MODIFICATION,
+                               POST_TRANSLATIONALLY_REGULATED_BY_PROTEIN_STABILITY,
+                               PRECURSOR_RNA,
+                               PREDICTED,
+                               PREDICTED_BY_AB_INITIO_COMPUTATION,
+                               PREDICTED_TRANSCRIPT,
+                               PRESENCE_ABSENCE_VARIATION,
+                               PROCESSED_PSEUDOGENIC_RRNA,
+                               PROCESSED_PSEUDOGENIC_TRNA,
+                               PROKARYOTIC_PROMOTER,
+                               PROPEPTIDE_REGION_OF_CDS,
+                               PROPLASTID_SEQUENCE,
+                               PROTEIN_ALTERING_VARIANT,
+                               PROTEIN_CODING,
+                               PROVIRAL_LOCATION,
+                               PSEUDOEXON_VARIANT,
+                               PSEUDOGENE_PROCESSED_TRANSCRIPT,
+                               PSEUDOGENIC_CDS,
+                               PSEUDOGENIC_TRANSCRIPT_WITH_RETAINED_INTRON,
+                               PSEUDOURIDYLATION_GUIDE_SNORNA_GENE,
+                               PUMILIO_RESPONSE_ELEMENT,
+                               PYRROLYSINE_LOSS,
+                               QUALITY_VALUE,
+                               QUANTITATIVE_VARIANT,
+                               RRNA_ENCODING,
+                               RANDOM_SEQUENCE,
+                               RANGE_EXTENDER_ELEMENT,
+                               RARE_AMINO_ACID_VARIANT,
+                               RARE_FRAGILE_SITE,
+                               RARE_VARIANT,
+                               RATE_OF_TRANSCRIPTION_VARIANT,
+                               REARRANGED_AT_DNA_LEVEL,
+                               REARRANGEMENT_REGION,
+                               RECIPROCAL,
+                               RECIPROCAL_CHROMOSOMAL_TRANSLOCATION,
+                               RECODED,
+                               RECODED_BY_TRANSLATIONAL_BYPASS,
+                               RECOMBINATIONALLY_REARRANGED,
+                               REDUNDANT_INSERTED_STOP_GAINED,
+                               REF_MIRNA,
+                               REFERENCE_GENOME,
+                               REGULATED,
+                               REGULATORY_REGION_ABLATION,
+                               REGULATORY_REGION_AMPLIFICATION,
+                               REGULATORY_REGION_FUSION,
+                               REGULATORY_REGION_TRANSLOCATION,
+                               REGULATORY_REGION_VARIANT,
+                               REPEAT_INSTABILITY_REGION,
+                               REPLICATION_START_SITE,
+                               RESCUE,
+                               RESPONSE_ELEMENT,
+                               RETROTRANSPOSED,
+                               REVERSE,
+                               RIBOZYME_GENE,
+                               RIBOZYMIC,
+                               RING_CHROMOSOME,
+                               SBRNA,
+                               SBRNA_GENE,
+                               SCRNA_ENCODING,
+                               SCARNA,
+                               SCARNA_GENE,
+                               SCORE,
+                               SELECTION_MARKER,
+                               SELENOCYSTEINE_GAIN,
+                               SELENOCYSTEINE_LOSS,
+                               SELF_CLEAVING_RIBOZYME,
+                               SENSE_INTRONIC_LNCRNA,
+                               SENSE_INTRONIC_LNCRNA_GENE,
+                               SENSE_OVERLAP_LNCRNA,
+                               SENSE_OVERLAP_LNCRNA_GENE,
+                               SEQUENCE_ALTERATION_ARTIFACT,
+                               SEQUENCE_ATTRIBUTE,
+                               SEQUENCE_COLLECTION,
+                               SEQUENCE_COMPARISON,
+                               SEQUENCE_LENGTH_ALTERATION,
+                               SEQUENCE_LENGTH_VARIANT,
+                               SEQUENCE_LOCATION,
+                               SEQUENCE_SOURCE,
+                               SEQUENCE_VARIANT,
+                               SHORT_TANDEM_REPEAT_CHANGE,
+                               SHORT_TANDEM_REPEAT_CONTRACTION,
+                               SHORT_TANDEM_REPEAT_EXPANSION,
+                               SHORT_TANDEM_REPEAT_VARIATION,
+                               SIGNAL_PEPTIDE_REGION_OF_CDS,
+                               SILENCED,
+                               SILENCED_BY_DNA_METHYLATION,
+                               SILENCED_BY_DNA_MODIFICATION,
+                               SILENCED_BY_RNA_INTERFERENCE,
+                               SILENCED_BY_HISTONE_DEACETYLATION,
+                               SILENCED_BY_HISTONE_METHYLATION,
+                               SILENCED_BY_HISTONE_MODIFICATION,
+                               SILENT_MUTATION,
+                               SIMPLE_OPERON,
+                               SIMPLE_REGULON,
+                               SINGLE,
+                               SINGLE_STRANDED_CDNA,
+                               SISRNA,
+                               SNRNA_ENCODING,
+                               SNCRNA,
+                               SNCRNA_GENE,
+                               SNORNA_ENCODING,
+                               SOMATIC_VARIANT,
+                               SPLICE_ACCEPTOR_VARIANT,
+                               SPLICE_ACCEPTOR_VARIANT_NMD_ESCAPING,
+                               SPLICE_ACCEPTOR_VARIANT_NMD_TRIGGERING,
+                               SPLICE_DONOR_5TH_BASE_VARIANT,
+                               SPLICE_DONOR_REGION_VARIANT,
+                               SPLICE_DONOR_VARIANT,
+                               SPLICE_DONOR_VARIANT_NMD_ESCAPING,
+                               SPLICE_DONOR_VARIANT_NMD_TRIGGERING,
+                               SPLICE_POLYPYRIMIDINE_TRACT_VARIANT,
+                               SPLICE_REGION_VARIANT,
+                               SPLICE_SITE_VARIANT,
+                               SPLICING_VARIANT,
+                               SPURIOUS_PROTEIN,
+                               STRNA_ENCODING,
+                               STANDARD_DRAFT,
+                               START_LOST,
+                               START_RETAINED_VARIANT,
+                               STATUS,
+                               STEM,
+                               STEM_LOOP_REGION,
+                               STOP_GAINED,
+                               STOP_GAINED_NMD_ESCAPING,
+                               STOP_GAINED_NMD_TRIGGERING,
+                               STOP_LOST,
+                               STOP_RETAINED_VARIANT,
+                               STRAND_ATTRIBUTE,
+                               STRUCTURAL_INTERACTION_VARIANT,
+                               STRUCTURAL_VARIANT,
+                               SUBSTITUTION_ARTIFACT,
+                               SUPPORTED_BY_EST_OR_CDNA,
+                               SUPPORTED_BY_DOMAIN_MATCH,
+                               SUPPORTED_BY_SEQUENCE_SIMILARITY,
+                               SYNONYMOUS,
+                               SYNONYMOUS_VARIANT,
+                               SYNTENIC,
+                               SYNTHETIC_SEQUENCE,
+                               TRNA_SINE_RETROTRANSPOSON,
+                               TRNA_ENCODING,
+                               TANDEM,
+                               TEB1_RECOGNITION_MOTIF,
+                               TELOMERIC_D_LOOP,
+                               TERMINAL_REPEAT,
+                               TERMINATOR_CODON_VARIANT,
+                               THREE_PRIME_DUPLICATED_TRANSCRIPT,
+                               THREE_PRIME_FIVE_PRIME_OVERLAP,
+                               THREE_PRIME_GENE_FUSION,
+                               THREE_PRIME_OVERLAPPING_NCRNA,
+                               THREE_PRIME_THREE_PRIME_OVERLAP,
+                               TMRNA_ENCODING,
+                               TOPOLOGICALLY_ASSOCIATED_DOMAIN,
+                               TOPOLOGICALLY_ASSOCIATED_DOMAIN_BOUNDARY,
+                               TOPOLOGY_ATTRIBUTE,
+                               TRANS_SPLICED,
+                               TRANSCRIBED_PROCESSED_PSEUDOGENE,
+                               TRANSCRIBED_UNITARY_PSEUDOGENE,
+                               TRANSCRIBED_UNPROCESSED_PSEUDOGENE,
+                               TRANSCRIPT_ABLATION,
+                               TRANSCRIPT_AMPLIFICATION,
+                               TRANSCRIPT_ATTRIBUTE,
+                               TRANSCRIPT_FUNCTION_VARIANT,
+                               TRANSCRIPT_FUSION,
+                               TRANSCRIPT_PROCESSING_VARIANT,
+                               TRANSCRIPT_REGULATORY_REGION_FUSION,
+                               TRANSCRIPT_SECONDARY_STRUCTURE_VARIANT,
+                               TRANSCRIPT_STABILITY_VARIANT,
+                               TRANSCRIPT_TRANSLOCATION,
+                               TRANSCRIPT_VARIANT,
+                               TRANSCRIPTION_FACTOR_REGULATORY_SITE,
+                               TRANSCRIPTION_TERMINATION_SIGNAL,
+                               TRANSCRIPTION_UNIT,
+                               TRANSCRIPTION_VARIANT,
+                               TRANSCRIPTIONALLY_CONSTITUTIVE,
+                               TRANSCRIPTIONALLY_INDUCED,
+                               TRANSCRIPTIONALLY_REGULATED,
+                               TRANSCRIPTIONALLY_REPRESSED,
+                               TRANSGENIC,
+                               TRANSIT_PEPTIDE_REGION_OF_CDS,
+                               TRANSLATED_PROCESSED_PSEUDOGENE,
+                               TRANSLATED_UNPROCESSED_PSEUDOGENE,
+                               TRANSLATIONAL_PRODUCT_FUNCTION_VARIANT,
+                               TRANSLATIONAL_PRODUCT_LEVEL_VARIANT,
+                               TRANSLATIONAL_PRODUCT_STRUCTURE_VARIANT,
+                               TRANSLATIONALLY_FRAMESHIFTED,
+                               TRANSLATIONALLY_REGULATED,
+                               TRANSLOCATION_ELEMENT,
+                               TRANSLOCATON_ATTRIBUTE,
+                               TRINUCLEOTIDE_REPEAT_EXPANSION,
+                               UNCHARACTERIZED_CHROMOSOMAL_MUTATION,
+                               UNCONFIRMED_TRANSCRIPT,
+                               UNIDIRECTIONAL_GENE_FUSION,
+                               UNIDIRECTIONAL_INTERGENIC_FUSION,
+                               UNINVERTED_INSERTIONAL_DUPLICATION,
+                               UNINVERTED_INTERCHROMOSOMAL_TRANSPOSITION,
+                               UNINVERTED_INTRACHROMOSOMAL_TRANSPOSITION,
+                               UNIQUE_VARIANT,
+                               UNIT_OF_GENE_EXPRESSION,
+                               UNITARY_PSEUDOGENIC_RRNA,
+                               UNITARY_PSEUDOGENIC_TRNA,
+                               UNORIENTED_INSERTIONAL_DUPLICATION,
+                               UNORIENTED_INTERCHROMOSOMAL_TRANSPOSITION,
+                               UNORIENTED_INTRACHROMOSOMAL_TRANSPOSITION,
+                               UNPROCESSED_PSEUDOGENIC_RRNA,
+                               UNPROCESSED_PSEUDOGENIC_TRNA,
+                               UNSPECIFIED_INDEL,
+                               UPSTREAM_GENE_VARIANT,
+                               UPSTREAM_INTERGENIC_FUSION,
+                               UPSTREAM_TRANSCRIPT_VARIANT,
+                               VALIDATED,
+                               VARIANT_COLLECTION,
+                               VARIANT_FREQUENCY,
+                               VARIANT_GENOME,
+                               VARIANT_ORIGIN,
+                               VARIANT_PHENOTYPE,
+                               VARIANT_QUALITY,
+                               VAULT_RNA_GENE,
+                               VERTEBRATE_IMMUNE_SYSTEM_GENE,
+                               VERTEBRATE_IMMUNE_SYSTEM_PSEUDOGENE,
+                               VIRAL_PROMOTER,
+                               WHOLE_GENOME_SEQUENCE_STATUS,
+                               WILD_TYPE,
+                               })
 
 GENE = "gene"
 EPIGENETICALLY_MODIFIED_GENE = "epigenetically_modified_gene"
@@ -3370,7 +5068,58 @@ SOSuperLocusFeatures = make_enum("SOSuperLocusFeatures",
                                  CYANELLE_GENE,
                                  TMRNA_GENE,
                                  MAXICIRCLE_GENE,
-                                 PSEUDOGENE
+                                 PSEUDOGENE,
+                                 C_D_H_ACA_BOX_SCARNA_GENE,
+                                 C_D_BOX_SCARNA_GENE,
+                                 C_D_BOX_SNORNA_GENE,
+                                 H_ACA_BOX_SCARNA_GENE,
+                                 H_ACA_BOX_SNORNA_GENE,
+                                 IG_C_GENE,
+                                 IG_D_GENE,
+                                 IG_J_GENE,
+                                 IG_V_GENE,
+                                 RNA_7SK_GENE,
+                                 TR_C_GENE,
+                                 TR_D_GENE,
+                                 TR_J_GENE,
+                                 TR_V_GENE,
+                                 T_CELL_RECEPTOR_GENE,
+                                 U14_SNORNA_GENE,
+                                 U3_SNORNA_GENE,
+                                 Y_RNA_GENE,
+                                 ANTISENSE_LNCRNA_GENE,
+                                 BIDIRECTIONAL_PROMOTER_LNCRNA_GENE,
+                                 CYTOSOLIC_LSU_RRNA_GENE,
+                                 CYTOSOLIC_SSU_RRNA_GENE,
+                                 CYTOSOLIC_RRNA_16S_GENE,
+                                 CYTOSOLIC_RRNA_18S_GENE,
+                                 CYTOSOLIC_RRNA_23S_GENE,
+                                 CYTOSOLIC_RRNA_25S_GENE,
+                                 CYTOSOLIC_RRNA_28S_GENE,
+                                 CYTOSOLIC_RRNA_2S_GENE,
+                                 CYTOSOLIC_RRNA_5S_GENE,
+                                 CYTOSOLIC_RRNA_5_8S_GENE,
+                                 CYTOSOLIC_RRNA_GENE,
+                                 ENZYMATIC_RNA_GENE,
+                                 HPRNA_GENE,
+                                 IMMUNOGLOBULIN_GENE,
+                                 LNCRNA_GENE,
+                                 METHYLATION_GUIDE_SNORNA_GENE,
+                                 MT_LSU_RRNA_GENE,
+                                 MT_SSU_RRNA_GENE,
+                                 MT_RRNA_GENE,
+                                 PLASTID_LSU_RRNA_GENE,
+                                 PLASTID_SSU_RRNA_GENE,
+                                 PLASTID_RRNA_GENE,
+                                 PSEUDOURIDYLATION_GUIDE_SNORNA_GENE,
+                                 RIBOZYME_GENE,
+                                 SBRNA_GENE,
+                                 SCARNA_GENE,
+                                 SENSE_INTRONIC_LNCRNA_GENE,
+                                 SENSE_OVERLAP_LNCRNA_GENE,
+                                 SNCRNA_GENE,
+                                 VAULT_RNA_GENE,
+                                 VERTEBRATE_IMMUNE_SYSTEM_GENE,
 )
 
 SRP_RNA = "SRP_RNA"
@@ -3748,6 +5497,55 @@ SOTranscriptFeatures = make_enum("SOTranscriptFeatures",
                                  MONOCISTRONIC_MRNA,
                                  RRNA_PRIMARY_TRANSCRIPT,
                                  TASIRNA,
+                                 C_D_H_ACA_BOX_SCARNA,
+                                 C_D_BOX_SCARNA,
+                                 H_ACA_BOX_SCARNA,
+                                 NMD_POLYMORPHIC_PSEUDOGENE_TRANSCRIPT,
+                                 NMD_TRANSCRIPT,
+                                 NSD_TRANSCRIPT,
+                                 RNA_7SK,
+                                 U7_SNRNA,
+                                 BIDIRECTIONAL_PROMOTER_LNCRNA,
+                                 CIRCULAR_MRNA,
+                                 CIRCULAR_NCRNA,
+                                 CODING_TRANSCRIPT_WITH_RETAINED_INTRON,
+                                 CYTOSOLIC_16S_RRNA,
+                                 CYTOSOLIC_18S_RRNA,
+                                 CYTOSOLIC_23S_RRNA,
+                                 CYTOSOLIC_25S_RRNA,
+                                 CYTOSOLIC_28S_RRNA,
+                                 CYTOSOLIC_2S_RRNA,
+                                 CYTOSOLIC_5S_RRNA,
+                                 CYTOSOLIC_5_8S_RRNA,
+                                 CYTOSOLIC_LSU_RRNA,
+                                 CYTOSOLIC_SSU_RRNA,
+                                 CYTOSOLIC_RRNA,
+                                 HPRNA,
+                                 ISOMIR,
+                                 LNCRNA_WITH_RETAINED_INTRON,
+                                 LONG_TERMINAL_REPEAT_TRANSCRIPT,
+                                 MT_LSU_RRNA,
+                                 MT_SSU_RRNA,
+                                 MT_RRNA,
+                                 MT_TRNA,
+                                 PLASTID_LSU_RRNA,
+                                 PLASTID_SSU_RRNA,
+                                 PLASTID_RRNA,
+                                 POLYMORPHIC_PSEUDOGENE_PROCESSED_TRANSCRIPT,
+                                 PRECURSOR_RNA,
+                                 PREDICTED_TRANSCRIPT,
+                                 PSEUDOGENE_PROCESSED_TRANSCRIPT,
+                                 PSEUDOGENIC_TRANSCRIPT_WITH_RETAINED_INTRON,
+                                 REF_MIRNA,
+                                 SBRNA,
+                                 SCARNA,
+                                 SELF_CLEAVING_RIBOZYME,
+                                 SENSE_INTRONIC_LNCRNA,
+                                 SENSE_OVERLAP_LNCRNA,
+                                 SISRNA,
+                                 SNCRNA,
+                                 THREE_PRIME_OVERLAPPING_NCRNA,
+                                 UNCONFIRMED_TRANSCRIPT,
 )
 
 THREE_PRIME_CODING_EXON = "three_prime_coding_exon"
@@ -3796,6 +5594,10 @@ SOCDSFeatures = make_enum("SOCDSFeatures",
                           ORPHAN_CDS,
                           CDS_FRAGMENT,
                           CDS,
+                          CDS_EXTENSION,
+                          CDS_FIVE_PRIME_EXTENSION,
+                          CDS_SUPPORTED_BY_PEPTIDE_SPECTRUM_MATCH,
+                          CDS_THREE_PRIME_EXTENSION,
 )
 
 # the untranslated part of an exon; whole untranslated exons (e.g. noncoding_exon) are exon
@@ -3808,5 +5610,6 @@ SOUTRFeatures = make_enum("SOUTRFeatures",
                           NONCODING_REGION_OF_EXON,
                           FIVE_PRIME_CODING_EXON_NONCODING_REGION,
                           THREE_PRIME_CODING_EXON_NONCODING_REGION,
+                          UNTRANSLATED_REGION_POLYCISTRONIC_MRNA,
 )
 

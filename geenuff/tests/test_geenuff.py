@@ -1359,23 +1359,42 @@ def test_codon_split_by_an_intron_is_still_reported_when_absent():
 def test_gff_gen():
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     x = list(gff_organizer._gff_gen())
-    assert len(x) == 102  # started at 103, one 'lnc_RNA' line is not a known feature type
+    assert len(x) == 103  # every feature type is known, NCBI's 'lnc_RNA' included
     assert x[0].type == 'region'
     assert x[-1].type == 'CDS'
+
+
+def test_a_line_of_an_unknown_feature_type_is_skipped_and_counted(tmp_path):
+    """A line whose type is neither an SO term nor one of the non-SO spellings GeenuFF accepts is
+    skipped and counted as unrecognized, while the surrounding gene is grouped as usual."""
+    gff = tmp_path / 'unknown_type.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'CHR\ttest\tmade_up_feature\t10\t20\t.\t+\t.\tParent=t1\n'
+                   'CHR\ttest\texon\t1\t300\t.\t+\t.\tParent=t1\n'
+                   'CHR\ttest\tCDS\t10\t290\t.\t+\t0\tParent=t1\n')
+    gff_organizer = OrganizedGFFEntries(str(gff))
+    gff_organizer.load_organized_entries()
+    assert gff_organizer.stats.unrecognized_feature_types == {'made_up_feature': 1}
+    assert not gff_organizer.stats.dropped_lines
+    [group] = gff_organizer.organized_entries['CHR']
+    [t_entries] = group['transcripts'].values()
+    assert (len(t_entries['exons']), len(t_entries['cds'])) == (1, 1)
 
 
 def test_gff_useful_gen():
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     x = list(gff_organizer._useful_gff_entries())
-    assert len(x) == 99  # started at 102, should drop the 3 region entries
+    assert len(x) == 100  # started at 103, should drop the 3 region entries
     assert x[0].type == 'gene'
     assert x[-1].type == 'CDS'
 
 
 def test_gff_grouper():
-    """Lines are grouped into genes by ID and Parent. gene0's two exons name rna0, whose
-    'lnc_RNA' line is skipped as a feature type GeenuFF does not know, so their parent matches no
-    line; the pseudogene gene3754's six exons name the gene itself."""
+    """Lines are grouped into genes by ID and Parent. gene0's two exons name rna0, an 'lnc_RNA'
+    line, NCBI's spelling of lncRNA, so they are placed under it; the pseudogene gene3754's six
+    exons name the gene itself and are left out."""
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     gff_organizer.load_organized_entries()
     n_genes_seqid = {'NC_015438.2': 2, 'NC_015439.2': 2, 'NC_015440.2': 1}
@@ -1383,8 +1402,7 @@ def test_gff_grouper():
         assert len(gff_organizer.organized_entries[seqid]) == count
         for group in gff_organizer.organized_entries[seqid]:
             assert group['super_locus'].type == 'gene'
-    assert gff_organizer.stats.dropped_lines == {'unknown_parent': {'exon': 2},
-                                                 'gene_parented': {'exon': 6}}
+    assert gff_organizer.stats.dropped_lines == {'gene_parented': {'exon': 6}}
 
 
 def test_gff_grouper_leaves_out_genes_sharing_an_id():
@@ -1620,18 +1638,20 @@ def test_the_minimum_cds_length_comes_from_the_config():
 
 
 # section: types
-def test_enum_non_inheritance():
-    allknowngff = [x.name for x in list(types.AllKnownGFFFeatures)]
-    # check that some random bits made it in to all
-    assert 'region' in allknowngff
-    assert 'exon' in allknowngff
-    # check nothing is there twice
-    assert len(set(allknowngff)) == len(allknowngff)
+def test_gff_types_are_imported_or_skipped():
+    """Every known GFF3 type is either imported or skipped: an SO term GeenuFF has no use for, such
+    as region, and Augustus' tss are skipped; exon and the non-SO lnc_RNA and five_prime_utr are
+    imported."""
+    assert {'region', 'tss'} <= types.IGNORABLE_GFF_TYPES
+    assert {'exon', 'lnc_RNA', 'five_prime_utr'} <= types.USEFUL_GFF_TYPES
+    assert not types.IGNORABLE_GFF_TYPES & types.USEFUL_GFF_TYPES
+    assert types.KNOWN_GFF_TYPES == types.IGNORABLE_GFF_TYPES | types.USEFUL_GFF_TYPES
 
 
 def test_enums_name_val_match():
-    for x in types.AllKnownGFFFeatures:
-        assert x.name == x.value
+    for level in (types.SuperLocusAll, types.TranscriptLevel, types.ExonLevel, types.CDSLevel, types.UTRLevel):
+        for x in level:
+            assert x.name == x.value
 
 
 # section: helpers

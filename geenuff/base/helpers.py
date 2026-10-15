@@ -29,23 +29,6 @@ def join_to_enum(name, *args):
     return out
 
 
-def join_to_enum_strip_redundancy(name, *args):
-    enum_bits = []
-    for cls in args:
-        enum_bits += list(cls)
-    enum_bits = list(set([(x.name, x.value) for x in enum_bits]))
-    out = enum.Enum(name, enum_bits)
-    return out
-
-
-def subtract_enum(name, subtract_from, subtract_this):
-    as_tuples_from = [(x.name, x.value) for x in subtract_from]
-    as_tuples_this = set([(x.name, x.value) for x in subtract_this])
-    enum_bits = [x for x in as_tuples_from if x not in as_tuples_this]
-    out = enum.Enum(name, enum_bits)
-    return out
-
-
 def make_enum(name, *args):
     """makes enum from list of strings"""
     return enum.Enum(name, [(x, x) for x in args])

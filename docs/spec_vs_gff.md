@@ -167,8 +167,9 @@ and the coding transcripts, i.e. potential training data, each reason cost.
 - Gene and transcript lines need an `ID`, being the lines others name as their parent; one without
   an `ID`, or sharing it with another gene or transcript line, is left out. Exon, CDS and UTR lines
   need no `ID`, and CDS lines sharing one `ID` are normal.
-- UTR lines are the Sequence Ontology's UTR types, e.g. `five_prime_UTR`; the lowercase
-  `five_prime_utr` and `three_prime_utr` some tools write are not SO types and are ignored.
+- Feature types are the Sequence Ontology's, plus three common non-SO spellings: NCBI's `lnc_RNA`
+  as a transcript, and AUGUSTUS' lowercase `five_prime_utr` and `three_prime_utr` as UTRs, so that
+  exons built from CDS and UTR lines keep the UTRs.
 - A transcript names exactly one gene; one naming several genes or another transcript is left
   out. Transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius write
   them, stop the import with an error pointing to `add_gene_lines.py`. Transcripts naming a

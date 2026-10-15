@@ -1,10 +1,7 @@
-from geenuff.base.helpers import (join_to_enum,
-                                  make_enum,
-                                  join_to_enum_strip_redundancy,
-                                  subtract_enum)
+from geenuff.base.helpers import join_to_enum, make_enum
 
 
-from geenuff.base.so import (SOSequenceFeatures,
+from geenuff.base.so import (SO_SEQUENCE_TERMS,
                              SOSuperLocusFeatures,
                              SOTranscriptFeatures,
                              SOCDSFeatures,
@@ -18,35 +15,36 @@ from geenuff.base.so import (SOSequenceFeatures,
 SuperLocusAll = join_to_enum('SuperLocusAll', SOSuperLocusFeatures)
 
 # Transcript
-TranscriptLevel = join_to_enum('TranscriptLevel', SOTranscriptFeatures)
+# NCBI's spelling of SO's lncRNA, in many NCBI plant annotations; unknown, its lines would be left
+# out and its exon lines counted as naming no parent
+LNC_RNA_NCBI = 'lnc_RNA'
+TranscriptLevel = join_to_enum('TranscriptLevel', SOTranscriptFeatures,
+                               make_enum('NonSOTranscriptFeatures', LNC_RNA_NCBI))
 
 # ignorable (and non-SO sequence features) from Augustus
 TRANSCRIPTION_START_SITE = 'transcription_start_site'  # transcription_start_site
 TRANSCRIPTION_START_SITE2 = 'tss'  # transcription_start_site (older Augustus version)
 TRANSCRIPTION_TERMINATION_SITE2 = 'tts'  # transcription_termination_site
-FIVE_PRIME_UTR_LOWER = 'five_prime_utr'
-THREE_PRIME_UTR_LOWER = 'three_prime_utr'
 
-IgnorableGFFFeatures = make_enum('IgnorableGFFFeatures', TRANSCRIPTION_START_SITE,
-                                 TRANSCRIPTION_START_SITE2,
-                                 TRANSCRIPTION_TERMINATION_SITE2, FIVE_PRIME_UTR_LOWER,
-                                 THREE_PRIME_UTR_LOWER)
 
 # other useful features
 ExonLevel = join_to_enum('ExonLevel', SOExonFeatures)
 CDSLevel = join_to_enum('CDSLevel', SOCDSFeatures)
-UTRLevel = join_to_enum('UTRLevel', SOUTRFeatures)
+# Augustus' lowercase UTR types; a transcript without exon lines gets its exons built from its CDS
+# and UTR lines, so without them its UTRs would be lost and the gene masked whole
+FIVE_PRIME_UTR_LOWER = 'five_prime_utr'
+THREE_PRIME_UTR_LOWER = 'three_prime_utr'
+UTRLevel = join_to_enum('UTRLevel', SOUTRFeatures,
+                        make_enum('NonSOUTRFeatures', FIVE_PRIME_UTR_LOWER, THREE_PRIME_UTR_LOWER))
 
-UsefulGFFFeatures = join_to_enum('UsefulGFFFeatures', SuperLocusAll, TranscriptLevel,
-                                 ExonLevel, CDSLevel, UTRLevel)
-
-
-# we will need a list that can be ignored, so w/o things like exon and CDS, but that we can nevertheless
-# use to check for typos/blatantly invalid gff3
-OnlySoFeatures = subtract_enum('OnlySoFeatures', subtract_from=SOSequenceFeatures, subtract_this=UsefulGFFFeatures)
-IgnorableGFFFeatures = join_to_enum('IgnorableGffFeatures', IgnorableGFFFeatures, OnlySoFeatures)
-
-AllKnownGFFFeatures = join_to_enum('AllKnownGFFFeatures', IgnorableGFFFeatures, UsefulGFFFeatures)
+# GFF3 types, as sets for looking up each line's type: those GeenuFF imports, those it skips
+# silently (every other SO term and the Augustus types above), and all it knows; a type it does not
+# know is counted as unrecognized
+USEFUL_GFF_TYPES = frozenset(x.value for level in (SuperLocusAll, TranscriptLevel, ExonLevel, CDSLevel, UTRLevel)
+                             for x in level)
+IGNORABLE_GFF_TYPES = ((SO_SEQUENCE_TERMS - USEFUL_GFF_TYPES)
+                       | {TRANSCRIPTION_START_SITE, TRANSCRIPTION_START_SITE2, TRANSCRIPTION_TERMINATION_SITE2})
+KNOWN_GFF_TYPES = IGNORABLE_GFF_TYPES | USEFUL_GFF_TYPES
 
 ###########
 # GeenuFF #

@@ -24,8 +24,8 @@ from geenuff.base.helpers import (get_strand_direction, strand_or_none, get_geen
 logger = logging.getLogger(__name__)
 
 # the GFF types of each kind, as sets, so that every line's type is looked up once
-KNOWN_TYPES = frozenset(x.value for x in types.AllKnownGFFFeatures)
-IGNORABLE_TYPES = frozenset(x.value for x in types.IgnorableGFFFeatures)
+KNOWN_TYPES = types.KNOWN_GFF_TYPES
+IGNORABLE_TYPES = types.IGNORABLE_GFF_TYPES
 GENE_TYPES = frozenset(x.value for x in types.SuperLocusAll)
 TRANSCRIPT_TYPES = frozenset(x.value for x in types.TranscriptLevel)
 # where an exon, CDS or UTR line goes among its transcript's lines, by type
