@@ -9,7 +9,7 @@ import argparse
 import logging
 import os
 
-from geenuff.base.helpers import NonMatchableIDs, fasta_ids, get_seqids_from_gff, match_seqids
+from geenuff.base.helpers import NonMatchableIDs, fasta_ids, get_seqids_from_gff, match_seqids, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def listed(ids: set[str]) -> str:
 
 
 def main(args: argparse.Namespace) -> None:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    setup_logging()
     logger.info(f'Checking the sequence IDs of "{os.path.basename(args.gff)}" against '
                 f'"{os.path.basename(args.fasta)}"')
     fasta, gff = set(fasta_ids(args.fasta)), get_seqids_from_gff(args.gff)

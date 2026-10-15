@@ -1151,6 +1151,10 @@ def test_an_overlapping_pair_keeps_one_locus_whole_where_it_can():
     assert errors_of(session, 'rnaTruncatedCoder') == {
         types.MISSING_UTR_5P, types.MISSING_UTR_3P, types.MISSING_START_CODON,
         types.MISSING_STOP_CODON, types.TRUNCATED_CDS}
+    # its errors leave both ends unknown, although it is dropped and not masked
+    features = transcript_features(session, 'rnaTruncatedCoder')
+    for feature_type in (types.GEENUFF_TRANSCRIPT, types.GEENUFF_CDS):
+        assert [f[2:] for f in features[feature_type]] == [(False, False)]
     # the import statistics count exported genes only: the two of pair 3, not geneTruncatedCoder
     assert controller.stats.errors[types.TRUNCATED_CDS] == 2
 

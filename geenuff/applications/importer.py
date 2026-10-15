@@ -911,7 +911,7 @@ class OrganizedGFFEntryGroup(object):
                 'exons': [ordered_exon_entry1, ordered_exon_entry2, ...],
                 'cds': [ordered_cds_entry1, ordered_cds_entry2, ...],
                 'utrs': [ordered_utr_entry1, ordered_utr_entry2, ...],
-                'exons_built': False,  # True where the exons were built from CDS and UTR lines
+                'exons_built': False,  # True where the exons were built from CDS and UTR lines, not floating
                 'floating': False,  # True for one made only to mask CDS lines without a transcript line
             },
             ...
@@ -982,7 +982,8 @@ class OrganizedGFFEntries(object):
                     t_entries[key].sort(key=lambda e: e.start)
                 if t_entries['cds'] and not t_entries['exons']:
                     t_entries['exons'] = self._built_exons(t, t_entries)
-                    t_entries['exons_built'] = True
+                    # floating CDS lines get exons too, but are counted as floating only
+                    t_entries['exons_built'] = not t_entries['floating']
             self.organized_entries.setdefault(group['super_locus'].seqid, []).append(group)
 
     @staticmethod
@@ -1599,6 +1600,15 @@ class GFFErrorHandling(object):
             return feature.end < feature.start
         return feature.end > feature.start  # GeenuFF convention: - strand start > end
 
+    @staticmethod
+    def _mark_unknown_ends(finding):
+        """Sets the biological start or end flags of the features an error finding makes unknown to False."""
+        for handler in finding.handlers:
+            if finding.side in ('5p', 'both'):
+                handler.start_is_biological_start = False
+            if finding.side in ('3p', 'both'):
+                handler.end_is_biological_end = False
+
     def resolve_errors(self):
         """For each coding transcript of an exported locus: marks the ends its errors make unknown,
         records which errors it has, and merges every range they mask, together with the ranges
@@ -1606,12 +1616,13 @@ class GFFErrorHandling(object):
         for i, group in enumerate(self.groups):
             sign = 1 if self.is_plus_strand else -1
             reason = group['super_locus'].excluded_from_export
-            # a locus dropped for an overlap was checked like any other, so its errors are recorded,
-            # but it gets no mask, its features reaching no export, and no count in the import
-            # statistics (see clean_and_insert)
+            # a locus dropped for an overlap was checked like any other, so its errors and unknown
+            # ends are recorded, but it gets no mask, its features reaching no export, and no count
+            # in the import statistics (see clean_and_insert)
             if reason == types.OVERLAP_DROPPED:
                 for transcript in group['transcripts']:
                     for finding in transcript.get('findings', []):
+                        self._mark_unknown_ends(finding)
                         transcript['detected_error_types'].add(finding.error_type)
                 continue
             # a locus excluded for any other reason is not analyzed at all, and gets no mask: where
@@ -1631,11 +1642,7 @@ class GFFErrorHandling(object):
                     continue
                 ranges = []
                 for finding in transcript['findings']:
-                    for handler in finding.handlers:
-                        if finding.side in ('5p', 'both'):
-                            handler.start_is_biological_start = False
-                        if finding.side in ('3p', 'both'):
-                            handler.end_is_biological_end = False
+                    self._mark_unknown_ends(finding)
                     # recorded whether or not it masks anything, as a wrong starting phase does not
                     transcript['detected_error_types'].add(finding.error_type)
                     ranges.append(self._finding_range(finding, buffered, sign))

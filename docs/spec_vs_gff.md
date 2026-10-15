@@ -20,8 +20,8 @@ give errors more precise ranges.
 
 An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
 *flank*, reaching `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap toward the closest edge of
-another coding gene on that side and strand, or toward the end of the sequence. A gene dropped for
-an overlap counts as a neighbor, one overlapping the gene does not. Genes without a CDS never
+another exported coding gene on that side and strand, or toward the end of the sequence. A gene
+dropped for an overlap counts as a neighbor, one overlapping the gene does not. Genes without a CDS never
 bound a flank, so that a transposon or lncRNA overlapping a coding gene cannot leave it without
 one. Like every mask, the flank covers only the gene's own strand.
 

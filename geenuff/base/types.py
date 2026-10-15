@@ -64,7 +64,6 @@ GeenuffSequenceFeature = make_enum('GeenuffSequenceFeature', GEENUFF_TRANSCRIPT,
 # Geenuff error types, recorded per transcript in orm.TranscriptError without a range of their own
 MISSING_UTR_5P = 'missing_utr_5p'
 MISSING_UTR_3P = 'missing_utr_3p'
-EMPTY_SUPER_LOCUS = 'empty_super_locus'
 MISSING_START_CODON = 'missing_start_codon'
 MISSING_STOP_CODON = 'missing_stop_codon'
 WRONG_PHASE_5P = 'wrong_starting_phase'
@@ -73,16 +72,15 @@ OVERLAPPING_CDS = 'overlapping_cds'
 TOO_SHORT_INTRON = 'too_short_intron'
 TOO_SHORT_CDS = 'too_short_cds'
 SL_OVERLAP_ERROR = 'super_loci_overlap_error'
-MISMATCHING_STRANDS = 'mismatching_strands'
 TRUNCATED_INTRON = 'truncated_intron'
 TRUNCATED_CDS = 'truncated_cds'
 INFRAME_STOP_CODON = 'inframe_stop_codon'
 FLOATING_CDS = 'floating_cds'  # CDS lines without a transcript line
 BEYOND_SEQUENCE_EDGE = 'beyond_sequence_edge'  # a coding transcript reaching past its sequence
-Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, EMPTY_SUPER_LOCUS, MISSING_START_CODON,
-                   MISSING_STOP_CODON, WRONG_PHASE_5P, OVERLAPPING_EXONS, OVERLAPPING_CDS,
-                   TOO_SHORT_INTRON, SL_OVERLAP_ERROR, MISMATCHING_STRANDS, TRUNCATED_INTRON,
-                   TRUNCATED_CDS, INFRAME_STOP_CODON, FLOATING_CDS, BEYOND_SEQUENCE_EDGE, TOO_SHORT_CDS)
+Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, MISSING_START_CODON, MISSING_STOP_CODON,
+                   WRONG_PHASE_5P, OVERLAPPING_EXONS, OVERLAPPING_CDS, TOO_SHORT_INTRON, SL_OVERLAP_ERROR,
+                   TRUNCATED_INTRON, TRUNCATED_CDS, INFRAME_STOP_CODON, FLOATING_CDS, BEYOND_SEQUENCE_EDGE,
+                   TOO_SHORT_CDS)
 
 # Reasons a super locus is left out of exports (orm.SuperLocus.excluded_from_export). Kept apart
 # from the error types above and deliberately not in the Errors enum: an error marks a range as

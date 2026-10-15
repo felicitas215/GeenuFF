@@ -63,8 +63,8 @@ class PathFinder(object):
 def main(args):
     if args.basedir is None:
         assert all([x is not None for x in [args.fasta, args.gff3, args.db_path, args.log_file]]), \
-            "if basedir is none, all three custom input/output files must be manually specified " \
-            "with --gff3, --fasta, --log-file and --db_path parameters"
+            "if basedir is none, all four custom input/output files must be manually specified " \
+            "with --gff3, --fasta, --log-file and --db-path parameters"
     paths = PathFinder(args.db_path, args.basedir, args.species, fasta=args.fasta, gff=args.gff3,
                        logfile=args.log_file)
     # checked before the log file is opened, which would overwrite the existing database's import log
@@ -106,19 +106,19 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, all four custom'
+    parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, all four custom '
                         'input parameters must be set.')
     parser.add_argument('--config-file', type=str, default=DEFAULT_CONFIG_FILE)
 
-    custominput = parser.add_argument_group('Override default with custom input/output location:')
+    custominput = parser.add_argument_group('Override default with custom input/output location')
     custominput.add_argument('--gff3', help='gff3 formatted file to parse / standardize')
-    custominput.add_argument('--fasta', help='fasta file to parse standardize')
+    custominput.add_argument('--fasta', help='fasta file to parse / standardize')
     custominput.add_argument('--db-path', help='path of the GeenuFF database')
     custominput.add_argument('--log-file', help="output path for import log (default basedir/output/import.log)")
 
     parser.add_argument('--replace-db', action='store_true',
                         help=('whether to override a GeenuFF database found at '
-                              'the default location or at the location of --db_path'))
+                              'the default location or at the location of --db-path'))
     parser.add_argument('--verbose', action='store_true',
                         help=('log every individual error as it is found (DEBUG level), '
                               'instead of just the aggregate summary at the end'))
