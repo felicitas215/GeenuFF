@@ -9,17 +9,15 @@ a gene line already is only set as their Parent. The log shows example splits an
 transcripts put into one gene do not overlap, a sign of the wrong split text.
 """
 import argparse
-import gzip
 import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import TextIO
 
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
-from geenuff.base.helpers import gff_feature_lines, setup_logging
+from geenuff.base.helpers import gff_attributes, gff_feature_lines, open_text_out, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +50,6 @@ class Gene:
         return True
 
 
-def attributes_of(column: str) -> dict[str, str]:
-    return dict(pair.split('=', 1) for pair in column.strip().strip(';').split(';') if '=' in pair)
-
-
 def gene_id_of(attributes: dict[str, str], gene_attributes: list[str], split_at: str) -> tuple[str, str]:
     """The gene ID of a transcript and where it came from: 'attribute <name>', 'split ID' or 'own ID'."""
     for name in gene_attributes:
@@ -78,7 +72,7 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     n_without_id = 0  # transcripts with neither Parent nor ID, which no line can name as Parent
     for line in gff_feature_lines(gff_path):
         seqid, source, feature_type, start, end, _, strand, _, column = line.rstrip('\n').split('\t')[:9]
-        attributes = attributes_of(column)
+        attributes = gff_attributes(column)
         line_id = attributes.get('ID')
         (gene_line_ids if feature_type in GENE_TYPES else other_ids).add(line_id)
         if feature_type in TRANSCRIPT_TYPES and 'Parent' not in attributes and not line_id:
@@ -135,13 +129,13 @@ def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene]) -> 
     """Writes the GFF3 file with each new gene line before its first transcript and each orphan
     transcript's gene as its Parent. Returns the number of gene lines written."""
     written = set()
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_text_out(out_path) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
             columns = line.rstrip('\n').split('\t')
             if len(columns) >= 9 and columns[2] in TRANSCRIPT_TYPES:
-                attributes = attributes_of(columns[8])
+                attributes = gff_attributes(columns[8])
                 gene = gene_of.get(attributes.get('ID'))
                 if gene is not None and 'Parent' not in attributes:
                     if not gene.has_line and gene.gene_id not in written:
@@ -151,10 +145,6 @@ def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene]) -> 
                     line = '\t'.join(columns) + '\n'
             f_out.write(line)
     return len(written)
-
-
-def open_out(path: str) -> TextIO:
-    return gzip.open(path, 'wt', compresslevel=6) if path.endswith('.gz') else open(path, 'w')
 
 
 def main(args: argparse.Namespace) -> None:

@@ -21,9 +21,9 @@ give errors more precise ranges.
 An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
 *flank*, reaching `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap toward the closest edge of
 another exported coding gene on that side and strand, or toward the end of the sequence. A gene
-dropped for an overlap counts as a neighbor, one overlapping the gene does not. Genes without a CDS never
-bound a flank, so that a transposon or lncRNA overlapping a coding gene cannot leave it without
-one. Like every mask, the flank covers only the gene's own strand.
+dropped for an overlap counts as a neighbor, one overlapping the gene does not. Genes without a
+CDS never bound a flank, so that a transposon or lncRNA overlapping a coding gene cannot leave it
+without one. Like every mask, the flank covers only the gene's own strand.
 
 **To watch: masking in dense genomes.** Up to a gap of about 400 bp the flanks of two genes nearly
 meet: an erroneous gene masks half of every gap next to it, and a gap between two erroneous genes
@@ -56,6 +56,7 @@ intergenic bp masked by gap size; a possible remedy is a share below half the ga
 | too_short_intron         | full intron shorter than `min_intron_length` (20 bp) | whole gene and both flanks              |
 | overlapping_exons        | two exon lines of one transcript overlap             | whole gene and both flanks              |
 | overlapping_cds          | two CDS lines of one transcript overlap              | whole gene and both flanks              |
+| cds_outside_exons        | a CDS line reaches outside the exon lines            | whole gene and both flanks              |
 | floating_cds             | CDS lines without a transcript line (see grouping)   | whole gene and both flanks              |
 | beyond_sequence_edge     | coding transcript reaching past its sequence         | whole gene, as clipped, and both flanks |
 | wrong_starting_phase     | phase of the first CDS piece in the file is not 0    | nothing, only recorded                  |
@@ -74,7 +75,9 @@ micropeptide gene is not taught as intergenic either. Both minimums can be chang
 file given to `import2geenuff.py --config-file` (see `config/import.yml`).
 
 Overlapping exon or CDS lines cannot exist, so both ends of the transcript and CDS count as not
-biological and nothing else is checked, the spliced CDS repeating the shared bases. A wrong
+biological and nothing else is checked, the spliced CDS repeating the shared bases. The same holds
+for a CDS outside the exons, which lies in an intron; above 5% of the coding transcripts, the
+import warns, as the file may list exon lines for the UTRs only (see `rebuild_exons.py`). A wrong
 starting phase changes no label, the importer setting every phase itself, so it masks nothing; the
 phases of later CDS pieces are not checked, a CDS leaving its frame being caught as truncated_cds.
 

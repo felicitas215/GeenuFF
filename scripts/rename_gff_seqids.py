@@ -9,18 +9,17 @@ annotation are left out of both files, the FASTA file then being copied without 
 """
 import argparse
 import bisect
-import gzip
 import logging
 import math
 import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import TextIO
 
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
-from geenuff.base.helpers import fasta_header_id, gff_feature_lines, insert_before_extension, setup_logging
+from geenuff.base.helpers import (fasta_header_id, gff_feature_lines, insert_before_extension, open_text_out,
+                                  setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +382,7 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
 
 def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair]) -> None:
     """Writes the GFF3 file with its sequence IDs renamed, leaving out the lines of unpaired ones."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_text_out(out_path) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
@@ -400,16 +399,12 @@ def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair]) -> None:
 def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str]) -> None:
     """Copies the FASTA file, leaving out the sequences of the given IDs."""
     keep = True
-    with text_or_gzip_open(fasta_path) as f_in, open_out(out_path) as f_out:
+    with text_or_gzip_open(fasta_path) as f_in, open_text_out(out_path) as f_out:
         for line in f_in:
             if line.startswith('>'):
                 keep = fasta_header_id(line[1:]) not in left_out
             if keep:
                 f_out.write(line)
-
-
-def open_out(path: str) -> TextIO:
-    return gzip.open(path, 'wt', compresslevel=6) if path.endswith('.gz') else open(path, 'w')
 
 
 def fasta_out_path(fasta_path: str, gff_out_path: str) -> str:

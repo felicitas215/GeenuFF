@@ -1,6 +1,9 @@
 import os
 import logging
+import subprocess
+import sys
 from collections import defaultdict
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
@@ -388,6 +391,46 @@ def test_a_cds_flush_with_a_first_exon_after_a_hanging_intron_runs_to_the_transc
     }
 
 
+def test_a_cds_outside_its_exons_is_masked_whole(caplog):
+    """Exon lines covering the UTRs only leave the CDS in an intron: cds_outside_exons masks the
+    gene (100-700) whole with 50 of the 100bp to the sequence start and 150 of the 300bp to its end,
+    while one exon spanning UTRs and CDS, or exon lines touching each other around the CDS, cover it.
+    The import warns, as more than 5% of the coding transcripts have the error. See
+    testdata/cds_outside_exons.gff3."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/cds_outside_exons.fa', 'testdata/cds_outside_exons.gff3', clean_gff=True)
+    session = controller.session
+    assert errors_of(session, 'rnaUtrOnly') == {types.CDS_OUTSIDE_EXONS}
+    assert masks_of(session, 'rnaUtrOnly') == [(50, 850)]
+    for transcript in ('rnaOneExon', 'rnaControl'):
+        assert errors_of(session, transcript) == set()
+        assert masks_of(session, transcript) == []
+    assert any('1 of 3 coding transcripts' in r.message and r.levelname == 'WARNING' for r in caplog.records)
+
+
+def test_rebuild_exons_covers_the_cds_of_utr_only_exon_lines(tmp_path):
+    """rebuild_exons.py replaces the UTR-only exon lines of rnaUtrOnly with one exon spanning its
+    UTR and CDS lines, as rnaOneExon has, which then import without an error, and leaves the other
+    transcripts as they are."""
+    out = tmp_path / 'rebuilt.gff3'
+    script = Path(__file__).parents[2] / 'scripts' / 'rebuild_exons.py'
+    subprocess.run([sys.executable, str(script), '--gff', 'testdata/cds_outside_exons.gff3', '-o', str(out)],
+                   check=True)
+    exons = [line.split('\t')[3:5] + [line.rstrip().split('\t')[8]] for line in out.read_text().splitlines()
+             if not line.startswith('#') and line.split('\t')[2] == 'exon']
+    assert exons == [['101', '700', 'Parent=rnaUtrOnly'],
+                     ['101', '700', 'ID=exon-rnaOneExon;Parent=rnaOneExon'],
+                     ['101', '200', 'ID=exon-rnaControl-1;Parent=rnaControl'],
+                     ['201', '599', 'ID=exon-rnaControl-2;Parent=rnaControl'],
+                     ['600', '700', 'ID=exon-rnaControl-3;Parent=rnaControl']]
+
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/cds_outside_exons.fa', str(out), clean_gff=True)
+    for transcript in ('rnaUtrOnly', 'rnaOneExon', 'rnaControl'):
+        assert errors_of(controller.session, transcript) == set()
+        assert masks_of(controller.session, transcript) == []
+
+
 def test_a_cds_flush_with_a_last_exon_before_a_hanging_intron_runs_to_the_transcript_end(
         hanging_intron_session):
     """The mRNA ends 46bp after its last exon (intron 654-700), and the CDS ends at that exon's
@@ -513,8 +556,9 @@ def test_dummyloci_errors():
         # test case 5: x5's spliced CDS (40-151, 152-182) is 143bp, not a multiple of 3, masking the
         # gene 0-300 and 249 // 2 = 124 of the 249bp gap to test case 6
         'x5': ({types.TRUNCATED_CDS}, [(0, 424)]),
-        # test case 6: x6's starting phase is only recorded, the importer setting the phase itself
-        'x6': ({types.WRONG_PHASE_5P}, []),
+        # test case 6: x6's CDS starts at 524, 25bp before its exon and transcript, which masks it
+        # whole with the same range as y6 below and leaves its wrong starting phase unchecked
+        'x6': ({types.CDS_OUTSIDE_EXONS}, [(425, 1060)]),
         # y6's 4bp intron cannot be spliced and its spliced CDS (525-575, 580-600, 700-725) is
         # 98bp, masking the gene 549-750 with 124 of the 249bp gap before it, leaving base 424
         # between test case 5's mask and this one, and int(sqrt(1005)) * 10 = 310 of the 1005bp

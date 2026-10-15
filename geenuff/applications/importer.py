@@ -31,6 +31,8 @@ TRANSCRIPT_TYPES = frozenset(x.value for x in types.TranscriptLevel)
 # where an exon, CDS or UTR line goes among its transcript's lines, by type
 PIECE_KEYS = {x.value: key for level, key in [(types.ExonLevel, 'exons'), (types.CDSLevel, 'cds'),
                                               (types.UTRLevel, 'utrs')] for x in level}
+# above this share of coding transcripts with CDS lines outside their exon lines, the import warns
+CDS_OUTSIDE_EXONS_WARN_SHARE = 0.05
 
 
 # how much of a locus its own errors take away, lower being better (see
@@ -226,6 +228,9 @@ class ImportStatistics(object):
         self.floating_cds_genes: int = 0
         # transcripts with CDS lines but no exon lines, their exons built from their CDS and UTR lines
         self.transcripts_with_exons_built: int = 0
+        # coding transcripts with CDS lines outside their exon lines, warned about above a share of
+        # CDS_OUTSIDE_EXONS_WARN_SHARE
+        self.cds_outside_exons_transcripts: int = 0
         # CDS missing only their stop codon, as in GFF3 converted from GTF, extended by the stop codon
         # after them; GTF itself is not read
         self.stop_codons_recovered: int = 0
@@ -735,6 +740,8 @@ class OrganizedGeenuffImporterGroup(object):
                 # the lines are sorted by start, so any overlap shows between neighbors
                 cds_lines = t_entries['cds']
                 overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))
+                cds_outside_exons = self._cds_outside_exons(cds_lines, t_entries['exons'])
+                stats.cds_outside_exons_transcripts += cds_outside_exons
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
                                         types.GEENUFF_CDS,
@@ -749,6 +756,7 @@ class OrganizedGeenuffImporterGroup(object):
                                         has_start_codon=cds_seq[:3] == START_CODON,
                                         has_stop_codon=has_stop_codon,
                                         has_overlapping_pieces=overlapping_cds,
+                                        is_outside_exons=cds_outside_exons,
                                         spliced_length=len(cds_seq),
                                         score=t.score,
                                         source=t.source,
@@ -874,6 +882,18 @@ class OrganizedGeenuffImporterGroup(object):
                 t['transcript'].longest = True
             else:
                 t['transcript'].longest = False
+
+    @staticmethod
+    def _cds_outside_exons(cds_lines, exon_lines):
+        """Whether a CDS line reaches outside the exon lines, touching or overlapping exons counting as
+        one; both lists are GFF lines sorted by start."""
+        covered = []
+        for exon in exon_lines:
+            if covered and exon.start <= covered[-1][1] + 1:
+                covered[-1][1] = max(covered[-1][1], exon.end)
+            else:
+                covered.append([exon.start, exon.end])
+        return any(not any(lo <= cds.start and cds.end <= hi for lo, hi in covered) for cds in cds_lines)
 
     @staticmethod
     def _coding_length(cds, introns):
@@ -1541,15 +1561,18 @@ class GFFErrorHandling(object):
         if transcript['mask_whole']:
             return [Finding(transcript['mask_whole'], 'whole', 'both', (cds, tf))]
         proper = [x for x in introns if not self._is_backwards(x)]
-        # overlapping exon lines (a backwards intron standing in for them) or overlapping CDS lines
-        # most likely come from a wrong annotation, so the locus is masked whole together with
-        # the flank on both sides. Nothing else is checked: the spliced CDS sequence the checks
-        # below rely on repeats the overlapping bases and is wrong
+        # overlapping exon lines (a backwards intron standing in for them), overlapping CDS lines or
+        # CDS lines outside the exons (e.g. exon lines for the UTRs only) most likely come from a
+        # wrong annotation, so the locus is masked whole together with the flank on both sides.
+        # Nothing else is checked: the spliced CDS sequence the checks below rely on repeats the
+        # overlapping bases and is wrong, and a CDS outside the exons lies in an intron
         overlaps = []
         if len(proper) < len(introns):
             overlaps.append(types.OVERLAPPING_EXONS)
         if cds.has_overlapping_pieces:
             overlaps.append(types.OVERLAPPING_CDS)
+        if cds.is_outside_exons:
+            overlaps.append(types.CDS_OUTSIDE_EXONS)
         if overlaps:
             return [Finding(error_type, 'whole', 'both', (cds, tf)) for error_type in overlaps]
 
@@ -1758,6 +1781,13 @@ class ImportController(object):
             logger.warning(f'NO TRAINING DATA: no coding transcript of "{species}" was imported, the GFF3 file '
                            f'having no CDS lines or none that could be placed (see the summary above), so '
                            f'Helixer gets nothing to learn from this genome. Use a GFF3 file with CDS lines.')
+        elif self.stats.cds_outside_exons_transcripts > (CDS_OUTSIDE_EXONS_WARN_SHARE
+                                                         * self.stats.total_coding_transcripts):
+            share = self.stats.cds_outside_exons_transcripts / self.stats.total_coding_transcripts
+            logger.warning(f'{self.stats.cds_outside_exons_transcripts} of {self.stats.total_coding_transcripts} '
+                           f'coding transcripts ({share:.1%}) have CDS lines outside their exon lines and are masked '
+                           f'in full (cds_outside_exons). The file may list exon lines for the UTRs only; check it '
+                           f'against its source, and see rebuild_exons.py in docs/scripts.md.')
 
     def add_sequences(self, seq_path, genome_args=None):
         if genome_args is None:
@@ -1977,6 +2007,7 @@ class FeatureImporter(Insertable):
                  has_start_codon=True,
                  has_stop_codon=True,
                  has_overlapping_pieces=False,
+                 is_outside_exons=False,
                  spliced_length=None,
                  score=None,
                  source=None):
@@ -1998,6 +2029,7 @@ class FeatureImporter(Insertable):
         self.has_start_codon = has_start_codon  # only used for the MISSING_START_CODON check
         self.has_stop_codon = has_stop_codon  # only used for the MISSING_STOP_CODON check
         self.has_overlapping_pieces = has_overlapping_pieces  # only used for the OVERLAPPING_CDS check
+        self.is_outside_exons = is_outside_exons  # only used for the CDS_OUTSIDE_EXONS check
         self.spliced_length = spliced_length  # only used for the TOO_SHORT_CDS check
         self.score = score
         self.source = source

@@ -6,12 +6,13 @@ with `-o`, which they require; `list_transcripts.py` writes to stdout or, given 
 and `summarize_geenuff_db.py` to stdout.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
-`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and `filter_sequence_lengths.py`
-check and prepare the files for import. Installing GeenuFF, directly or as a dependency of Helixer,
-puts all of them onto the PATH (see `pyproject.toml`), so they are called by name, e.g.
+`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `rebuild_exons.py` and
+`filter_sequence_lengths.py` check and prepare the files for import. Installing GeenuFF, directly
+or as a dependency of Helixer, puts all of them onto the PATH (see `pyproject.toml`), so they are
+called by name, e.g.
 `check_seqids.py --fasta genome.fa --gff genome.gff3`.
 
-`dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py` and
+`dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `rebuild_exons.py` and
 `filter_sequence_lengths.py` log what they leave out or change; `--log-file` writes that log to a
 file as well as the terminal, to keep it beside the output.
 
@@ -195,6 +196,15 @@ the first of them, unless a gene line of that ID exists already. A gene ID on se
 strands, or already the ID of another line, gets the sequence and strand appended (e.g.
 `g2_CHR_minus`) with a warning, as do transcripts given a gene of their own. Without transcripts
 lacking a `Parent`, no file is written.
+
+## rebuild_exons.py
+
+Rebuilds the exon lines of transcripts whose CDS lines reach outside them, for files listing exon
+lines for the UTRs only (happens rarely). The new exons are the union of a transcript's
+exon, CDS and UTR lines, touching lines forming one exon. Use it only where this is systematic,
+i.e. GeenuFF's import warns about `cds_outside_exons` for more than 5% of the coding transcripts:
+elsewhere the CDS or the exons are wrong, which GeenuFF masks and rebuilding would hide. The log
+gives the share rebuilt and warns at 5% or below. Without such transcripts, no file is written.
 
 ## filter_sequence_lengths.py
 

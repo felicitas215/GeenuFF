@@ -1,0 +1,31 @@
+##gff-version 3
+##sequence-region UTRONLY 1 1000
+##sequence-region ONEEXON 1 1000
+##sequence-region CONTROL 1 1000
+# CDS lines inside or outside their exon lines. Each sequence is 1000 bp of C except an ATG at
+# 201-203 and a TAA at 597-599, so the CDS 201-599 has no other error.
+#
+# UTRONLY: the exon lines cover the UTRs only, the CDS lies in the gap between them, as in some CoGe
+#          exports. Masked whole with both flanks for cds_outside_exons alone
+UTRONLY	test	gene	101	700	.	+	.	ID=geneUtrOnly
+UTRONLY	test	mRNA	101	700	.	+	.	ID=rnaUtrOnly;Parent=geneUtrOnly
+UTRONLY	test	exon	101	200	.	+	.	ID=exon-rnaUtrOnly-1;Parent=rnaUtrOnly
+UTRONLY	test	five_prime_UTR	101	200	.	+	.	ID=utr5-rnaUtrOnly;Parent=rnaUtrOnly
+UTRONLY	test	CDS	201	599	.	+	0	ID=cds-rnaUtrOnly;Parent=rnaUtrOnly
+UTRONLY	test	exon	600	700	.	+	.	ID=exon-rnaUtrOnly-2;Parent=rnaUtrOnly
+UTRONLY	test	three_prime_UTR	600	700	.	+	.	ID=utr3-rnaUtrOnly;Parent=rnaUtrOnly
+# ONEEXON: the same gene as usually written, one exon spanning UTRs and CDS. No error
+ONEEXON	test	gene	101	700	.	+	.	ID=geneOneExon
+ONEEXON	test	mRNA	101	700	.	+	.	ID=rnaOneExon;Parent=geneOneExon
+ONEEXON	test	exon	101	700	.	+	.	ID=exon-rnaOneExon;Parent=rnaOneExon
+ONEEXON	test	five_prime_UTR	101	200	.	+	.	ID=utr5-rnaOneExon;Parent=rnaOneExon
+ONEEXON	test	CDS	201	599	.	+	0	ID=cds-rnaOneExon;Parent=rnaOneExon
+ONEEXON	test	three_prime_UTR	600	700	.	+	.	ID=utr3-rnaOneExon;Parent=rnaOneExon
+# CONTROL: the same gene with exon lines split where the CDS starts and ends, touching each other,
+#          so the CDS lies inside the exons and there is no error
+CONTROL	test	gene	101	700	.	+	.	ID=geneControl
+CONTROL	test	mRNA	101	700	.	+	.	ID=rnaControl;Parent=geneControl
+CONTROL	test	exon	101	200	.	+	.	ID=exon-rnaControl-1;Parent=rnaControl
+CONTROL	test	exon	201	599	.	+	.	ID=exon-rnaControl-2;Parent=rnaControl
+CONTROL	test	exon	600	700	.	+	.	ID=exon-rnaControl-3;Parent=rnaControl
+CONTROL	test	CDS	201	599	.	+	0	ID=cds-rnaControl;Parent=rnaControl

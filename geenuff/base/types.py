@@ -69,6 +69,7 @@ MISSING_STOP_CODON = 'missing_stop_codon'
 WRONG_PHASE_5P = 'wrong_starting_phase'
 OVERLAPPING_EXONS = 'overlapping_exons'
 OVERLAPPING_CDS = 'overlapping_cds'
+CDS_OUTSIDE_EXONS = 'cds_outside_exons'
 TOO_SHORT_INTRON = 'too_short_intron'
 TOO_SHORT_CDS = 'too_short_cds'
 SL_OVERLAP_ERROR = 'super_loci_overlap_error'
@@ -80,7 +81,7 @@ BEYOND_SEQUENCE_EDGE = 'beyond_sequence_edge'  # a coding transcript reaching pa
 Errors = make_enum('Errors', MISSING_UTR_5P, MISSING_UTR_3P, MISSING_START_CODON, MISSING_STOP_CODON,
                    WRONG_PHASE_5P, OVERLAPPING_EXONS, OVERLAPPING_CDS, TOO_SHORT_INTRON, SL_OVERLAP_ERROR,
                    TRUNCATED_INTRON, TRUNCATED_CDS, INFRAME_STOP_CODON, FLOATING_CDS, BEYOND_SEQUENCE_EDGE,
-                   TOO_SHORT_CDS)
+                   TOO_SHORT_CDS, CDS_OUTSIDE_EXONS)
 
 # Reasons a super locus is left out of exports (orm.SuperLocus.excluded_from_export). Kept apart
 # from the error types above and deliberately not in the Errors enum: an error marks a range as

@@ -8,7 +8,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from types import GeneratorType
-from typing import BinaryIO
+from typing import BinaryIO, TextIO
 
 import dustdas.fastahelper
 from dustdas.gffhelper import GFFObject
@@ -196,6 +196,16 @@ def gff_feature_lines(gff_file: str) -> Iterator[str]:
                 return
             if line.strip() and not line.startswith('#'):
                 yield line
+
+
+def gff_attributes(column: str) -> dict[str, str]:
+    """{tag: value} of a GFF3 attribute column, values left unsplit (e.g. 'a,b' for several parents)."""
+    return dict(pair.split('=', 1) for pair in column.strip().strip(';').split(';') if '=' in pair)
+
+
+def open_text_out(path: str) -> TextIO:
+    """Opens a text file for writing, gzipped if the path ends in .gz."""
+    return gzip.open(path, 'wt', compresslevel=6) if path.endswith('.gz') else open(path, 'w')
 
 
 FASTA_CHUNK_SIZE = 1 << 20
