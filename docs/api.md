@@ -17,8 +17,8 @@ Or with some of the testdata filled in:
 ```
 geenuff_path=<PATH/TO/GeenuFF/>
 
-import2geenuff.py --fasta $geenuff_path/geenuff/testdata/exporter.fa \
-    --gff3 $geenuff_path/geenuff/testdata/exporter.gff3 \
+import2geenuff.py --fasta $geenuff_path/geenuff/testdata/exporting.fa \
+    --gff3 $geenuff_path/geenuff/testdata/exporting.gff3 \
     --db-path dummy.sqlite3 --log-file dummy.import.log --species dummy
 ```
 
@@ -151,8 +151,10 @@ uses), in this format:
                        "overlaps": bool,
                        "selected_for_export": bool (the one transcript per gene an export uses),
                        "exported": bool (selected and its gene not excluded),
-                       "errors": [str, ...] (the error types found, see spec_vs_gff.md),
-                       "error_severity": "none", "flank_masked" or "masked_outright",
+                       "errors": [str, ...] (the error types found, see spec_vs_gff.md), or "not checked"
+                                 for a non-coding transcript or one of a gene whose strand or
+                                 coordinates cannot be placed,
+                       "error_severity": "none", "flank_masked", "masked_outright", or null if not checked,
                        "masks": [[start, end], ...] (its geenuff_mask features),
                        "masked_in_full": bool (a mask covering the whole transcript),
                        "features": [{"id": int,

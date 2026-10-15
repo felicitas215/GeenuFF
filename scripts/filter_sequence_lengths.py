@@ -19,7 +19,8 @@ from typing import BinaryIO, TextIO
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import fasta_lines, gff_feature_lines, insert_before_extension, setup_logging
+from geenuff.base.helpers import (fasta_header_id, fasta_lines, gff_feature_lines, insert_before_extension,
+                                  setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def fasta_lengths(path: str) -> OrderedDict[str, int]:
     lengths, seq_id = OrderedDict(), None
     for at_line_start, piece in fasta_lines(path):
         if at_line_start and piece.startswith(b'>'):
-            seq_id = piece[1:].split()[0].decode()
+            seq_id = fasta_header_id(piece[1:].decode())
             lengths[seq_id] = 0
         elif seq_id is not None:
             lengths[seq_id] += len(piece.translate(None, SEQUENCE_WHITESPACE))
@@ -71,7 +72,7 @@ def write_fasta_without(fasta_path: str, out_path: str, removed: set[str]) -> No
     with open_out(out_path, binary=True) as out:
         for at_line_start, piece in fasta_lines(fasta_path):
             if at_line_start and piece.startswith(b'>'):
-                keep = piece[1:].split()[0].decode() not in removed
+                keep = fasta_header_id(piece[1:].decode()) not in removed
             if keep:
                 out.write(piece + b'\n')
 

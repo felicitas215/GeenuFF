@@ -1,13 +1,15 @@
 #! /usr/bin/env python3
 """Checks whether the sequence IDs of a GFF3 file are those of its FASTA file (the header up to the
-first whitespace). Where they are not, GeenuFF's import and many other tools fail or leave the genes on
-those sequences out; the log says what to check. Exits with 1 where IDs do not match, 0 otherwise.
+first whitespace). A GFF3 ID contained in exactly one FASTA ID (e.g. Chr1 in Chr1.v2) is paired with
+it by GeenuFF's import, with a warning to look at the pairs. Otherwise, GeenuFF's import and many
+other tools fail or leave the genes on those sequences out; the log says what to check. Exits with 1
+where IDs cannot be paired, 0 otherwise.
 """
 import argparse
 import logging
 import os
 
-from geenuff.base.helpers import fasta_ids, get_seqids_from_gff
+from geenuff.base.helpers import NonMatchableIDs, fasta_ids, get_seqids_from_gff, match_seqids
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +31,18 @@ def main(args: argparse.Namespace) -> None:
         logger.info(f'All {len(gff)} sequence IDs of the GFF3 file are FASTA IDs: the files match by ID '
                     f'({len(fasta - gff)} FASTA sequences have no GFF3 lines)')
         return
-    logger.warning(f'{len(missing)} of {len(gff)} sequence IDs of the GFF3 file are no FASTA ID, e.g. '
-                   f'{listed(missing)} (FASTA IDs e.g. {listed(fasta)}). GeenuFF\'s import and many other tools '
-                   f'fail or leave out the genes on them. Check that the FASTA and GFF3 files come from the '
-                   f'same source and assembly; if the sequences were renamed, e.g. on upload to NCBI, '
-                   f'scripts/rename_gff_seqids.py pairs and renames them.')
-    raise SystemExit(1)
+    try:
+        # pairs as GeenuFF's import does, warning with the pairs where they are no exact match
+        match_seqids(fasta, gff)
+    except NonMatchableIDs:
+        logger.warning(f'{len(missing)} of {len(gff)} sequence IDs of the GFF3 file are no FASTA ID, e.g. '
+                       f'{listed(missing)} (FASTA IDs e.g. {listed(fasta)}). GeenuFF\'s import and many other '
+                       f'tools fail or leave out the genes on them. Check that the FASTA and GFF3 files come from '
+                       f'the same source and assembly; if the sequences were renamed, e.g. on upload to NCBI, '
+                       f'rename_gff_seqids.py pairs and renames them.')
+        raise SystemExit(1)
+    logger.info(f'GeenuFF\'s import pairs these {len(missing)} GFF3 sequence IDs with the FASTA IDs containing '
+                f'them, but give the pairs a look since they are no exact match')
 
 
 if __name__ == '__main__':

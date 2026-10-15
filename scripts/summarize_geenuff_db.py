@@ -61,11 +61,25 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
     stats = ImportStatistics()
     stats.total_super_loci = con.execute('SELECT COUNT(*) FROM super_locus').fetchone()[0]
     stats.empty_super_loci = con.execute(
-        'SELECT COUNT(*) FROM super_locus sl WHERE NOT EXISTS '
+        'SELECT COUNT(*) FROM super_locus sl WHERE sl.dropped_transcripts = 0 AND NOT EXISTS '
         '(SELECT 1 FROM transcript t WHERE t.super_locus_id = sl.id)').fetchone()[0]
-    # dropped transcripts never reached the database, so the total is the imported ones
-    stats.total_transcripts = stats.imported_transcripts = con.execute(
-        'SELECT COUNT(*) FROM transcript').fetchone()[0]
+    stats.imported_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
+    stats.total_transcripts = stats.imported_transcripts
+    # a gene's dropped transcripts by the reason it is excluded for, as the importer drops them:
+    # outside its sequence, backwards, or with the gene itself on neither strand
+    dropped_coding = {}
+    for sl_id, reason, n_dropped, n_dropped_coding in con.execute(
+            'SELECT id, excluded_from_export, dropped_transcripts, dropped_coding_transcripts FROM super_locus '
+            'WHERE dropped_transcripts > 0'):
+        stats.total_transcripts += n_dropped
+        if reason == types.OUTSIDE_SEQUENCE:
+            stats.transcripts_outside_sequence_dropped += n_dropped
+        elif reason == types.UNPLACEABLE_COORDINATES:
+            stats.unstorable_transcripts_dropped += n_dropped
+        else:
+            stats.unstranded_transcripts_dropped += n_dropped
+        if n_dropped_coding:
+            dropped_coding[sl_id] = (reason, n_dropped_coding)
     stats.genome_bases = con.execute('SELECT COALESCE(SUM(length), 0) FROM coordinate').fetchone()[0]
 
     logger.info(f'Found {stats.total_super_loci} genes with {stats.total_transcripts} transcripts')
@@ -85,6 +99,9 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
                                JOIN feature f ON f.id = a.feature_id WHERE f.type = ?)""",
             (types.GEENUFF_CDS,)):
         genes.setdefault(sl_id, (reason, []))[1].append((t_id, longest))
+    # a gene whose coding transcripts were all dropped is always excluded, counted below
+    for sl_id, (reason, _) in dropped_coding.items():
+        genes.setdefault(sl_id, (reason, []))
 
     logger.info(f'Found {len(genes)} genes with coding transcripts and {len(errors)} transcripts with errors')
 
@@ -98,7 +115,7 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
     for sl_id, (reason, coding) in genes.items():
         if reason is not None:
             stats.unexported_coding_genes[reason] += 1
-            stats.unexported_coding_transcripts[reason] += len(coding)
+            stats.unexported_coding_transcripts[reason] += len(coding) + dropped_coding.get(sl_id, (None, 0))[1]
             if reason == types.OVERLAP_DROPPED:
                 stats.overlap_loci_dropped_labeled += not errors[selected[sl_id]] - NOT_MASKING_IN_FULL
             continue
@@ -153,8 +170,7 @@ def main(args: argparse.Namespace) -> None:
                  'genes created for transcripts naming a Parent ID that matches no line or to mask '
                  'floating CDS lines, and gene lines on neither strand, indistinguishable from other '
                  'genes',
-                 'transcripts with exons built from their CDS and UTR lines, or with a stop codon added',
-                 'transcripts dropped, never written at all'):
+                 'transcripts with exons built from their CDS and UTR lines, or with a stop codon added'):
         print(f'    - {line}', flush=True)
 
 

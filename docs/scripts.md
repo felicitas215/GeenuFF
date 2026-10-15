@@ -49,44 +49,58 @@ Writes sequence to FASTA, one record per range. `--mode` is required and picks w
 | `pre-UTR`    | the untranslated regions before splicing        |
 | `intergenic` | what lies between the genes                     |
 
-`--longest` restricts it to one transcript per gene, the same one the h5 export uses, rather than
-every isoform.
+| option      | transcripts written                                                                                                                          |
+|-------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| neither     | every isoform of genes typed `gene` with transcripts typed `mRNA` or `transcript`                                                            |
+| `--longest` | one per gene, the coding one the h5 export uses, whatever the GFF3 types (e.g. `protein_coding_gene`); genes dropped for an overlap left out |
+| `--coding`  | every transcript with a CDS, whatever its GFF3 types                                                                                         |
+
+Genes whose strand or coordinates cannot be placed are always left out, as in the h5 export.
+`intergenic` is what lies outside the transcripts of the chosen option, genes left out included.
 
 ## dump_lengthinfo.py
 
-Takes the same `--mode` and `--longest` as `dump_to_fasta.py` but writes the lengths of those
-ranges rather than their sequence, one per line. `--stats-only` writes summary statistics over
-them instead of the lengths themselves. Useful for asking how long the introns or UTRs of an
-annotation actually are before deciding what a pipeline should tolerate.
+Takes the same `--mode`, `--longest` and `--coding` as `dump_to_fasta.py` but writes the lengths
+of those ranges rather than their sequence, one per line. `--stats-only` writes summary
+statistics over them instead of the lengths themselves. Useful for asking how long the introns or
+UTRs of an annotation actually are before deciding what a pipeline should tolerate.
 
 ## dump_json.py
 
 Writes one strand of one sequence as JSON, for looking at a gene model in full rather than in
-aggregate. It takes `--species`, `--seqid` and `--strand`, optionally narrowed by `--start` and
-`--end` (0-based, end exclusive, ascending on either strand), `--longest` as above, and
-`--pretty` for indented output. By default, every isoform of a gene is written.
+aggregate. By default, every isoform of genes typed `gene` with transcripts typed `mRNA` or
+`transcript` is written.
 
-Unlike the others this is a reading tool rather than an export: it shows every gene, exported or
-not, with every feature GeenuFF built for it, geenuff_mask features included. Genes and
-transcripts carry flags to filter or sort by: whether they are exported and why not, the
-transcript selected for export, its errors and their severity, its mask ranges and whether it is
-masked in full (see `api.md` for the format).
+| option                                         | what it does                                                                                                                                                 |
+|------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--species`, `--seqid`, `--strand` (`+` / `-`) | required: the strand of one sequence to write                                                                                                                |
+| `--start`, `--end`                             | narrow it to a range, 0-based, end exclusive, ascending on either strand (default: the whole sequence; GFF3 example: `CDS  22  89  .  -` -> start=21 end=89) |
+| `--longest`                                    | the selected coding transcript per gene only, as for `dump_to_fasta.py`                                                                                      |
+| `--show-all`                                   | genes and transcripts of every GFF3 type, e.g. tRNA or lncRNA genes; for curiosity only, as Helixer's training data is coding only                           |
+| `--pretty`                                     | indented output                                                                                                                                              |
+
+Unlike the others this is a reading tool rather than an export: it shows every gene (of every type
+with `--show-all`), exported or not, with every feature GeenuFF built for it, geenuff_mask
+features included. Genes and transcripts carry flags to filter or sort by: whether they are
+exported and why not, the transcript selected for export, its errors and their severity, its
+mask ranges and whether it is masked in full (see `api.md` for the format).
 
 ## summarize_geenuff_db.py
 
 Rebuilds the import summary from the database, in the same layout and wording, for when the import
 log is lost. It needs a database with the `transcript_error` table.
 
-Its counts are identical to the log's for the gene and transcript totals, the training data
-section and the errors; the overlap outcomes are recovered by running the overlap sweep again over
-the exported spans. What was only counted while reading the GFF3 cannot be recovered and is listed
-at the end: lines left out while grouping and the coding transcripts lost through them, created
-genes, exons built, stop codons added and dropped transcripts.
+Its counts are identical to the log's for the gene and transcript totals, the transcripts dropped
+(each gene stores how many of its transcripts were), the training data section and the errors;
+the overlap outcomes are recovered by running the overlap sweep again over the exported spans.
+What was only counted while reading the GFF3 cannot be recovered and is listed at the end: lines
+left out while grouping and the coding transcripts lost through them, created genes, genes on
+neither strand, exons built and stop codons added.
 
 ## list_transcripts.py
 
 Lists transcripts by what GeenuFF found and decided, as a table or as gene or transcript IDs to
-filter other files with. By default every coding transcript is listed; filters combine with AND.
+filter other files with. By default, every coding transcript is listed; filters combine with AND.
 
 | filter                                             | lists the transcripts                                                          |
 |----------------------------------------------------|--------------------------------------------------------------------------------|
@@ -107,9 +121,11 @@ full although exported: `--masked-in-full --exported --output gene_ids`.
 ## check_seqids.py
 
 Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first
-whitespace). Where some are not, GeenuFF's import and many other tools fail or leave out the genes
-on them; the warning names them and points to `rename_gff_seqids.py` for sequences renamed after
-annotation. It exits with 1 then, 0 where the IDs match, so it can gate a pipeline.
+whitespace). A GFF3 ID contained in exactly one FASTA ID, e.g. `Chr1` in `Chr1.v2`, is paired with
+it by GeenuFF's import; the warning lists these pairs to look at, as they are no exact match. Where
+IDs cannot be paired so, GeenuFF's import and many other tools fail or leave out the genes on them;
+the warning names them and points to `rename_gff_seqids.py` for sequences renamed after
+annotation. It exits with 1 then, else 0, so it can gate a pipeline.
 
 ## rename_gff_seqids.py
 
@@ -193,12 +209,18 @@ file and their lines from its GFF3 file before import:
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
 With a very unusual length distribution, e.g. nearly all sequences of one length, the cluster can
 be a sequence barely shorter than the rest; the log lists what was removed, and `--no-adaptive`, or
-not filtering at all, keeps it. The output files default to the input files' names with `_length_filtered` before the extension,
-e.g. `genome.fna.gz` gives `genome_length_filtered.fna.gz`; `--fasta-out` and `--gff-out` set
-others. The log gives the removed sequences, their length range and the coding genes and
-transcripts on them, genes being the better measure of the training data lost as GeenuFF exports
-one transcript per gene. `--removed-out` lists every removed ID with its length. The FASTA file is
-read in fixed-size chunks, so a sequence written on one line is never held in memory whole.
+not filtering at all, keeps it.
+
+| output                         | option          | default                                                                                            |
+|--------------------------------|-----------------|----------------------------------------------------------------------------------------------------|
+| filtered FASTA file            | `--fasta-out`   | the input name with `_length_filtered` before the extension, e.g. `genome_length_filtered.fna.gz`  |
+| filtered GFF3 file             | `--gff-out`     | the input name with `_length_filtered` before the extension                                        |
+| removed IDs with their lengths | `--removed-out` | not written                                                                                        |
+
+The log gives the removed sequences, their length range and the coding genes and transcripts on
+them, genes being the better measure of the training data lost as GeenuFF exports one transcript
+per gene. The FASTA file is read in fixed-size chunks, so a sequence written on one line is never
+held in memory whole.
 
 Without `--gff` only the FASTA file is filtered, e.g. before predicting with Helixer, which saves
 compute otherwise spent on junk fragments.

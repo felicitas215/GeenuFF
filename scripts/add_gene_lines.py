@@ -75,12 +75,15 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     gene_line_ids, other_ids = set(), set()
     orphans = []  # (transcript ID, gene ID, seqid, source, strand, start, end)
     sources, split_examples = defaultdict(int), []
+    n_without_id = 0  # transcripts with neither Parent nor ID, which no line can name as Parent
     for line in gff_feature_lines(gff_path):
         seqid, source, feature_type, start, end, _, strand, _, column = line.rstrip('\n').split('\t')[:9]
         attributes = attributes_of(column)
         line_id = attributes.get('ID')
         (gene_line_ids if feature_type in GENE_TYPES else other_ids).add(line_id)
-        if feature_type in TRANSCRIPT_TYPES and 'Parent' not in attributes and line_id:
+        if feature_type in TRANSCRIPT_TYPES and 'Parent' not in attributes and not line_id:
+            n_without_id += 1
+        elif feature_type in TRANSCRIPT_TYPES and 'Parent' not in attributes:
             gene_id, how = gene_id_of(attributes, gene_attributes, split_at)
             sources[how] += 1
             if how == 'split ID' and len(split_examples) < 3:
@@ -100,6 +103,9 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
         gene.transcripts.append((transcript_id, start, end))
         by_transcript[transcript_id] = gene
 
+    if n_without_id:
+        logger.warning(f'{n_without_id} transcripts have neither a Parent nor an ID and are left as they are; no '
+                       f'exon or CDS line can name them as Parent')
     if orphans:
         logger.info(f'Found {len(orphans)} transcripts without a Parent, their gene IDs taken from '
                     + ', '.join(f'{how} for {n}' for how, n in sorted(sources.items(), key=lambda item: -item[1])))
@@ -157,7 +163,7 @@ def main(args: argparse.Namespace) -> None:
     gene_attributes = [name for name in args.gene_id_attributes.split(',') if name]
     gene_of = genes_for_orphans(args.gff, gene_attributes, args.split_at)
     if not gene_of:
-        logger.info('Every transcript has a Parent: nothing to add, no file written')
+        logger.info('Every transcript with an ID has a Parent: nothing to add, no file written')
         return
     n_genes = write_with_genes(args.gff, args.out, gene_of)
     logger.info(f'Wrote {n_genes} gene lines for {len(gene_of)} transcripts to "{args.out}"')

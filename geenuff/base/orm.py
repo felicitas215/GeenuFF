@@ -66,6 +66,10 @@ class SuperLocus(Base):
     # depends on this. Set where there is no honest way to export the locus at all, rather than
     # where something about it is merely wrong, which is what errors and their masks are for.
     excluded_from_export = Column(String, index=True)
+    # its transcripts left out of the database while importing, and the coding ones among them, so
+    # that summarize_geenuff_db.py can rebuild the import summary
+    dropped_transcripts = Column(Integer, nullable=False, default=0)
+    dropped_coding_transcripts = Column(Integer, nullable=False, default=0)
     # things SuperLocus can have a lot of
     transcripts = relationship('Transcript', back_populates='super_locus')
     proteins = relationship('Protein', back_populates='super_locus')

@@ -134,8 +134,12 @@ class TranscriptJsonable(TranscriptHandlerBase, ToJsonable):
         # the one transcript per gene an export selects, and whether its gene reaches the export
         out["selected_for_export"] = bool(self.data.longest)
         out["exported"] = out["selected_for_export"] and self.data.super_locus.excluded_from_export is None
-        out["errors"] = sorted(errors)
-        out["error_severity"] = error_severity(errors)
+        # only a coding transcript of a gene that could be placed is checked for errors, as in
+        # list_transcripts.py
+        checked = (any(f.type.value == types.GEENUFF_CDS for f in features)
+                   and self.data.super_locus.excluded_from_export not in types.unrepresentable_reasons)
+        out["errors"] = sorted(errors) if checked else "not checked"
+        out["error_severity"] = error_severity(errors) if checked else None
         # what the errors mask, merged into its geenuff_mask features, also listed among the features
         out["masks"] = [[m.start, m.end] for m in masks]
         out["masked_in_full"] = tx_feature is not None and is_masked_whole(tx_feature, masks)
@@ -221,7 +225,8 @@ class JsonExportController(GeenuffExportController):
 
         handle_out = self._as_file_handle(file_out)
         handle_out.write(dumps)
-        handle_out.close()
+        if file_out is not None:
+            handle_out.close()
         if not jsonable:
             logger.warning(f'No sequence "{seqid}" found for species "{species}"')
         n_genes = sum(len(res['super_loci']) for res in jsonable)

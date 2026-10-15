@@ -20,7 +20,7 @@ from typing import TextIO
 
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
-from geenuff.base.helpers import gff_feature_lines, insert_before_extension, setup_logging
+from geenuff.base.helpers import fasta_header_id, gff_feature_lines, insert_before_extension, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -405,7 +405,7 @@ def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str]) -> N
     with text_or_gzip_open(fasta_path) as f_in, open_out(out_path) as f_out:
         for line in f_in:
             if line.startswith('>'):
-                keep = line[1:].split()[0] not in left_out
+                keep = fasta_header_id(line[1:]) not in left_out
             if keep:
                 f_out.write(line)
 
@@ -522,7 +522,7 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
     logger.info(f'Reading "{fasta_path}"')
     sequences, full_names = {}, {}
     for full_name, sequence in FastaParser.read_fasta(fasta_path):
-        fasta_id = full_name.split()[0]
+        fasta_id = fasta_header_id(full_name)
         sequences[fasta_id], full_names[fasta_id] = sequence.upper(), full_name
     logger.info(f'Reading "{gff_path}"')
     gff_sequences = read_gff(gff_path)

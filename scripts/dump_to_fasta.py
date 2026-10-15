@@ -7,7 +7,7 @@ from geenuff.applications.exporter import RangeArgParser, MODES
 
 def main(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
-    controller = FastaExportController(args.db_path_in, args.longest)
+    controller = FastaExportController(args.db_path_in, args.longest, args.coding)
     if args.mode in MODES:
         controller.prep_ranges(MODES[args.mode])
     else:

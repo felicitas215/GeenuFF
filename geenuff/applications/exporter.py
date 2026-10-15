@@ -49,7 +49,8 @@ class ExportArgParser(object):
         self.parser.add_argument('--db-path-in', type=str, required=True,
                                  help='Path to the Geenuff SQLite input database.')
         self.parser.add_argument('-l', '--longest', action="store_true",
-                                 help="ignore all but the longest transcript per gene")
+                                 help="ignore all but the longest coding transcript per gene, the one selected "
+                                      "for export")
         self.parser.add_argument('-o', '--out', type=str, required=True,
                                  help="output file path")
 
@@ -64,13 +65,18 @@ class RangeArgParser(ExportArgParser):
         super().__init__()
         self.parser.add_argument('-m', '--mode', type=str, required=True,
                                  help="which type of sequence to export, one of {}".format(list(MODES.keys())))
+        self.parser.add_argument('--coding', action='store_true',
+                                 help="only transcripts with a CDS, whatever their GFF3 types, every isoform "
+                                      "unless --longest")
 
 
 class GeenuffExportController(object):
-    def __init__(self, db_path_in, longest=False):
+    def __init__(self, db_path_in, longest=False, coding=False, all_types=False):
         self.db_path_in = db_path_in
         self._mk_session()
         self.longest = longest
+        self.coding = coding
+        self.all_types = all_types
         self.id_counter = Counter()
         self.export_ranges = []
 
@@ -211,14 +217,18 @@ class GeenuffExportController(object):
                      .join(TranscriptPiece, TranscriptPiece.transcript_id == Transcript.id)
                      .join(asso_tp_2_f, asso_tp_2_f.c.transcript_piece_id == TranscriptPiece.id)
                      .join(Feature, asso_tp_2_f.c.feature_id == Feature.id)
-                     .join(Coordinate, Feature.coordinate_id == Coordinate.id)
-                     .filter(Transcript.type.in_([types.TranscriptLevel.mRNA, types.TranscriptLevel.transcript]))
-                     .filter(SuperLocus.type == types.SuperLocusAll.gene)
-                     .order_by(Genome.species)
-                     .order_by(Coordinate.length.desc())
-                     .order_by(Feature.is_plus_strand)
-                     .order_by(Feature.start))
-
+                     .join(Coordinate, Feature.coordinate_id == Coordinate.id))
+        # the longest transcripts are the coding ones selected for export, whatever their types,
+        # as in the h5 export, and coding ones are selected by their CDS (see SuperLocusRanger);
+        # otherwise all isoforms are those of plain genes, mRNAs and transcripts, unless all types
+        # are asked for
+        if not (self.longest or self.coding or self.all_types):
+            query = (query.filter(Transcript.type.in_([types.TranscriptLevel.mRNA, types.TranscriptLevel.transcript]))
+                          .filter(SuperLocus.type == types.SuperLocusAll.gene))
+        query = (query.order_by(Genome.species)
+                      .order_by(Coordinate.length.desc())
+                      .order_by(Feature.is_plus_strand)
+                      .order_by(Feature.start))
         return query.all()
 
     def gen_ranges(self, range_function):
@@ -228,10 +238,14 @@ class GeenuffExportController(object):
                 yield item
             return
 
-        # all super locus centric ranges
+        # all super locus centric ranges; a locus whose strand or coordinates cannot be placed is
+        # left out, and with longest also one dropped for an overlap, as in the h5 export
         super_loci = [r[0] for r in self.genome_query(return_super_loci=True)]
         for super_locus in super_loci:
-            sl_ranger = SuperLocusRanger(super_locus, longest=self.longest)
+            reason = super_locus.excluded_from_export
+            if reason in types.unrepresentable_reasons or (self.longest and reason is not None):
+                continue
+            sl_ranger = SuperLocusRanger(super_locus, longest=self.longest, coding=self.coding)
             # todo, once JOIN output exists, drop all these loops
             for range_maker in sl_ranger.exp_range_makers:
                 export_groups = range_function(range_maker)
@@ -265,7 +279,7 @@ class GeenuffExportController(object):
             transcripts_as_groups = []
             for sl, coord_seqid in super_loci:
                 if coord_seqid == seqid:
-                    sl_ranger = SuperLocusRanger(sl, longest=self.longest)
+                    sl_ranger = SuperLocusRanger(sl, longest=self.longest, coding=self.coding)
                     for range_maker in sl_ranger.exp_range_makers:
                         transcripts_as_groups += RangeMaker.transcribed_ranges(range_maker)
             plus_transcripts = []
@@ -626,9 +640,10 @@ MODES = {"mRNA": RangeMaker.mature_RNA,
 
 
 class SuperLocusRanger(SuperLocusHandlerBase):
-    def __init__(self, data=None, longest=False, setup_range_makers=True):
+    def __init__(self, data=None, longest=False, setup_range_makers=True, coding=False):
         super().__init__(data)
         self.longest = longest
+        self.coding = coding
         self.range_makers = []
         self.exp_range_makers = []
         if setup_range_makers:
@@ -638,13 +653,17 @@ class SuperLocusRanger(SuperLocusHandlerBase):
         for transcript in self.data.transcripts:
             range_maker = RangeMaker(transcript)
             self.range_makers.append(range_maker)
-        if not self.longest:
-            self.exp_range_makers = self.range_makers
-        else:
+        if self.longest:
             # the transcript the importer selected for export, as the h5 export uses (see
             # OrganizedGeenuffImporterGroup._set_longest_transript); none for a gene without a
             # coding one
             self.exp_range_makers = [rm for rm in self.range_makers if rm.data.longest]
+        elif self.coding:
+            self.exp_range_makers = [rm for rm in self.range_makers
+                                     if any(feature.type.value == types.GEENUFF_CDS
+                                            for feature, _ in rm.feature_piece_pairs())]
+        else:
+            self.exp_range_makers = self.range_makers
 
     def get_longest_protein_in_transcript(self):
         """identify which transcript, protein_id makes longest final coding sequence (introns rm) in this super locus"""

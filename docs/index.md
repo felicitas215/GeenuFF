@@ -1,7 +1,7 @@
 # GeenuFF
 
 ## Source & Install
-See the [github repository](https://github.com/usadellab/GeenuFF), its
+See the [GitHub repository](https://github.com/usadellab/GeenuFF), its
 [README](https://github.com/usadellab/GeenuFF/blob/main/README.md) for installing GeenuFF and
 running the tests, and the [license](https://github.com/usadellab/GeenuFF/blob/main/LICENSE)
 (GNU GPL v3).
@@ -265,8 +265,9 @@ the full sequence.
 
 #### super_loci and children
 ###### super_loci
-Delineates the graph of things that might possibly be combined, with given_name and type for the
-~gene.
+Delineates the graph of things that might be combined, with given_name and type for the
+~gene, why it is excluded from export if it is, and how many of its transcripts, and of its coding
+transcripts, were dropped while importing.
 
 ###### feature
 Geenuff-specific types and ranges, otherwise resembling GFF features. Each has:

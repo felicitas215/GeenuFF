@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 
 class LengthExportController(GeenuffExportController):
-    def __init__(self, db_path_in, longest=False):
-        super().__init__(db_path_in, longest)
+    def __init__(self, db_path_in, longest=False, coding=False):
+        super().__init__(db_path_in, longest, coding)
         self.export_ranges = []
 
     @staticmethod
@@ -24,7 +24,8 @@ class LengthExportController(GeenuffExportController):
         for export_group in self.export_ranges:
             l = self.get_length(export_group)
             handle_out.write("{}\t{}\n".format(export_group.seqid, l))
-        handle_out.close()
+        if file_out is not None:
+            handle_out.close()
         logger.info(f'Wrote the lengths of {len(self.export_ranges)} export ranges')
 
     def write_length_stats(self, file_out):
@@ -39,7 +40,8 @@ class LengthExportController(GeenuffExportController):
         handle_out = self._as_file_handle(file_out)
         for group in [stats, quants, nxes]:
             handle_out.write(fmt_stats(group))
-        handle_out.close()
+        if file_out is not None:
+            handle_out.close()
         logger.info(f'Wrote length statistics over {len(lengths)} export ranges')
 
 

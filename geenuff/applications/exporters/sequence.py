@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 
 class FastaExportController(GeenuffExportController):
-    def __init__(self, db_path_in, longest=False):
-        super().__init__(db_path_in, longest)
+    def __init__(self, db_path_in, longest=False, coding=False):
+        super().__init__(db_path_in, longest, coding)
         self.coordinate_id_cache = None
         self.sequence_cache = None
 
@@ -48,7 +48,8 @@ class FastaExportController(GeenuffExportController):
         for export_seq in self.export_ranges:
             handle_out.write(self.fmt_seq(export_seq))
             handle_out.write('\n')
-        handle_out.close()
+        if fa_out is not None:
+            handle_out.close()
         logger.info(f'Wrote {len(self.export_ranges)} sequences to FASTA')
 
 

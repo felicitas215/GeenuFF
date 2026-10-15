@@ -21,11 +21,15 @@ class JsonArgParser(ExportArgParser):
                                  help="end coordinate of query range (pythonic)")
         self.parser.add_argument('--pretty', action="store_true",
                                  help="set for multi-line indented json output")
+        self.parser.add_argument('--show-all', action="store_true",
+                                 help="genes and transcripts of every GFF3 type, e.g. tRNA or lncRNA genes, for "
+                                      "curiosity; Helixer's training data only uses coding transcripts, which "
+                                      "--longest shows")
 
 
 def main(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
-    controller = JsonExportController(args.db_path_in, args.longest)
+    controller = JsonExportController(args.db_path_in, args.longest, all_types=args.show_all)
     is_plus_strand = strand_as_bool(args.strand)
     controller.query_and_write(species=args.species,
                                seqid=args.seqid,

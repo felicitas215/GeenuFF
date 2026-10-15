@@ -493,6 +493,7 @@ class OrganizedGeenuffImporterGroup(object):
         circular molecule's origin are written this way; nothing can be made of them here, and
         the locus they belong to is kept out of exports."""
         sl_i.excluded_from_export = types.UNPLACEABLE_COORDINATES
+        sl_i.n_dropped_transcripts += 1
         sl_i.n_dropped_coding_transcripts += coding
         self.controller.stats.unstorable_transcripts_dropped += 1
         logger.warning(f"dropping transcript '{t_id}': its {what} runs from {gff_start} to "
@@ -576,6 +577,7 @@ class OrganizedGeenuffImporterGroup(object):
         and one starting before it cannot be stored at all; the locus it belongs to is kept out
         of exports."""
         sl_i.excluded_from_export = types.OUTSIDE_SEQUENCE
+        sl_i.n_dropped_transcripts += 1
         sl_i.n_dropped_coding_transcripts += coding
         self.controller.stats.transcripts_outside_sequence_dropped += 1
         logger.warning(f"dropping transcript '{t_id}': its {line.type} runs from {line.start} to "
@@ -587,6 +589,7 @@ class OrganizedGeenuffImporterGroup(object):
         sl = entries['super_locus']
         stats = self.controller.stats
         stats.total_super_loci += 1
+        stats.empty_super_loci += not entries['transcripts']
         if any(t_entries['cds'] for t_entries in entries['transcripts'].values()):
             stats.coding_super_loci += 1
         try:
@@ -612,6 +615,7 @@ class OrganizedGeenuffImporterGroup(object):
                 end=sl.end,
                 excluded_from_export=types.UNPLACEABLE_STRAND if n_coding else None,
                 controller=self.controller)
+            sl_i.n_dropped_transcripts = len(entries['transcripts'])
             sl_i.n_dropped_coding_transcripts = n_coding
             stats.total_transcripts += len(entries['transcripts'])
             stats.unstranded_transcripts_dropped += len(entries['transcripts'])
@@ -1618,7 +1622,6 @@ class GFFErrorHandling(object):
 
             # the case of no transcript for a super locus
             if not group['transcripts']:
-                self.controller.stats.empty_super_loci += 1
                 logger.debug('{} is a gene without any transcripts; it has no features and will '
                              'never be exported or masked'.format(group['super_locus'].given_name))
             # the selected transcript with the flank on both sides, which every mask reaches to
@@ -1909,7 +1912,7 @@ class FastaImporter(object):
         fp = fastahelper.FastaParser()
         for fasta_header, seq in fp.read_fasta(seq_file):
             seq = seq.upper()  # this may perform poorly
-            seqid = fasta_header.split()[0]
+            seqid = helpers.fasta_header_id(fasta_header)
             yield seqid, seq
 
 
@@ -1934,12 +1937,15 @@ class SuperLocusImporter(Insertable):
         self.end = end
         # a reason string from types, or None; see orm.SuperLocus.excluded_from_export
         self.excluded_from_export = excluded_from_export
-        # coding transcripts of it left out of the database, counted in the import summary
+        # transcripts of it left out of the database, and the coding ones among them
+        self.n_dropped_transcripts = 0
         self.n_dropped_coding_transcripts = 0
 
     def add_to_queue(self):
         to_add = {'type': self.entry_type, 'given_name': self.given_name, 'id': self.id,
-                  'excluded_from_export': self.excluded_from_export}
+                  'excluded_from_export': self.excluded_from_export,
+                  'dropped_transcripts': self.n_dropped_transcripts,
+                  'dropped_coding_transcripts': self.n_dropped_coding_transcripts}
         self.controller.insertion_queues.super_locus.queue.append(to_add)
 
     def __repr__(self):

@@ -219,7 +219,9 @@ def fasta_lines(path: str) -> Iterator[tuple[bool, bytes]]:
             lines = (rest + chunk).split(b'\n')
             rest = lines.pop()
             for line in lines:
-                yield at_line_start, line
+                # a line ending right after the piece of it yielded from the last chunk leaves nothing
+                if line or at_line_start:
+                    yield at_line_start, line
                 at_line_start = True
             if rest and not (at_line_start and rest.startswith(b'>')) and len(rest) > FASTA_CHUNK_SIZE:
                 yield at_line_start, rest
@@ -228,9 +230,21 @@ def fasta_lines(path: str) -> Iterator[tuple[bool, bytes]]:
         yield at_line_start, rest
 
 
+def fasta_header_id(header: str) -> str:
+    """The sequence ID of a FASTA header line without its '>': the text up to the first whitespace.
+
+    Raises:
+        ValueError: for a header holding no ID
+    """
+    words = header.split(maxsplit=1)
+    if not words:
+        raise ValueError(f'FASTA header without a sequence ID: ">{header.rstrip()}"')
+    return words[0]
+
+
 def fasta_ids(path: str) -> list[str]:
     """The sequence IDs (the header up to the first whitespace) of a (gzipped) FASTA file, in file order."""
-    return [piece[1:].split()[0].decode() for at_line_start, piece in fasta_lines(path)
+    return [fasta_header_id(piece[1:].decode()) for at_line_start, piece in fasta_lines(path)
             if at_line_start and piece.startswith(b'>')]
 
 
