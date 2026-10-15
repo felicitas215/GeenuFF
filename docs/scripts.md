@@ -211,12 +211,18 @@ gives the share rebuilt and warns at 5% or below. Without such transcripts, no f
 Removes short junk sequences, e.g. organelle genomes or small unplaced scaffolds, from a FASTA
 file and their lines from its GFF3 file before import:
 
-| removed                                                 | how                                                                                                                                                                                                                                                                        |
-|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score from their median and median absolute deviation, at least `MIN_GAP_RANK` = 3); needs 5 sequences or more (`MIN_SEQUENCES_FOR_CLUSTERING`) |
-| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                                                                                                                           |
+| removed                                                 | how                                                                                                                                                                                                                                                                                                                                                      |
+|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score from their median and median absolute deviation, at least `MIN_GAP_RANK` = 3); needs 5 sequences or more (`MIN_SEQUENCES_FOR_CLUSTERING`) and may hold at most 5% of the total length (`--max-cluster-length-fraction`) |
+| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                                                                                                                                                                                                         |
 
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
+Where the sequences below the floor hold over 5% of the bases or coding genes, they are still
+removed, with a warning that a lower `--min-seq-len` keeps them.
+In a fragmented scaffold-level assembly, the gaps in the dense middle of the length distribution
+are tiny, so the largest gap, among the few longest scaffolds, stands out without separating junk
+from the rest; the length share keeps such a cluster (e.g. 9458 of 9463 scaffolds, 97.6% of the
+bp, in one moss assembly).  
 With a very unusual length distribution, e.g. nearly all sequences of one length, the cluster can
 be a sequence barely shorter than the rest; the log lists what was removed, and `--no-adaptive`, or
 not filtering at all, keeps it.

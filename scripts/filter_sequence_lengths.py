@@ -27,7 +27,12 @@ logger = logging.getLogger(__name__)
 MIN_GAP_RANK = 3.0  # how far the largest gap must stand out from the others, as a robust z-score
 # below this many sequences, the gap statistics (median, MAD) are unreliable or degenerate
 MIN_SEQUENCES_FOR_CLUSTERING = 5
+# junk sequences hold a small share of an assembly's length; a larger cluster means the gap lies within one
+# continuous length distribution, as in fragmented scaffold-level assemblies, and nothing is removed
+DEFAULT_MAX_CLUSTER_LENGTH_FRACTION = 0.05
 DEFAULT_MIN_SEQ_LEN = 1000
+# above this share of the bases or coding genes, sequences below the floor are still removed, with a warning
+FLOOR_WARN_SHARE = 0.05
 SEQUENCE_WHITESPACE = b' \t\r\n'
 MAX_LOGGED_IDS = 10
 OUT_SUFFIX = '_length_filtered'  # inserted before the extension of the input files' names by default
@@ -45,9 +50,10 @@ def fasta_lengths(path: str) -> OrderedDict[str, int]:
     return lengths
 
 
-def gap_cluster_ids(lengths: OrderedDict[str, int]) -> set[str]:
+def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) -> set[str]:
     """The IDs of the sequences below the largest gap between the sorted log10 lengths, where that gap
-    stands out from the others; empty with too few sequences or no such gap."""
+    stands out from the others; empty with too few sequences, no such gap or a cluster holding more than
+    max_length_fraction of the total length."""
     if len(lengths) < MIN_SEQUENCES_FOR_CLUSTERING:
         return set()
     logs = {seq_id: math.log10(max(length, 1)) for seq_id, length in lengths.items()}
@@ -62,7 +68,15 @@ def gap_cluster_ids(lengths: OrderedDict[str, int]) -> set[str]:
     if (gaps[max_i] - median) / max(mad, 1e-9) < MIN_GAP_RANK:
         return set()
     threshold = (sorted_logs[max_i] + sorted_logs[max_i + 1]) / 2
-    return {seq_id for seq_id, log_length in logs.items() if log_length <= threshold}
+    cluster = {seq_id for seq_id, log_length in logs.items() if log_length <= threshold}
+    cluster_length, total_length = sum(lengths[seq_id] for seq_id in cluster), sum(lengths.values())
+    if cluster_length > max_length_fraction * total_length:
+        logger.warning(f'The cluster of {len(cluster)} small sequences holds '
+                       f'{100 * cluster_length / total_length:.2f}% of the total length ({cluster_length} of '
+                       f'{total_length} bp), more than the {100 * max_length_fraction:g}% allowed '
+                       f'(--max-cluster-length-fraction {max_length_fraction}), so it is kept')
+        return set()
+    return cluster
 
 
 def write_fasta_without(fasta_path: str, out_path: str, removed: set[str]) -> None:
@@ -136,7 +150,7 @@ def main(args: argparse.Namespace) -> None:
     logger.info(f'Length filtering {names}')
     lengths = fasta_lengths(args.fasta)
     coding = coding_by_seqid(args.gff) if args.gff else {}
-    clustered = set() if args.no_adaptive else gap_cluster_ids(lengths)
+    clustered = set() if args.no_adaptive else gap_cluster_ids(lengths, args.max_cluster_length_fraction)
     below_floor = {seq_id for seq_id, length in lengths.items() if length < args.min_seq_len}
     to_remove = clustered | below_floor
     removed = [seq_id for seq_id in lengths if seq_id in to_remove]
@@ -153,6 +167,18 @@ def main(args: argparse.Namespace) -> None:
         logger.warning('The filter would leave no sequence with coding transcripts, so nothing is removed and '
                        'nothing written')
         return
+
+    floor_bp_share = sum(lengths[seq_id] for seq_id in below_floor) / sum(lengths.values())
+    all_genes = sum(g for g, _ in coding.values())
+    floor_gene_share = (sum(coding[seq_id][0] for seq_id in below_floor if seq_id in coding) / all_genes
+                        if all_genes else 0)
+    if max(floor_bp_share, floor_gene_share) > FLOOR_WARN_SHARE:
+        logger.warning(f'The {len(below_floor)} sequences below {args.min_seq_len} bp hold '
+                       f'{100 * floor_bp_share:.2f}% of the bases'
+                       + (f' and {100 * floor_gene_share:.2f}% of the coding genes' if all_genes else '')
+                       + f', more than {100 * FLOOR_WARN_SHARE:g}%. They are removed, as sequences this short '
+                         f'rarely give good training data or predictions; a lower --min-seq-len (0 for none) '
+                         f'keeps them')
 
     removed_lengths = [lengths[seq_id] for seq_id in removed]
     held = ''
@@ -199,8 +225,13 @@ if __name__ == '__main__':
                              f'{DEFAULT_MIN_SEQ_LEN} bp)')
     parser.add_argument('--no-adaptive', action='store_true',
                         help='apply the hard floor alone, without the cluster of small sequences')
+    parser.add_argument('--max-cluster-length-fraction', type=float, default=DEFAULT_MAX_CLUSTER_LENGTH_FRACTION,
+                        help=f'the cluster of small sequences is kept where it holds more than this share of the '
+                             f'total length (default: {DEFAULT_MAX_CLUSTER_LENGTH_FRACTION})')
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
     if args.gff_out and not args.gff:
         parser.error('--gff-out needs --gff')
+    if not 0 <= args.max_cluster_length_fraction <= 1:
+        parser.error('--max-cluster-length-fraction must be between 0 and 1')
     main(args)
