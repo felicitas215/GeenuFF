@@ -248,7 +248,8 @@ Indentation inside a piece indicates a one-to-? relation
 * genome
   * coordinate
 * super_locus
-  * transcript, < many2many to protein >
+  * super_locus_overlap, pairs of coding super loci sharing a range, with that range
+  * transcript (longest: the one selected for export), < many2many to protein >
     * transcript_piece, < many2many to feature >
     * transcript_error
   * protein, < many2many with transcript, feature >

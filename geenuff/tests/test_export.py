@@ -598,6 +598,9 @@ def test_intergenic_ranges_are_what_the_genes_leave_over():
               for group in econtroller.export_ranges for r in group.ranges]
     assert ranges == [(True, 0, 100), (True, 300, 350), (True, 550, 900),
                       (False, 899, 799), (False, 599, -1)]
+    # named by their GFF3 coordinates and strand
+    assert [group.seqid for group in econtroller.export_ranges] == [
+        'CHR:1-100(+)', 'CHR:301-350(+)', 'CHR:551-900(+)', 'CHR:801-900(-)', 'CHR:1-600(-)']
 
     lengths = [lcontroller.get_length(group) for group in lcontroller.export_ranges]
     assert lengths == [100, 50, 350, 100, 600]

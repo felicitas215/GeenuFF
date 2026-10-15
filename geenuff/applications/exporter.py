@@ -66,8 +66,14 @@ class RangeArgParser(ExportArgParser):
         self.parser.add_argument('-m', '--mode', type=str, required=True,
                                  help="which type of sequence to export, one of {}".format(list(MODES.keys())))
         self.parser.add_argument('--coding', action='store_true',
-                                 help="only transcripts with a CDS, whatever their GFF3 types, every isoform "
-                                      "unless --longest")
+                                 help=f"only transcripts with a CDS, whatever their GFF3 types, every isoform "
+                                      f"unless --longest; the modes {', '.join(CODING_MODES)} need it or --longest")
+
+    def parse_args(self):
+        super().parse_args()
+        if self.args.mode in CODING_MODES and not (self.args.coding or self.args.longest):
+            self.parser.error(f'--mode {self.args.mode} needs --coding or --longest, as only a transcript with '
+                              f'a CDS has a CDS or UTRs')
 
 
 class GeenuffExportController(object):
@@ -97,7 +103,7 @@ class GeenuffExportController(object):
 
     def genome_query(self, longest_only=True, return_super_loci=False, include_non_coding=False):
         """Returns either a tuple of (super_loci, coordinate_seqid) or a dict of coord_ids for everything in
-        the database that each link to a list of features. If all_transcripts is False, only the
+        the database that each link to a list of features. If longest_only is True, only the
         features of the longest transcript are queried."""
 
         logger.info(f'Querying for {self.session.query(Genome.species).all()[0]}')
@@ -254,6 +260,13 @@ class GeenuffExportController(object):
                         group.seqid = 'unnamed_{0:08d}'.format(self.id_counter())
                     yield group
 
+    @staticmethod
+    def _region_name(seqid, a_range):
+        """seqid:start-end(strand), 1-based, inclusive and ascending as in GFF3."""
+        if a_range.is_plus_strand:
+            return f'{seqid}:{a_range.start + 1}-{a_range.end}(+)'
+        return f'{seqid}:{a_range.end + 2}-{a_range.start + 1}(-)'
+
     def intergenic_ranges(self):
         # todo gen
         logger.info('Computing intergenic ranges')
@@ -301,8 +314,8 @@ class GeenuffExportController(object):
             # subtract transcripts from intergenic
             plus_subtracted = dummy_handler._subtract_ranges(plus_ranges, plus_transcripts)
             minus_subtracted = dummy_handler._subtract_ranges(minus_ranges, minus_transcripts)
-            groups += (dummy_handler._one_range_one_group(plus_subtracted) +
-                       dummy_handler._one_range_one_group(minus_subtracted))
+            groups += [ExportGroup(seqid=self._region_name(seqid, r), ranges=[r])
+                       for r in plus_subtracted + minus_subtracted]
         logger.info(f'Computed {len(groups)} intergenic ranges')
         return groups
 
@@ -569,48 +582,6 @@ class RangeMaker(TranscriptHandlerBase):
     def utr5p(self):
         pass  # todo
 
-    # point transitions (sites)
-    @staticmethod
-    def _get_transition(feature, target_start_not_end):
-        if target_start_not_end:
-            at = feature.start
-            is_bio = feature.start_is_biological_start
-        else:
-            at = feature.end
-            is_bio = feature.end_is_biological_end
-        return at, is_bio
-
-    def get_by_type_and_bearing(self, target_type, target_start_not_end, target_is_biological=True):
-        out = []
-        for piece in self.data.transcribed_pieces:
-            for feature in piece.features:
-                if feature.type.value == target_type:
-                    at, is_bio = self._get_transition(feature, target_start_not_end)
-                    if is_bio == target_is_biological:
-                        out.append(TranscriptCoordinate(coordinate_id=feature.coordinate_id,
-                                                        piece_position=piece.position,
-                                                        is_plus_strand=feature.is_plus_strand,
-                                                        start=at))
-        return out
-
-    def transcript_start_sites(self):
-        return self.get_by_type_and_bearing(types.GEENUFF_TRANSCRIPT, target_start_not_end=True)
-
-    def cds_start_sites(self):  # AKA start codons
-        return self.get_by_type_and_bearing(types.GEENUFF_CDS, target_start_not_end=True)
-
-    def intron_start_sites(self):  # AKA Donor splice site
-        return self.get_by_type_and_bearing(types.GEENUFF_INTRON, target_start_not_end=True)
-
-    def transcript_end_sites(self):
-        return self.get_by_type_and_bearing(types.GEENUFF_TRANSCRIPT, target_start_not_end=False)
-
-    def cds_end_sites(self):  # AKA follows stop codons
-        return self.get_by_type_and_bearing(types.GEENUFF_CDS, target_start_not_end=False)
-
-    def intron_end_sites(self):  # AKA follows acceptor splice site
-        return self.get_by_type_and_bearing(types.GEENUFF_INTRON, target_start_not_end=False)
-
     @staticmethod
     def _sum_range_lengths(ranges):
         out = 0
@@ -637,6 +608,8 @@ MODES = {"mRNA": RangeMaker.mature_RNA,
          "UTR": RangeMaker.mature_UTR,
          "pre-UTR": RangeMaker.pre_UTR,
          "intergenic": IG_OVERRIDE}
+# modes defined only for transcripts with a CDS
+CODING_MODES = ("CDS", "UTR", "pre-UTR")
 
 
 class SuperLocusRanger(SuperLocusHandlerBase):

@@ -38,16 +38,16 @@ reason, `geenuff_excluded=overlap_dropped`.
 
 Writes sequence to FASTA, one record per range. `--mode` is required and picks which ranges:
 
-| mode         | what it writes                                  |
-|--------------|-------------------------------------------------|
-| `mRNA`       | the spliced transcript, exons joined            |
-| `pre-mRNA`   | the transcript as transcribed, introns included |
-| `CDS`        | the spliced coding sequence                     |
-| `exons`      | each exon separately                            |
-| `introns`    | each intron separately                          |
-| `UTR`        | the spliced untranslated regions                |
-| `pre-UTR`    | the untranslated regions before splicing        |
-| `intergenic` | what lies between the genes                     |
+| mode         | what it writes                                                                          |
+|--------------|-----------------------------------------------------------------------------------------|
+| `mRNA`       | the spliced transcript, exons joined                                                    |
+| `pre-mRNA`   | the transcript as transcribed, introns included                                         |
+| `CDS`        | the spliced coding sequence, needs `--coding` or `--longest`                            |
+| `exons`      | each exon separately                                                                    |
+| `introns`    | each intron separately                                                                  |
+| `UTR`        | the spliced untranslated regions, needs `--coding` or `--longest`                       |
+| `pre-UTR`    | the untranslated regions before splicing, needs `--coding` or `--longest`               |
+| `intergenic` | what lies between the genes, named by GFF3 coordinates and strand, e.g. `Chr1:1-100(+)` |
 
 | option      | transcripts written                                                                                                                          |
 |-------------|----------------------------------------------------------------------------------------------------------------------------------------------|
@@ -152,12 +152,12 @@ A pair by ID or full name does not fit, its FASTA sequence changed after annotat
 reach past its end, a `##sequence-region` length differs from its own, or, with 20 checks or more,
 fewer than half pass in any window (the first 20, the last 20, about 25 each in between). A cut or
 insertion shifts every check after it, so a window shows it wherever it lies before the last gene.
-With 20 checks a wrong sequence passes half in about 2 of a million cases; a right one whose
+With 20 checks a wrong sequence passes half in about 3 of a million cases; a right one whose
 annotation passes only 70% fails in about 2%.
 
 | case                                                                                                | result                                                                                                                                                                                              |
 |-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| all IDs match and fit                                                                               | checked only, no file written                                                                                                                                                                       |
+| all IDs match and fit                                                                               | checked only, no file written, not even `--pairs-out`                                                                                                                                               |
 | sequences changed after annotation, up to 5% of the coding transcripts                              | these are left out of the GFF3 and FASTA files, listed in a warning; the FASTA copy without them is written beside the output GFF3 file, e.g. `genome_sequences_dropped.fna.gz` for `genome.fna.gz` |
 | GFF3 IDs with no FASTA sequence, up to 15% of the coding transcripts lost (`--max-missing-percent`) | these lines are left out, counted in a warning                                                                                                                                                      |
 | GFF3 IDs whose genes fit a FASTA sequence paired with another GFF3 ID                               | left out as duplicates, counted apart                                                                                                                                                               |
@@ -165,8 +165,8 @@ annotation passes only 70% fails in about 2%.
 | coding transcripts changed above 5% or missing above 15%                                            | error, nothing written                                                                                                                                                                              |
 | stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                                                                      |
 
-Every warning gives the share of coding transcripts lost. `--pairs-out` writes every pair with its
-method, checks passed and FASTA full name.
+Each warning about left-out lines gives the share of coding transcripts lost. `--pairs-out` writes
+every pair with its method, checks passed and FASTA full name.
 
 A possible extension: where most pairs by ID or full name fail, search a sample of them by sequence
 first, to pair all by sequence where the names were merely reassigned (e.g. scaffolds renumbered

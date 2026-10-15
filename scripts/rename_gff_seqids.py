@@ -130,15 +130,13 @@ def stop_site(transcript_id: str, cds: list[tuple[int, int]], exons: list[tuple[
 
 
 def sequence_regions(gff_path: str) -> dict[str, int]:
-    """{sequence ID: length} from the ##sequence-region lines heading a GFF3 file."""
+    """{sequence ID: length} from the ##sequence-region lines anywhere in a GFF3 file."""
     regions = {}
     with text_or_gzip_open(gff_path) as f:
         for line in f:
             if line.startswith('##sequence-region'):
                 _, seqid, start, end = line.split()[:4]
                 regions[seqid] = int(end) - int(start) + 1
-            elif line.strip() and not line.startswith('#'):
-                break
     return regions
 
 

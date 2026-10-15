@@ -91,7 +91,7 @@ from geenuff.applications.exporters.sequence import FastaExportController
 controller = FastaExportController(PATH_TO_GEENUFF_DB)
 controller.prep_ranges(MODES['pre-mRNA'])
 for export_group in controller.export_ranges:
-    pre_mrna_seq = controller.get_seq(export_group)
+    pre_mrna_seq = ''.join(controller.get_seq(export_group))
     # your code here
     # check for your motif of interest, count kmers, send to custom output, etc...
 ```
@@ -131,7 +131,7 @@ json_out = controller.coordinate_range_to_json(species='dummy',
 The range is ascending, `[start, end)`, on either strand. It returns every gene on that strand
 whose gene model overlaps the range, whether or not it is exported, with all of its isoforms, or
 with `longest` set on the controller only the transcript selected for export (the one Helixer
-uses), in this format:
+uses), in this format (feature and mask coordinates as stored, start above end on the minus strand):
 
 ```
 [{"coordinate_piece":

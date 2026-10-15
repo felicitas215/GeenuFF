@@ -6,7 +6,7 @@ either way, every sequence below a hard floor (--min-seq-len, by default 1000 bp
 docs/scripts.md).
 
 The output files default to the input files' names with _length_filtered before the extension,
-e.g. genome.fna.gz -> genome_length_filtered.fa.gz. The FASTA file is read in fixed-size chunks,
+e.g. genome.fna.gz -> genome_length_filtered.fna.gz. The FASTA file is read in fixed-size chunks,
 so a sequence written on a single line is never held in memory whole.
 """
 import argparse

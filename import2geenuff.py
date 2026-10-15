@@ -108,7 +108,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, all four custom '
                         'input parameters must be set.')
-    parser.add_argument('--config-file', type=str, default=DEFAULT_CONFIG_FILE)
+    parser.add_argument('--config-file', type=str, default=DEFAULT_CONFIG_FILE,
+                        help=f'YAML file setting min_intron_length and min_cds_length, the intron and spliced CDS '
+                             f'lengths in bp below which a transcript is masked, e.g. config/import.yml of the '
+                             f'GeenuFF repository (default: {DEFAULT_CONFIG_FILE} in the working directory if '
+                             f'present, else 20 and 60)')
 
     custominput = parser.add_argument_group('Override default with custom input/output location')
     custominput.add_argument('--gff3', help='gff3 formatted file to parse / standardize')

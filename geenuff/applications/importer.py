@@ -1179,7 +1179,8 @@ class OrganizedGFFEntries(object):
             t = self._line(lines[0].seqid, 'mRNA', min(line.start for line in lines),
                            max(line.end for line in lines), lines[0].strand,
                            f'ID=floating_{name};Parent={gene_id}')
-            if gene is None:
+            # a CDS ID can equal the parent ID of other floating CDS lines; both go under one gene
+            if gene is None and gene_id not in groups:
                 groups[gene_id] = {'super_locus': self._inferred_gene(gene_id, [t]), 'transcripts': {}}
                 self.stats.floating_cds_genes += 1
             t_entries = groups[gene_id]['transcripts'][t] = self._new_t_entries(floating=True)

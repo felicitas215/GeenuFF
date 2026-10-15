@@ -33,12 +33,14 @@ class LengthExportController(GeenuffExportController):
         for export_group in self.export_ranges:
             lengths.append(self.get_length(export_group))
 
-        stats = basics(lengths)
-        quants = fmt_keys(quantiles(lengths), pfx="quantile_")
-        nxes = fmt_keys(nx(lengths), pfx="N", sfx="")
+        if lengths:
+            groups = [basics(lengths), fmt_keys(quantiles(lengths), pfx="quantile_"),
+                      fmt_keys(nx(lengths), pfx="N", sfx="")]
+        else:
+            groups = [{'count': 0}]
 
         handle_out = self._as_file_handle(file_out)
-        for group in [stats, quants, nxes]:
+        for group in groups:
             handle_out.write(fmt_stats(group))
         if file_out is not None:
             handle_out.close()
