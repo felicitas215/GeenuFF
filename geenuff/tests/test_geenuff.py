@@ -1499,17 +1499,34 @@ def test_lines_that_cannot_be_placed_are_left_out_and_counted(grouping_organizer
     }
 
 
-def test_transcripts_naming_no_parent_stop_the_import(tmp_path):
-    """Transcripts without a Parent (and Parent= attribute), as gene predictors write them without
-    gene lines, stop the import with an error naming them and pointing to add_gene_lines.py."""
+def test_coding_transcripts_naming_no_parent_stop_the_import(tmp_path):
+    """Coding transcripts without a Parent (and Parent= attribute), as gene predictors write them
+    without gene lines, stop the import with an error naming them and pointing to add_gene_lines.py."""
     gff_path = tmp_path / 'no_gene.gff3'
     gff_path.write_text('##gff-version 3\n'
-                        'CHR\tTiberius\ttranscript\t21\t53\t.\t+\t.\tID=g1.t1;geneID=g1\n'
-                        'CHR\tTiberius\tCDS\t21\t53\t.\t+\t0\tParent=g1.t1\n')
+                        'CHR\tT\ttranscript\t21\t53\t.\t+\t.\tID=g1.t1;geneID=g1\n'
+                        'CHR\tT\tCDS\t21\t53\t.\t+\t0\tParent=g1.t1\n')
     organizer = OrganizedGFFEntries(str(gff_path))
-    with pytest.raises(MissingGeneLines, match=r'1 of 1 transcript lines \(100\.0%\) name no Parent gene.*on 1 '
-                                               r'sequence \(\w+: 1\).*e\.g\. g1\.t1.*add_gene_lines\.py'):
+    with pytest.raises(MissingGeneLines, match=r'1 of 1 coding transcript lines \(100\.0%\) name no Parent gene.*'
+                                               r'on 1 sequence \(\w+: 1\).*e\.g\. g1\.t1.*add_gene_lines\.py'):
         organizer.load_organized_entries()
+
+
+def test_non_coding_transcripts_naming_no_parent_are_left_out(tmp_path):
+    """A transcript without a Parent and without CDS lines gives no training data: it is left out
+    with its exon line, counted under no_gene, while the gene beside it is grouped as usual."""
+    gff_path = tmp_path / 'stray_ncrna.gff3'
+    gff_path.write_text('##gff-version 3\n'
+                        'CHR\ttest\tncRNA\t1\t24\t.\t+\t.\tID=rna1\n'
+                        'CHR\ttest\texon\t1\t24\t.\t+\t.\tParent=rna1\n'
+                        'CHR\ttest\tgene\t101\t400\t.\t+\t.\tID=g1\n'
+                        'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=t1;Parent=g1\n'
+                        'CHR\ttest\tCDS\t101\t400\t.\t+\t0\tParent=t1\n')
+    organizer = OrganizedGFFEntries(str(gff_path))
+    organizer.load_organized_entries()
+    assert organizer.stats.dropped_lines == {'no_gene': {'ncRNA': 1}}
+    assert organizer.stats.dropped_lines_below == {'no_gene': {'exon': 1}}
+    assert [group['super_locus'].get_ID() for group in organizer.organized_entries['CHR']] == ['g1']
 
 
 @pytest.fixture(scope='module')

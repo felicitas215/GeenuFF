@@ -171,8 +171,9 @@ and the coding transcripts, i.e. potential training data, each reason cost.
   as a transcript, and AUGUSTUS' lowercase `five_prime_utr` and `three_prime_utr` as UTRs, so that
   exons built from CDS and UTR lines keep the UTRs.
 - A transcript names exactly one gene; one naming several genes or another transcript is left
-  out. Transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius write
-  them, stop the import with an error pointing to `add_gene_lines.py`. Transcripts naming a
+  out. Coding transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius
+  write them, stop the import with an error pointing to `add_gene_lines.py`; non-coding ones, e.g.
+  organelle ncRNAs in NCBI annotations, are left out, giving no training data. Transcripts naming a
   `Parent` that matches no line share a gene inferred for them, spanning them all, unless they lie
   on different sequences or strands: then which belong together cannot be told, and all are left
   out.

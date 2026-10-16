@@ -67,7 +67,7 @@ UNEXPORTED_REASONS = {
 
 
 class MissingGeneLines(Exception):
-    """Transcript lines name no Parent, as gene predictors write them without gene lines."""
+    """Coding transcript lines name no Parent, as gene predictors write them without gene lines."""
 
 
 # why a GFF line was left out while the lines are grouped into loci by their ID and Parent
@@ -76,6 +76,7 @@ class MissingGeneLines(Exception):
 DROPPED_LINE_REASONS = {
     'no_id': 'without an ID',
     'shared_id': 'sharing an ID with another gene or transcript line',
+    'no_gene': 'naming no gene, without CDS lines',
     'several_genes': 'naming several genes',
     'parent_not_gene': 'naming a transcript as parent',
     'missing_parent_unplaceable': 'naming a missing parent, on different sequences or strands',
@@ -1119,7 +1120,8 @@ class OrganizedGFFEntries(object):
         transcripts_by_id = self._lines_by_unique_id(transcripts, genes, dropped_ids)
         groups = {gene_id: {'super_locus': gene, 'transcripts': {}}
                   for gene_id, gene in genes_by_id.items()}
-        self._place_transcripts(transcripts_by_id, groups, dropped_ids)
+        cds_parents = {parent for piece, key in pieces if key == 'cds' for parent in piece.get_Parent() or []}
+        self._place_transcripts(transcripts_by_id, groups, dropped_ids, cds_parents)
         self._place_pieces(pieces, groups, dropped_ids)
 
         self.organized_entries = {}
@@ -1194,23 +1196,30 @@ class OrganizedGFFEntries(object):
                 by_id[line_id] = line
         return by_id
 
-    def _place_transcripts(self, transcripts_by_id, groups, dropped_ids):
+    def _place_transcripts(self, transcripts_by_id, groups, dropped_ids, cds_parents):
         """Puts every transcript under the one gene it names. The transcripts naming one Parent ID
         that matches no line share a gene inferred for them, spanning them all (see _inferred_gene),
-        unless they lie on different sequences or strands, which leaves them all out.
+        unless they lie on different sequences or strands, which leaves them all out. A transcript
+        naming no Parent at all is left out where no CDS line names it (cds_parents), giving no
+        training data either way.
 
         Raises:
-            MissingGeneLines: if transcripts name no Parent at all, which gene predictors write
-                without gene lines; add_gene_lines.py adds them
+            MissingGeneLines: if coding transcripts name no Parent at all, which gene predictors
+                write without gene lines; add_gene_lines.py adds them
         """
         parentless = [t_id for t_id, t in transcripts_by_id.items() if not t.get_Parent()]
+        for t_id in [t_id for t_id in parentless if t_id not in cds_parents]:
+            self._drop(transcripts_by_id.pop(t_id), 'no_gene')
+            dropped_ids[t_id] = ('no_gene', None)
+        parentless = [t_id for t_id in parentless if t_id in cds_parents]
         if parentless:
             # where they lie tells a few strays, e.g. on an organelle sequence, from a whole file without gene lines
             by_seqid = Counter(transcripts_by_id[t_id].seqid for t_id in parentless).most_common()
             on = ', '.join(f'{seqid}: {n}' for seqid, n in by_seqid[:3]) + (', ...' if len(by_seqid) > 3 else '')
-            share = len(parentless) / len(transcripts_by_id)
+            n_coding = sum(t_id in cds_parents for t_id in transcripts_by_id)
+            share = len(parentless) / n_coding
             raise MissingGeneLines(
-                f'{len(parentless)} of {len(transcripts_by_id)} transcript lines '
+                f'{len(parentless)} of {n_coding} coding transcript lines '
                 f'({f"{share:.1%}" if share >= 0.001 else "<0.1%"}) name no Parent gene or "Parent=" attribute, on '
                 f'{len(by_seqid)} sequence{"s" if len(by_seqid) > 1 else ""} ({on}), e.g. '
                 f'{", ".join(parentless[:3])}, as gene predictors such as '

@@ -3,7 +3,8 @@
 predictors such as AUGUSTUS, BRAKER and Tiberius; GeenuFF does not import a transcript without a
 gene. A transcript's gene ID is taken from the first of the given attributes it has (by default
 geneID, gene_id, gene), else from its ID up to the last occurrence of the split text (by default
-".", so g653.t1 gives g653), else it gets a gene of its own, named after it with _gene appended.
+".", so g653.t1 gives g653), else it gets a gene of its own, named after it with _gene appended,
+as every transcript does with --one-gene-per-transcript.
 The gene line spans the transcripts of its ID, which each get it as their Parent; a gene ID naming
 a gene line already is only set as their Parent. The log shows example splits and warns where
 transcripts put into one gene do not overlap, a sign of the wrong split text.
@@ -105,7 +106,9 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
                     + ', '.join(f'{how} for {n}' for how, n in sorted(sources.items(), key=lambda item: -item[1])))
     if split_examples:
         logger.info(f'  split at the last "{split_at}", e.g. {", ".join(split_examples)}')
-    if sources['own ID']:
+    if sources['own ID'] and not (gene_attributes or split_at):
+        logger.info(f'Gave each of the {sources["own ID"]} transcripts a gene of its own')
+    elif sources['own ID']:
         logger.warning(f'{sources["own ID"]} transcripts have none of the attributes {", ".join(gene_attributes)} '
                        f'nor "{split_at}" in their ID, so each gets a gene of its own; set --gene-id-attributes or '
                        f'--split-at if isoforms should share one')
@@ -150,8 +153,12 @@ def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene]) -> 
 def main(args: argparse.Namespace) -> None:
     setup_logging(args.log_file)
     logger.info(f'Adding gene lines to the transcripts without a Parent in "{os.path.basename(args.gff)}"')
-    gene_attributes = [name for name in args.gene_id_attributes.split(',') if name]
-    gene_of = genes_for_orphans(args.gff, gene_attributes, args.split_at)
+    if args.one_gene_per_transcript:
+        gene_attributes, split_at = [], ''
+    else:
+        gene_attributes = [name for name in args.gene_id_attributes.split(',') if name]
+        split_at = args.split_at
+    gene_of = genes_for_orphans(args.gff, gene_attributes, split_at)
     if not gene_of:
         logger.info('Every transcript with an ID has a Parent: nothing to add, no file written')
         return
@@ -164,13 +171,22 @@ if __name__ == '__main__':
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     parser.add_argument('-o', '--out', type=str, required=True,
                         help='output GFF3 file, gzipped if it ends in .gz; not written when nothing is to be added')
-    parser.add_argument('--gene-id-attributes', type=str, default=DEFAULT_ATTRIBUTES,
+    # None where not given, to tell an explicit value from --one-gene-per-transcript
+    parser.add_argument('--gene-id-attributes', type=str,
                         help=(f'comma-separated attributes of a transcript line holding its gene ID, the first one '
                               f'present used (default: {DEFAULT_ATTRIBUTES}); give an empty value, written '
                               f'--gene-id-attributes "" or --gene-id-attributes=, to split the transcript ID alone'))
-    parser.add_argument('--split-at', type=str, default=DEFAULT_SPLIT,
+    parser.add_argument('--split-at', type=str,
                         help=(f'text at whose last occurrence a transcript ID is cut to get its gene ID, where no '
                               f'gene ID attribute is present (default: "{DEFAULT_SPLIT}"). E.g. "." turns g653.t1 '
                               f'into g653, and "-mRNA-" turns gene7-mRNA-2 into gene7'))
+    parser.add_argument('--one-gene-per-transcript', action='store_true',
+                        help=('give every transcript without a Parent a gene of its own, using neither gene ID '
+                              'attributes nor a split text; only for files with one isoform per gene'))
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
-    main(parser.parse_args())
+    args = parser.parse_args()
+    if args.one_gene_per_transcript and (args.gene_id_attributes is not None or args.split_at is not None):
+        parser.error('--one-gene-per-transcript uses neither --gene-id-attributes nor --split-at')
+    args.gene_id_attributes = DEFAULT_ATTRIBUTES if args.gene_id_attributes is None else args.gene_id_attributes
+    args.split_at = DEFAULT_SPLIT if args.split_at is None else args.split_at
+    main(args)

@@ -176,9 +176,10 @@ after annotation) rather than stopping as for different assemblies.
 ## add_gene_lines.py
 
 Adds gene lines for transcripts without a `Parent`, as gene predictors such as AUGUSTUS, BRAKER
-and Tiberius write them, which stop GeenuFF's import (a transcript naming a `Parent` that matches
-no line gets a gene inferred instead). Each such transcript's gene ID is taken from the first
-source that gives one:
+and Tiberius write them, which stop GeenuFF's import where they are coding (a transcript naming a
+`Parent` that matches no line gets a gene inferred instead). Each such transcript's gene ID is
+taken from the first source that gives one, or with `--one-gene-per-transcript`, for files with
+one isoform per gene, every transcript gets a gene of its own:
 
 | source                                                                                  | e.g. transcript line            | gene ID   |
 |-----------------------------------------------------------------------------------------|---------------------------------|-----------|
