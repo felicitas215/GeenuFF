@@ -19,7 +19,8 @@ from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, Transcrip
                               Protein, TranscriptError)
 from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from geenuff.applications.importer import (ImportController, InsertCounterHolder, MissingGeneLines,
-                                           OrganizedGFFEntries, error_severity)
+                                           OrganizedGFFEntries, error_severity, overlap_length, GENES_GIVING_LABELS,
+                                           SUMMARY_STEPS)
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
@@ -1408,7 +1409,8 @@ def test_gff_grouper():
 def test_gff_grouper_leaves_out_genes_sharing_an_id():
     """gene1's ID is used by two gene lines, so which of them a transcript names is undecidable:
     both are left out, with their transcripts and those transcripts' exon, CDS and UTR lines, all
-    counted under shared_id, the two coding transcripts among them as lost. Only gene2 remains."""
+    counted under shared_id, the two coding transcripts among them as lost, from one gene ID, the
+    two gene lines sharing it. Only gene2 remains."""
     gff_organizer = OrganizedGFFEntries('testdata/discontinuous_gene.gff3')
     gff_organizer.load_organized_entries()
     groups = gff_organizer.organized_entries['NC_TEST.1']
@@ -1418,6 +1420,30 @@ def test_gff_grouper_leaves_out_genes_sharing_an_id():
                                                                      'five_prime_UTR': 2,
                                                                      'three_prime_UTR': 2}}
     assert gff_organizer.stats.coding_transcripts_dropped == {'shared_id': 2}
+    assert gff_organizer.stats._dropped_lines_entry('shared_id')[1].endswith(
+        '2 coding transcripts lost, from 1 gene ID')
+
+
+def test_coding_transcripts_lost_below_a_left_out_transcript_count_apart_from_gene_ids(tmp_path):
+    """Two gene lines share g1, each with a coding transcript, and two transcript lines share t9
+    under g2: three coding transcripts are lost for sharing an ID, two of them from one gene ID,
+    the third below a transcript line left out itself."""
+    gff = tmp_path / 'mixed_shared_ids.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\tgene\t401\t700\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\tmRNA\t1\t300\t.\t+\t.\tID=tA;Parent=g1\n'
+                   'CHR\ttest\tCDS\t1\t300\t.\t+\t0\tParent=tA\n'
+                   'CHR\ttest\tmRNA\t401\t700\t.\t+\t.\tID=tB;Parent=g1\n'
+                   'CHR\ttest\tCDS\t401\t700\t.\t+\t0\tParent=tB\n'
+                   'CHR\ttest\tgene\t801\t1100\t.\t+\t.\tID=g2\n'
+                   'CHR\ttest\tmRNA\t801\t1100\t.\t+\t.\tID=t9;Parent=g2\n'
+                   'CHR\ttest\tmRNA\t801\t1000\t.\t+\t.\tID=t9;Parent=g2\n'
+                   'CHR\ttest\tCDS\t801\t1000\t.\t+\t0\tParent=t9\n')
+    gff_organizer = OrganizedGFFEntries(str(gff))
+    gff_organizer.load_organized_entries()
+    assert gff_organizer.stats._dropped_lines_entry('shared_id')[1].endswith(
+        '3 coding transcripts lost, 2 of them from 1 gene ID')
 
 
 @pytest.fixture(scope='module')
@@ -1481,8 +1507,8 @@ def test_transcripts_naming_no_parent_stop_the_import(tmp_path):
                         'CHR\tTiberius\ttranscript\t21\t53\t.\t+\t.\tID=g1.t1;geneID=g1\n'
                         'CHR\tTiberius\tCDS\t21\t53\t.\t+\t0\tParent=g1.t1\n')
     organizer = OrganizedGFFEntries(str(gff_path))
-    with pytest.raises(MissingGeneLines, match=r'1 of 1 transcript lines name no Parent gene.*e\.g\. g1\.t1.*'
-                                               r'add_gene_lines\.py'):
+    with pytest.raises(MissingGeneLines, match=r'1 of 1 transcript lines \(100\.0%\) name no Parent gene.*on 1 '
+                                               r'sequence \(\w+: 1\).*e\.g\. g1\.t1.*add_gene_lines\.py'):
         organizer.load_organized_entries()
 
 
@@ -1635,6 +1661,66 @@ def test_the_minimum_cds_length_comes_from_the_config():
     short = transcripts_by_name(controller)['tShort']
     assert not error_types(short)
     assert not feature_ranges(short, types.GEENUFF_MASK)
+
+
+# section: import summary
+# from the GFF gene lines on, each step's count follows from the one before
+FUNNEL = SUMMARY_STEPS[1:]
+
+
+@pytest.mark.parametrize('name', ['cds_outside_exons', 'cds_without_transcript', 'dummyloci', 'exonexonCDS',
+                                  'exporting', 'gene_parented_duplicate_exons', 'hanging_intron', 'helixer_e2e',
+                                  'intron_at_end', 'overlap_grading', 'overlapping_loci_chain',
+                                  'overlapping_loci_pairs', 'sequence_edge', 'split_codon_absent', 'split_codon',
+                                  'stop_codon', 'trans_spliced', 'unplaceable_strand', 'wrong_phase'])
+def test_import_summary_funnel_adds_up(name):
+    """Each step of the import summary, its count plus what is added and less what is subtracted
+    below it, is the next step's count, from the GFF gene lines down to the genes giving labels,
+    whose breakdown adds up to them."""
+    gff = f'testdata/{name}.gff3' if os.path.exists(f'testdata/{name}.gff3') else f'testdata/{name}.gff'
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome(f'testdata/{name}.fa', gff, clean_gff=True)
+    steps = {header: (count, entries) for header, count, _, entries, _ in controller.stats.summary_steps()}
+    for step, following in zip(FUNNEL, FUNNEL[1:]):
+        count, entries = steps[step]
+        change = sum({'+': n, '-': -n}.get(sign, 0) for sign, n, _, _ in entries)
+        assert count + change == steps[following][0], f'{step} -> {following}'
+    labeled, breakdown = steps[GENES_GIVING_LABELS]
+    assert sum(n for _, n, _, _ in breakdown) == labeled
+
+
+def test_import_summary_counts_a_missing_utr_flank_without_room_as_empty(tmp_path):
+    """The gene's CDS starts at the first base of its transcript and sequence, so its 5' UTR is
+    missing, and its flank, reaching into the gap before it, has no room: the gene gives labels,
+    counted with one UTR flank masked, that mask empty."""
+    fasta, gff = tmp_path / 'edge.fa', tmp_path / 'edge.gff3'
+    fasta.write_text('>CHR\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t1\t400\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\tmRNA\t1\t400\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'CHR\ttest\texon\t1\t400\t.\t+\t.\tParent=t1\n'
+                   'CHR\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t1\n')
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome(str(fasta), str(gff), clean_gff=True)
+    entries = {header: entries for header, _, _, entries, _ in controller.stats.summary_steps()}
+    assert (' ', 1, "the flank of one UTR masked beside the gene (1 5', 0 3'; 1 of these masks empty, no room "
+                    "beside the gene)", 0) in entries[GENES_GIVING_LABELS]
+
+
+def test_overlap_length_counts_the_shared_bases_of_two_range_lists():
+    assert overlap_length([(0, 10), (20, 30)], [(5, 25)]) == 10
+    assert overlap_length([(0, 10)], [(10, 20)]) == 0
+    assert overlap_length([], [(0, 5)]) == 0
+
+
+def test_import_summary_counts_the_masked_bases_within_exported_genes_only():
+    """Of the three exported 600 bp genes of cds_outside_exons, rnaUtrOnly is masked in full with
+    both flanks: its 600 bases count as masked gene bases, the flanks beside it not."""
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome('testdata/cds_outside_exons.fa', 'testdata/cds_outside_exons.gff3', clean_gff=True)
+    extra = {header: extra for header, _, _, _, extra in controller.stats.summary_steps()}
+    assert any(line.startswith('600 of the 1800 bases of the exported genes masked (33.33%)')
+               for line in extra[GENES_GIVING_LABELS])
 
 
 # section: types

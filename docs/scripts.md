@@ -91,12 +91,12 @@ mask ranges and whether it is masked in full (see `api.md` for the format).
 Rebuilds the import summary from the database, in the same layout and wording, for when the import
 log is lost. It needs a database with the `transcript_error` table.
 
-Its counts are identical to the log's for the gene and transcript totals, the transcripts dropped
-(each gene stores how many of its transcripts were), the training data section and the errors;
-the overlap outcomes are recovered by running the overlap sweep again over the exported spans.
-What was only counted while reading the GFF3 cannot be recovered and is listed at the end: lines
-left out while grouping and the coding transcripts lost through them, created genes, genes on
-neither strand, exons built and stop codons added.
+From "genes imported" on, its counts are identical to the log's (each gene stores how many of its
+transcripts were left out); the overlap outcomes are recovered by running the overlap sweep again
+over the exported spans. What was only counted while reading the GFF3 cannot be recovered and is
+listed at the end: the GFF lines and GFF gene lines steps, with the lines left out while grouping,
+the coding transcripts lost through them and the genes created, and the exons built and stop
+codons added.
 
 ## list_transcripts.py
 

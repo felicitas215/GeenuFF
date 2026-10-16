@@ -1,25 +1,22 @@
 # GeenuFF
 
 Schema and API for a relational db that encodes gene models in an explicit, structured,
-and robust fashion.
-
-## beta disclaimer
-
-GeenuFF is currently *extremely* beta and very unstable.
-We're keen to get feed back or ideas from the community
-(even if it's just whether you think this could be useful to you
-if developed further), but if you build on GeenuFF as it is now,
-you're doing so at your own risk.
-
-## Motivation
-
-We developed this to provide a way of unambiguously encoding gene models,
+and robust fashion. GeenuFF is currently mostly intended for
+[Helixer](https://github.com/usadellab/Helixer). As such, since Version 0.4.0 it shifted
+away from the previous aim of providing a way of unambiguously encoding gene models
 (the way the DNA sequence is interpreted to produce proteins) that is both
-robust to partial information and biological complexity.
+robust to partial information and biological complexity. An example of partial information
+still kept are trans-spliced genes (see the [trans-splicing documentation](docs/trans_splicing.md)).
+An example of left out data is genes sharing an ID.
+
+We're still keen to get feedback or ideas from the community (even if it's just whether
+you think this could be useful to you if developed further), but if you build on GeenuFF
+as it is now for anything other than getting training data for Helixer, you're doing so
+at your own risk.
 
 A more extensive description can be found [here](https://usadellab.github.io/GeenuFF/).
 
-## Relation to Helixer
+## Details on the relation to Helixer
 
 GeenuFF is the annotation store [Helixer](https://github.com/usadellab/Helixer) trains from.
 Importing a GFF3 checks the gene models, repairs what can be repaired unambiguously, and records
@@ -41,7 +38,7 @@ decided on export. Worth reading before relying on the output:
 ## Install
 
 GeenuFF needs Python 3.10.12 or newer. Install it preferably in a
-[virtual environment](https://docs.python-guide.org/dev/virtualenvs/), adding `-e` to `pip install`
+[virtual environment](https://docs.python-guide.org/dev/virtualenvs/), using `pip install -e .`
 for an editable installation:
 
 ```bash
@@ -49,6 +46,12 @@ git clone https://github.com/usadellab/GeenuFF.git
 cd GeenuFF
 pip install .
 cd ..
+```
+
+Alternatively, install directly from GitHub via pip:
+
+```bash
+pip install git+https://github.com/usadellab/GeenuFF.git
 ```
 
 To run the tests:
@@ -59,32 +62,25 @@ py.test
 cd ../..
 ```
 
-`tests/test_helixer_h5.py` runs the import and Helixer's `geenuff2h5.py` end to end. It is skipped
-where Helixer is not installed, and `py.test -m 'not helixer'` leaves it out where it is.
+`tests/test_helixer_h5.py` runs the import and Helixer's `geenuff2h5.py` end to end. It is
+skipped where Helixer is not installed, and `py.test -m 'not helixer'` leaves it out where it is.
 
-Alternatively, install directly from GitHub via pip:
-
-```bash
-pip install git+https://github.com/usadellab/GeenuFF.git
-```
-
-## usage
+## Usage
 
 You can run `bash example.sh` for a quick start with public data.
 This will set up the folder 'three_algae', download public data in
-the expected format, and import it into a geenuff spec db for each
+the expected format, and import it into a GeenuFF sqlite database for each
 species. For more information please see
 [the api docs](https://usadellab.github.io/GeenuFF/api.html).
 
-Each import ends with a summary: the GFF lines left out and what they cost, what Helixer gets from
-each coding gene (labeled in full, masked, or not exported, and why), and the errors of the
+Each import ends with a summary that counts down from the GFF lines to the genes giving Helixer
+labels, step by step: what was left out or masked on the way, and why, including the errors of the
 exported transcripts. It is the quickest way to see whether an annotation is in the state you
 expected.
 
-## Major plans
+## Future plans
 
 * Add a validation module to check structure of gene models.
-* Add extraction of raw & mature transcript, CDS, and protein sequence as a demo application.
 * Visualization.
 
 ## Thanks

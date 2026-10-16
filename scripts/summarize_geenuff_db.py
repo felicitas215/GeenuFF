@@ -14,8 +14,9 @@ from collections import defaultdict
 from types import SimpleNamespace
 
 from geenuff.base import types
-from geenuff.applications.importer import (ImportStatistics, GFFErrorHandling, NOT_MASKING_IN_FULL,
-                                           ascending_range, exported_outcome, format_summary)
+from geenuff.applications.importer import (EMPTY, LEFT_OUT, NON_CODING, NOT_EXPORTED, NOT_MASKING_IN_FULL,
+                                           READING_ONLY_STEPS, ImportStatistics, GFFErrorHandling, ascending_range,
+                                           exported_outcome, format_summary, funnel_step, left_out_reason)
 
 logger = logging.getLogger(__name__)
 
@@ -60,26 +61,10 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
     """The counts of the import summary that the database holds."""
     stats = ImportStatistics()
     stats.total_super_loci = con.execute('SELECT COUNT(*) FROM super_locus').fetchone()[0]
-    stats.empty_super_loci = con.execute(
-        'SELECT COUNT(*) FROM super_locus sl WHERE sl.dropped_transcripts = 0 AND NOT EXISTS '
-        '(SELECT 1 FROM transcript t WHERE t.super_locus_id = sl.id)').fetchone()[0]
     stats.imported_transcripts = con.execute('SELECT COUNT(*) FROM transcript').fetchone()[0]
     stats.total_transcripts = stats.imported_transcripts
-    # a gene's dropped transcripts by the reason it is excluded for, as the importer drops them:
-    # outside its sequence, backwards, or with the gene itself on neither strand
-    dropped_coding = {}
-    for sl_id, reason, n_dropped, n_dropped_coding in con.execute(
-            'SELECT id, excluded_from_export, dropped_transcripts, dropped_coding_transcripts FROM super_locus '
-            'WHERE dropped_transcripts > 0'):
-        stats.total_transcripts += n_dropped
-        if reason == types.OUTSIDE_SEQUENCE:
-            stats.transcripts_outside_sequence_dropped += n_dropped
-        elif reason == types.UNPLACEABLE_COORDINATES:
-            stats.unstorable_transcripts_dropped += n_dropped
-        else:
-            stats.unstranded_transcripts_dropped += n_dropped
-        if n_dropped_coding:
-            dropped_coding[sl_id] = (reason, n_dropped_coding)
+    stats.total_transcripts += con.execute(
+        'SELECT COALESCE(SUM(dropped_transcripts), 0) FROM super_locus').fetchone()[0]
     stats.genome_bases = con.execute('SELECT COALESCE(SUM(length), 0) FROM coordinate').fetchone()[0]
 
     logger.info(f'Found {stats.total_super_loci} genes with {stats.total_transcripts} transcripts')
@@ -99,9 +84,23 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
                                JOIN feature f ON f.id = a.feature_id WHERE f.type = ?)""",
             (types.GEENUFF_CDS,)):
         genes.setdefault(sl_id, (reason, []))[1].append((t_id, longest))
-    # a gene whose coding transcripts were all dropped is always excluded, counted below
-    for sl_id, (reason, _) in dropped_coding.items():
-        genes.setdefault(sl_id, (reason, []))
+    # the funnel step of every gene, from its transcripts imported and left out (see funnel_step)
+    for sl_id, reason, n_dropped, n_imported in con.execute(
+            """SELECT sl.id, sl.excluded_from_export, sl.dropped_transcripts,
+                      (SELECT COUNT(*) FROM transcript t WHERE t.super_locus_id = sl.id)
+               FROM super_locus sl"""):
+        coding = genes.get(sl_id, (reason, []))[1]
+        step = funnel_step(n_imported, n_dropped, len(coding), reason)
+        if step == EMPTY:
+            stats.empty_super_loci += 1
+        elif step == LEFT_OUT:
+            stats.genes_left_out_on_import[left_out_reason(reason)] += 1
+        elif step == NON_CODING:
+            stats.non_coding_genes += 1
+        else:
+            stats.coding_transcripts_imported += len(coding)
+            if step == NOT_EXPORTED:
+                stats.coding_genes_not_exported[reason] += 1
 
     logger.info(f'Found {len(genes)} genes with coding transcripts and {len(errors)} transcripts with errors')
 
@@ -114,22 +113,16 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
 
     for sl_id, (reason, coding) in genes.items():
         if reason is not None:
-            stats.unexported_coding_genes[reason] += 1
-            stats.unexported_coding_transcripts[reason] += len(coding) + dropped_coding.get(sl_id, (None, 0))[1]
             if reason == types.OVERLAP_DROPPED:
                 stats.overlap_loci_dropped_labeled += not errors[selected[sl_id]] - NOT_MASKING_IN_FULL
             continue
         t_id = selected[sl_id]
-        stats.longest_transcripts += 1
         stats.unselected_coding_transcripts += len(coding) - 1
-        stats.longest_error_free_transcripts += not errors[t_id]
-        for error_type in errors[t_id]:
-            stats.errors[error_type] += 1
-        stats.exported_outcomes[exported_outcome(errors[t_id], transcript_features[t_id][0], masks[t_id],
-                                                 len(partners[sl_id]) <= 1)] += 1
-        for mask in masks[t_id]:
-            stats.mask_ranges[(mask.coordinate_id, bool(mask.is_plus_strand))].append(
-                ascending_range(mask.start, mask.end, mask.is_plus_strand))
+        tf = transcript_features[t_id][0]
+        stats.add_exported(errors[t_id], exported_outcome(errors[t_id], tf, masks[t_id], len(partners[sl_id]) <= 1),
+                           (tf.coordinate_id, bool(tf.is_plus_strand)),
+                           ascending_range(tf.start, tf.end, tf.is_plus_strand),
+                           [ascending_range(m.start, m.end, m.is_plus_strand) for m in masks[t_id]])
 
     # the pairs of exported genes, settled as at import: in a chain, resolved by dropping one,
     # nested, or both masked outright for their own errors
@@ -163,15 +156,13 @@ def main(args: argparse.Namespace) -> None:
     con.close()
 
     title = f'summary rebuilt from "{args.db_path_in}"' + (f' for "{species[0]}"' if species else '')
-    print(format_summary(title, stats.summary_sections(reading_counts=False), stats.summary_notes()), flush=True)
-    print('  not in the database, only ever in the import log:', flush=True)
-    for line in ('GFF lines skipped or left out while grouping them into genes, and the coding '
-                 'transcripts lost through them',
-                 'genes created for transcripts naming a Parent ID that matches no line or to mask '
-                 'floating CDS lines, and gene lines on neither strand, indistinguishable from other '
-                 'genes',
+    print(format_summary(title, stats.summary_steps(reading_counts=False), stats.summary_notes()), flush=True)
+    print('not in the database, only ever in the import log:', flush=True)
+    for line in (f'the {" and ".join(READING_ONLY_STEPS)} steps: lines read, skipped or left out while grouping '
+                 f'them into genes, the coding transcripts lost through them, and the genes created for '
+                 f'transcripts naming a Parent that matches no line or for CDS lines without a transcript line',
                  'transcripts with exons built from their CDS and UTR lines, or with a stop codon added'):
-        print(f'    - {line}', flush=True)
+        print(f'  - {line}', flush=True)
 
 
 if __name__ == '__main__':

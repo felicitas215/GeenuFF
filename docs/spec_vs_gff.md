@@ -195,13 +195,34 @@ and the coding transcripts, i.e. potential training data, each reason cost.
 
 ##### import summary
 
-The training data section accounts for every coding gene, of which Helixer gets one transcript:
-exported and labeled in full, with or without sequence beside it masked, or masked in full, each
-by cause; or not exported, by reason, with how many genes dropped for an overlap would otherwise
-have been labeled. It ends with the bases masked as a share of both strands of the genome, each
-mask on its gene's strand only and overlapping masks on one strand counting once. Errors are
-counted over the exported transcripts only, and counts of 0 are shown only in that section. Where
-no coding transcript is imported at all, e.g. from a GFF3 file without CDS lines, a warning after
+The summary is a funnel from the GFF lines down to Helixer's training labels:
+1. GFF lines
+2. GFF gene lines
+3. Genes imported
+4. Genes with transcripts
+5. Coding genes
+6. Exported coding genes (one transcript each)
+7. Genes giving labels
+
+Below each step stands what was subtracted on the way to the next one, and why, so the counts
+add up; counts of 0 are left out, transcript counts are given in brackets. The **Exported coding
+genes** list the errors masking genes in full, once per type and transcript, and their UTRs
+each gene in one line: both annotated, only missing 5' or 3', or both missing. The **Genes giving
+labels** are split by the UTR flanks masked beside them: none, one or both. The length of the UTR
+mask can be zero for lack of room, e.g. gene starts/ends exactly at a sequence edge or lies
+directly beside another exported gene. As the masks are stored merged, a 0-length flank mask can
+be missed only in the very rare (probably impossible) case where a 1 bp gap beside the gene is
+covered by the overhang of a gene dropped in its favor. These overhangs in general are counted
+apart, being no part of the gene itself.
+
+The summary ends with:
+- the total number of overlapping masked (overlaps only counted on the same strand +/-)
+- the bases masked as a share of both strands
+- the bases masked as a share of the bases of the exported genes (both strands combined, for
+  overlapping genes the union of their spans is used)
+
+The complete lists of the GFF types skipped are logged with `--verbose`. Where no coding
+transcript is imported at all, e.g. from a GFF3 file without CDS lines, a warning after
 the summary says that the genome gives no training data.
 
 ##### reverse complement

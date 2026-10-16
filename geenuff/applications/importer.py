@@ -71,34 +71,21 @@ class MissingGeneLines(Exception):
 
 
 # why a GFF line was left out while the lines are grouped into loci by their ID and Parent
-# attributes (see OrganizedGFFEntries.load_organized_entries), for the import summary
+# attributes (see OrganizedGFFEntries.load_organized_entries), for the import summary, where the
+# GFF types of the lines stand beside it
 DROPPED_LINE_REASONS = {
-    'no_id': 'gene and transcript lines without an ID, which no line can name as its parent',
-    'shared_id': 'gene and transcript lines sharing their ID with another such line, so that '
-                 'which one a child names is undecidable',
-    'several_genes': 'transcript lines naming more than one gene as their parent',
-    'parent_not_gene': 'transcript lines naming another transcript as their parent',
-    'missing_parent_unplaceable': 'transcript lines naming a parent that matches no line, where the '
-                                  'transcripts naming it lie on different sequences or strands',
-    'no_parent': 'exon and UTR lines naming no parent',
-    'unknown_parent': 'exon and UTR lines naming a parent that matches no line',
-    'gene_parented_duplicate': 'exon and UTR lines whose parent is a gene with transcripts, '
-                               'duplicating a line of one of those transcripts',
-    'gene_parented': 'exon and UTR lines whose parent is a gene, duplicating no line of its '
-                     'transcripts',
-    'gene_parented_cds': 'CDS lines whose parent is a gene with transcripts',
-    'floating_cds_unplaceable': 'CDS lines to be masked together that lie on different sequences or '
-                                'strands, or on another sequence or strand than the gene they name',
-    'other_sequence': 'lines on another sequence than their parent',
-}
-
-# what lines left out for a reason cost beyond what is counted per reason, i.e. coding
-# transcripts lost through them, for the import summary
-DROPPED_LINE_IMPACTS = {
-    'gene_parented_duplicate': 'nothing lost, duplicates',
-    'gene_parented': 'no coding transcript lost',
-    'unknown_parent': 'no coding transcript lost',
-    'floating_cds_unplaceable': 'neither imported nor masked',
+    'no_id': 'without an ID',
+    'shared_id': 'sharing an ID with another gene or transcript line',
+    'several_genes': 'naming several genes',
+    'parent_not_gene': 'naming a transcript as parent',
+    'missing_parent_unplaceable': 'naming a missing parent, on different sequences or strands',
+    'no_parent': 'naming no parent',
+    'unknown_parent': 'naming a parent that matches no line',
+    'gene_parented_duplicate': 'naming a gene with transcripts, duplicating their lines',
+    'gene_parented': "naming a gene, duplicating none of its transcripts' lines",
+    'gene_parented_cds': 'CDS naming a gene with transcripts',
+    'floating_cds_unplaceable': 'CDS without a transcript line, spread over sequences or strands, not masked either',
+    'other_sequence': 'on another sequence than their parent',
 }
 
 
@@ -107,16 +94,14 @@ DROPPED_LINE_IMPACTS = {
 # or both; or the transcript itself masked in full, for floating CDS lines, for errors of its own,
 # or for an overlap left unresolved alone (see exported_outcome)
 EXPORTED_OUTCOMES = {
-    'unmasked': '    labeled in full, nothing masked',
-    'utr_flank': '    labeled in full, the flank of a missing UTR masked',
-    'overlap': '    labeled in full, what an overlapping gene dropped in their favor covers beyond '
-               'them masked',
-    'utr_flank_and_overlap': '    labeled in full, the flank of a missing UTR and what an '
-                             'overlapping gene dropped in their favor covers beyond them masked',
-    'floating': '      created to mask CDS lines without a transcript line',
-    'own_errors': '      for errors of their own',
-    'nested': '      for an overlap with a gene inside or around them, left unresolved',
-    'chain': '      for overlaps with more than one other gene, left unresolved',
+    'unmasked': 'nothing masked',
+    'utr_flank': 'the flank of a missing UTR masked beside the gene',
+    'overlap': 'the overhang of an overlapping gene dropped in their favor masked beside the gene',
+    'utr_flank_and_overlap': 'both masked beside the gene, the two masks possibly overlapping',
+    'floating': 'masked in full, created to mask CDS lines without a transcript line',
+    'own_errors': 'masked in full for errors of their own',
+    'nested': 'masked in full for an overlap with a gene inside or around them, left unresolved',
+    'chain': 'masked in full for overlaps with more than one other gene, left unresolved',
 }
 MASKED_IN_FULL_OUTCOMES = ('floating', 'own_errors', 'nested', 'chain')
 # the errors masking nothing or only sequence beside the transcript; every other one masks it in
@@ -134,6 +119,26 @@ def error_severity(errors) -> str:
     if errors & {types.MISSING_UTR_5P, types.MISSING_UTR_3P}:
         return 'flank_masked'
     return 'none'
+
+
+def overlap_length(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> int:
+    """The bases two lists of sorted, merged, half-open (lo, hi) ranges share."""
+    shared, i, j = 0, 0, 0
+    while i < len(a) and j < len(b):
+        shared += max(0, min(a[i][1], b[j][1]) - max(a[i][0], b[j][0]))
+        if a[i][1] < b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return shared
+
+
+def flank_masked(side: str, span: tuple[int, int], masks: list[tuple[int, int]], is_plus_strand: bool) -> bool:
+    """Whether a mask touches a transcript's ascending span on its 5p or 3p side, as the flank of a
+    missing UTR does unless it came out empty for lack of room beside the gene."""
+    if (side == '5p') == is_plus_strand:
+        return any(lo < span[0] <= hi for lo, hi in masks)
+    return any(lo <= span[1] < hi for lo, hi in masks)
 
 
 def ascending_range(start: int, end: int, is_plus_strand: bool) -> tuple[int, int]:
@@ -162,27 +167,64 @@ def exported_outcome(errors, transcript_feature, masks, nested: bool) -> str:
     return 'overlap' if overlap else 'utr_flank'
 
 
-def format_summary(title: str, sections: list[tuple[str, list[tuple[int, str]], bool]],
-                   notes: list[str]) -> str:
-    """A summary as sections of counted lines with the counts in a column, so a reader can scan
-    down them rather than through a paragraph.
+# the steps of the import summary's gene funnel, from all genes imported down to those giving
+# labels; each gene ends at one of them (see funnel_step)
+EMPTY, LEFT_OUT, NON_CODING, NOT_EXPORTED, EXPORTED = 'empty', 'left_out', 'non_coding', 'not_exported', 'exported'
+# the headers of the import summary's steps, in order (see ImportStatistics.summary_steps); the
+# counts of the first two only exist while the GFF3 is read
+(GFF_LINES, GFF_GENE_LINES, GENES_IMPORTED, GENES_WITH_TRANSCRIPTS, CODING_GENES, EXPORTED_CODING_GENES,
+ GENES_GIVING_LABELS) = SUMMARY_STEPS = ('GFF lines', 'GFF gene lines', 'Genes imported', 'Genes with transcripts',
+                                        'Coding genes', 'Exported coding genes', 'Genes giving labels')
+READING_ONLY_STEPS = SUMMARY_STEPS[:2]
+# why all transcripts of a gene were left out on import, keyed as in left_out_reason
+LEFT_OUT_REASONS = {
+    'no_strand': "on neither strand, e.g. NCBI's '?'",
+    types.OUTSIDE_SEQUENCE: 'with a line outside their sequence',
+    types.UNPLACEABLE_COORDINATES: 'with a line running backwards',
+}
 
-    sections holds (heading, [(count, text)], whether a count of 0 is shown); elsewhere such a line
-    is left out, saying nothing, and so is a section left without lines. A heading can span several
-    lines. Leading spaces of a text indent its whole line, the count included, so that the parts of
-    a total stand below it."""
-    sections = [(heading, [(count, text) for count, text in entries if count or show_zeros])
-                for heading, entries, show_zeros in sections]
-    sections = [(heading, entries) for heading, entries in sections if entries]
-    width = max((len(str(count)) for _, entries in sections for count, _ in entries), default=1)
+
+def plural(n: int, noun: str) -> str:
+    """'1 transcript', '2 transcripts'."""
+    return f'{n} {noun}{"" if n == 1 else "s"}'
+
+
+def funnel_step(n_imported: int, n_dropped: int, n_coding: int, excluded: str | None) -> str:
+    """The funnel step a gene ends at, from its transcripts imported and left out on import, its
+    coding transcripts imported and why it is excluded from export, if it is."""
+    if not n_imported:
+        return LEFT_OUT if n_dropped else EMPTY
+    if not n_coding:
+        return NON_CODING
+    return NOT_EXPORTED if excluded else EXPORTED
+
+
+def left_out_reason(excluded: str | None) -> str:
+    """The LEFT_OUT_REASONS key of a gene whose transcripts were all left out on import: the one
+    stored as excluded_from_export, or 'no_strand' for a gene on neither strand, which the
+    database does not record apart."""
+    return excluded if excluded in (types.OUTSIDE_SEQUENCE, types.UNPLACEABLE_COORDINATES) else 'no_strand'
+
+
+def format_summary(title: str, steps: list[tuple[str, int | None, str, list[tuple[str, int, str, int]], list[str]]],
+                   notes: list[str]) -> str:
+    """A summary as a funnel: one header per step with its count, below it what was subtracted on
+    the way to the next step, so the counts add up from the GFF lines down to the training labels.
+
+    steps holds (header, count or None, bracketed detail or '', [(sign, count, text, level)], extra
+    lines); sign is '-', '+' or ' ' for a breakdown, and level indents an entry further. An entry
+    with a count of 0 is left out, and so is a step without count or entries. The counts of a step
+    are right-aligned to its longest one."""
+    steps = [(header, count, detail, [e for e in entries if e[1]], extra)
+             for header, count, detail, entries, extra in steps]
+    steps = [step for step in steps if step[1] is not None or step[3]]
     lines = [f'{title}:']
-    for heading, entries in sections:
-        *heading_lines, last_line = heading.split('\n')
-        lines += [f'  {line}' for line in heading_lines] + [f'  {last_line}:']
-        # counts are left-aligned, so that each starts at its level
-        lines += [f'    {" " * (len(text) - len(text.lstrip(" ")))}{count:<{width}}  {text.lstrip(" ")}'
-                  for count, text in entries]
-    lines += [f'  note: {note}' for note in notes]
+    for header, count, detail, entries, extra in steps:
+        width = max((len(str(n)) for _, n, _, _ in entries), default=1)
+        lines.append(header + (f': {count}' if count is not None else ':') + (f' ({detail})' if detail else ''))
+        lines += [f'  {"    " * level}{sign} {n:>{width}}  {text}' for sign, n, text, level in entries]
+        lines += [f'  {line}' for line in extra]
+    lines += [f'note: {note}' for note in notes]
     return '\n'.join(lines)
 
 
@@ -193,8 +235,19 @@ class ImportStatistics(object):
     get an overview from."""
 
     def __init__(self) -> None:
+        self.gff_lines_read: int = 0  # every feature line of the GFF3 file
+        # lines of an SO type GeenuFF has no use for, e.g. region or intron, skipped silently, keyed by type
+        self.ignored_feature_types: defaultdict[str, int] = defaultdict(int)
+        self.gene_lines_read: int = 0
         self.total_super_loci: int = 0
-        self.coding_super_loci: int = 0  # with at least one transcript with CDS lines
+        # the genes at each step of the summary's funnel (see funnel_step); the exported ones are
+        # longest_transcripts. Genes whose transcripts were all left out on import are keyed by
+        # left_out_reason, coding genes not exported by orm.SuperLocus.excluded_from_export
+        self.empty_super_loci: int = 0
+        self.genes_left_out_on_import: defaultdict[str, int] = defaultdict(int)
+        self.non_coding_genes: int = 0
+        self.coding_genes_not_exported: defaultdict[str, int] = defaultdict(int)
+        self.coding_transcripts_imported: int = 0  # of the coding genes, exported or not
         self.total_transcripts: int = 0  # every transcript read, imported or dropped
         self.imported_transcripts: int = 0  # of the above, the ones stored in the database
         self.total_coding_transcripts: int = 0
@@ -207,17 +260,19 @@ class ImportStatistics(object):
         # the masks of the above, as ascending (lo, hi) ranges keyed by (sequence, is_plus_strand), each
         # masking only its own strand, and the bases of the genome's sequences on one strand
         self.mask_ranges: defaultdict[tuple, list[tuple[int, int]]] = defaultdict(list)
+        # the spans of the above, keyed the same way, for the share of exported gene bases masked
+        self.gene_spans: defaultdict[tuple, list[tuple[int, int]]] = defaultdict(list)
         self.genome_bases: int = 0
         # coding transcripts of exported genes other than the selected one, never exported
         self.unselected_coding_transcripts: int = 0
-        # coding transcripts and coding genes never exported, keyed by orm.SuperLocus.excluded_from_export
-        self.unexported_coding_transcripts: defaultdict[str, int] = defaultdict(int)
-        self.unexported_coding_genes: defaultdict[str, int] = defaultdict(int)
         # transcripts that CDS lines name, left out while grouping, keyed by the DROPPED_LINE_REASONS
         # key the first line of their chain was left out for, e.g. shared_id for a transcript whose
         # gene line shares its ID with another gene line
         self.coding_transcripts_dropped: defaultdict[str, int] = defaultdict(int)
-        self.empty_super_loci: int = 0  # a gene with no transcripts at all
+        # of those, the ones below a gene line left out, and the IDs of those genes, gene lines sharing
+        # one ID counting as one, keyed the same way
+        self.coding_transcripts_dropped_under_genes: defaultdict[str, int] = defaultdict(int)
+        self.coding_gene_ids_dropped: defaultdict[str, set[str]] = defaultdict(set)
         # genes inferred for a Parent ID of transcripts that names no line in the file, one per
         # such ID, shared by every transcript naming it
         self.genes_inferred_for_missing_parents: int = 0
@@ -246,7 +301,6 @@ class ImportStatistics(object):
         # duplicate a CDS line of the gene's transcripts
         self.gene_parented_cds_genes: int = 0
         self.gene_parented_cds_duplicates: int = 0
-        self.unstranded_super_loci: int = 0  # e.g. NCBI's '?' strand for trans-spliced genes
         # kept in full but never exported, counted per reason and keyed by the value stored in
         # orm.SuperLocus.excluded_from_export
         self.unexported_super_loci: defaultdict[str, int] = defaultdict(int)
@@ -272,128 +326,209 @@ class ImportStatistics(object):
         # keyed by types.Errors value, counted per transcript selected for export from the error
         # types detected, so an error masking nothing still shows up here (see docs/spec_vs_gff.md)
         self.errors: defaultdict[str, int] = defaultdict(int)
+        # the errors masking a transcript in full, counted over the transcripts masked in full
+        self.errors_masking_in_full: Counter[str] = Counter()
+        # the exported transcripts by their missing UTRs, 'none', '5p', '3p' or 'both'; the same for
+        # the ones giving labels, with the missing UTRs whose flank mask came out empty and those
+        # also with the overhang of an overlapping gene dropped in their favor masked
+        self.utrs_missing: Counter[str] = Counter()
+        self.labeled_utrs: Counter[str] = Counter()
+        self.labeled_empty_utr_flanks: Counter[str] = Counter()
+        self.labeled_with_overhang: int = 0
         self.unrecognized_feature_types: defaultdict[str, int] = defaultdict(int)  # keyed by the raw, unknown GFF type
 
-    def _dropped_lines_entry(self, reason: str, text: str) -> tuple[int, str]:
-        """One summary entry for the lines left out for one reason: their total, with the GFF
-        types in brackets rather than the same sentence once per type, the lines below them left
-        out with them, and what was lost, coding transcripts being potential training data."""
-        def per_type(counts):
-            return ', '.join(f'{name} {n}' for name, n in sorted(counts.items()))
+    def add_exported(self, errors: set[str], outcome: str, key: tuple, span: tuple[int, int],
+                     masks: list[tuple[int, int]]) -> None:
+        """Counts one exported transcript: its error types and EXPORTED_OUTCOMES key, its missing
+        UTRs and, where it gives labels, whether their flanks were masked; key is (sequence,
+        is_plus_strand), span and masks are its ascending, half-open (lo, hi) ranges."""
+        self.longest_transcripts += 1
+        self.longest_error_free_transcripts += not errors
+        for error_type in errors:
+            self.errors[error_type] += 1
+        self.exported_outcomes[outcome] += 1
+        self.mask_ranges[key] += masks
+        self.gene_spans[key].append(span)
+        missing = [side for side, error_type in (('5p', types.MISSING_UTR_5P), ('3p', types.MISSING_UTR_3P))
+                   if error_type in errors]
+        utrs = 'both' if len(missing) == 2 else missing[0] if missing else 'none'
+        self.utrs_missing[utrs] += 1
+        if outcome in MASKED_IN_FULL_OUTCOMES:
+            self.errors_masking_in_full.update(errors - NOT_MASKING_IN_FULL)
+            return
+        self.labeled_utrs[utrs] += 1
+        self.labeled_with_overhang += types.SL_OVERLAP_ERROR in errors
+        self.labeled_empty_utr_flanks[utrs] += sum(not flank_masked(side, span, masks, key[1]) for side in missing)
 
+    @staticmethod
+    def _per_type(counts: dict[str, int], n_shown: int = 5) -> str:
+        """'type n, type n, ... and k more types', the most frequent first."""
+        top = sorted(counts.items(), key=lambda item: -item[1])
+        more = len(top) - n_shown
+        return ', '.join(f'{name} {n}' for name, n in top[:n_shown]) + (f' and {more} more types' if more > 0 else '')
+
+    def _dropped_lines_entry(self, reason: str, prefix: str = '', show_types: bool = True) -> tuple[int, str]:
+        """One summary entry for the lines left out for one reason: their total and why, the GFF
+        types (given show_types) and the lines below them left out with them in brackets, and the
+        coding transcripts lost, being potential training data, where there are any."""
         counts, below = self.dropped_lines[reason], self.dropped_lines_below.get(reason)
-        text += f' ({per_type(counts)})'
+        details = [self._per_type(counts)] if show_types else []
         if below:
-            text += f', taking {sum(below.values())} lines below them with them ({per_type(below)})'
+            details.append(f'with {plural(sum(below.values()), "line")} below them: {self._per_type(below)}')
         if reason == 'gene_parented_cds':
-            genes = self.gene_parented_cds_genes
-            text += (f', from {genes} gene{"s" if genes != 1 else ""}, '
-                     f'{self.gene_parented_cds_duplicates} of them duplicating a CDS line of the '
-                     f'gene\'s transcripts, the rest perhaps an isoform without a transcript line; '
-                     f'not imported, the gene\'s own transcripts are')
-        elif reason in DROPPED_LINE_IMPACTS:
-            text += f'; {DROPPED_LINE_IMPACTS[reason]}'
-        else:
-            text += f'; coding transcripts lost: {self.coding_transcripts_dropped.get(reason, 0)}'
+            details.append(f'on {plural(self.gene_parented_cds_genes, "gene")}, {self.gene_parented_cds_duplicates} '
+                           f'of them duplicating a CDS line of a transcript of their gene')
+        text = prefix + DROPPED_LINE_REASONS[reason] + (f' ({"; ".join(details)})' if details else '')
+        lost = self.coding_transcripts_dropped.get(reason, 0)
+        under_genes = self.coding_transcripts_dropped_under_genes.get(reason, 0)
+        gene_ids = plural(len(self.coding_gene_ids_dropped.get(reason, ())), 'gene ID')
+        if lost:
+            text += f', {plural(lost, "coding transcript")} lost'
+        if under_genes:
+            text += f', from {gene_ids}' if under_genes == lost else f', {under_genes} of them from {gene_ids}'
         return sum(counts.values()), text
 
     def log_summary(self, species: str) -> None:
-        """Logs one summary of the import (see format_summary)."""
-        logger.info(format_summary(f'import summary for "{species}"', self.summary_sections(),
+        """Logs one summary of the import (see format_summary), and at DEBUG level the complete
+        lists of the GFF types skipped, of which the summary names the most frequent only."""
+        for label, counts in (('SO types GeenuFF does not use', self.ignored_feature_types),
+                              ('unknown types', self.unrecognized_feature_types)):
+            if counts:
+                logger.debug(f'GFF lines skipped, {label}: {self._per_type(counts, len(counts))}')
+        logger.info(format_summary(f'import summary for "{species}"', self.summary_steps(),
                                    self.summary_notes()))
 
-    def summary_sections(self, reading_counts: bool = True) -> list[tuple[str, list[tuple[int, str]], bool]]:
-        """The sections of the import summary (see format_summary). reading_counts is False where
-        the counts that only exist while the GFF3 is read are unknown, as for a summary rebuilt from
-        the database; such a count of 0 is then left out even where 0s are shown."""
-        masked_in_full = sum(self.exported_outcomes[outcome] for outcome in MASKED_IN_FULL_OUTCOMES)
-        # overlapping masks of exported genes on one strand count once
-        n_masked_bases = sum(hi - lo for ranges in self.mask_ranges.values()
-                             for lo, hi in GFFErrorHandling._merge_ranges(ranges))
-        both_strands = 2 * self.genome_bases
-        # every coding gene imported is exported with one transcript or not exported, by reason
-        n_coding_genes = self.longest_transcripts + sum(self.unexported_coding_genes.values())
-        n_unexported_transcripts = (self.unselected_coding_transcripts
-                                    + sum(self.unexported_coding_transcripts.values()))
-        sections = []
-        if self.unrecognized_feature_types:
-            sections.append(('GFF lines skipped for a feature type GeenuFF has no use for',
-                             [(count, feature_type) for feature_type, count
-                              in sorted(self.unrecognized_feature_types.items())], False))
-        if self.dropped_lines:
-            sections.append(('GFF lines left out while grouping lines into genes by ID and Parent, '
-                             'and what was lost through them',
-                             [self._dropped_lines_entry(reason, text)
-                              for reason, text in DROPPED_LINE_REASONS.items()
-                              if reason in self.dropped_lines], False))
-        sections += [
-            ('genes', [
-                (self.total_super_loci, 'genes imported'),
-                (self.genes_inferred_for_missing_parents, '  of them created for transcripts naming a '
-                                                          'Parent ID that matches no line'),
-                (self.floating_cds_genes, '  of them created to mask CDS lines naming no parent or a '
-                                          'parent that matches no line'),
-                (self.empty_super_loci, '  of them with no transcript under them'),
-                (self.unstranded_super_loci, "  of them on neither strand, e.g. '.' or NCBI's '?'"),
-            ], False),
-            ('transcripts', [
-                (self.total_transcripts, 'transcripts, all isoforms'),
-                (self.imported_transcripts, '  of them imported'),
-                (self.floating_cds_transcripts, '    of those, created to mask CDS lines without a '
-                                                'transcript line'),
-                (self.transcripts_with_exons_built, '    of those, with exons built from their CDS and UTR '
-                                                    'lines, having no exon lines'),
-                (self.stop_codons_recovered, '    of those, with the stop codon after their CDS added to '
-                                             'it, the CDS missing only that, as in GFF3 converted from GTF '
-                                             '(GTF itself is not read)'),
-                (self.stop_codons_recovered_past_exons, '      of those, with the stop codon past the end '
-                                                        'of their exons, the last exon and the transcript '
-                                                        'extended to hold it; worth checking in the GFF3'),
-                (self.longest_transcripts + n_unexported_transcripts, '  of them coding, exported or not '
-                                                                      '(see the training data section)'),
-                (self.unstorable_transcripts_dropped, '  of them dropped, no line of theirs having a '
-                                                      'storable range'),
-                (self.transcripts_outside_sequence_dropped, '  of them dropped, a line of theirs '
-                                                            'starting before or ending past their sequence '
-                                                            'and no CDS line on it'),
-                (self.unstranded_transcripts_dropped, '  of them dropped with their gene, which is on '
-                                                      'neither strand'),
-            ], False),
-            ('TRAINING DATA, what Helixer gets from each coding gene', [
-                (n_coding_genes, 'coding genes imported'),
-                (self.longest_transcripts, '  exported, each with its longest coding transcript:'),
-            ] + [(self.exported_outcomes[outcome], text) for outcome, text in EXPORTED_OUTCOMES.items()
-                 if outcome not in MASKED_IN_FULL_OUTCOMES] + [
-                (masked_in_full, '    masked in full, giving no labels:'),
-            ] + [(self.exported_outcomes[outcome], EXPORTED_OUTCOMES[outcome])
-                 for outcome in MASKED_IN_FULL_OUTCOMES] + [
-                (self.unexported_coding_genes.get(types.OVERLAP_DROPPED, 0),
-                 f'  not exported, dropped in favor of an overlapping gene; '
-                 f'{self.overlap_loci_dropped_labeled} of them would have been labeled in full had they '
-                 f'not overlapped'),
-            ] + [(count, f'  not exported, {UNEXPORTED_REASONS[reason]}')
-                 for reason, count in sorted(self.unexported_coding_genes.items())
-                 if reason != types.OVERLAP_DROPPED] + [
-                (n_unexported_transcripts, 'coding transcripts not exported'),
-                (self.unselected_coding_transcripts, '  further isoforms of exported genes'),
-                (sum(self.unexported_coding_transcripts.values()), '  isoforms of genes not exported'),
-                (n_masked_bases, f'bases masked, of the genome\'s {both_strands} on both strands '
-                                 f'({100 * n_masked_bases / both_strands if both_strands else 0:.2f}%), each '
-                                 f'mask only on the strand of its gene; Helixer gets no labels there'),
+    @staticmethod
+    def _error_lines(heading: str, errors: Counter[str]) -> list[str]:
+        """A heading and below it the error types, the most frequent first."""
+        if not errors:
+            return []
+        width = len(str(max(errors.values())))
+        return [heading] + [f'  {n:>{width}}  {error_type}' for error_type, n in errors.most_common()]
+
+    def summary_steps(self, reading_counts: bool = True
+                      ) -> list[tuple[str, int | None, str, list[tuple[str, int, str, int]], list[str]]]:
+        """The steps of the import summary's gene funnel (see format_summary), from the GFF lines
+        down to the genes giving labels; each step's count less what is subtracted below it is the
+        next step's count. reading_counts is False where the counts that only exist while the GFF3
+        is read are unknown, as for a summary rebuilt from the database: the GFF line steps are left
+        out then."""
+        steps = []
+        if reading_counts:
+            n_dropped = sum(sum(c.values()) for c in self.dropped_lines.values())
+            n_dropped += sum(sum(c.values()) for c in self.dropped_lines_below.values())
+            reasons = [reason for reason in DROPPED_LINE_REASONS if reason in self.dropped_lines]
+            # a reason that left out gene lines alone is given once, under the gene lines, with what
+            # was left out below them and the coding transcripts lost through them
+            gene_only = [reason for reason in reasons if set(self.dropped_lines[reason]) <= GENE_TYPES]
+            n_coding_lost = sum(n for reason, n in self.coding_transcripts_dropped.items() if reason not in gene_only)
+            n_under_genes = sum(sum(self.dropped_lines[reason].values())
+                                + sum(self.dropped_lines_below.get(reason, {}).values()) for reason in gene_only)
+            dropped_text = 'left out while grouping lines into genes by ID and Parent'
+            if n_under_genes:
+                dropped_text += f', {n_under_genes} of them gene lines and the lines below them (see {GFF_GENE_LINES})'
+            if n_coding_lost:
+                dropped_text += f', {plural(n_coding_lost, "coding transcript")} lost'
+            steps.append((GFF_LINES, self.gff_lines_read, '', [
+                ('-', sum(self.ignored_feature_types.values()),
+                 f'skipped, SO types GeenuFF does not use ({self._per_type(self.ignored_feature_types)})', 0),
+                ('-', sum(self.unrecognized_feature_types.values()),
+                 f'skipped, unknown types ({self._per_type(self.unrecognized_feature_types)})', 0),
+                ('-', n_dropped, dropped_text, 0),
+            ] + [(' ', *self._dropped_lines_entry(reason), 1) for reason in reasons if reason not in gene_only],
+                          []))
+            steps.append((GFF_GENE_LINES, self.gene_lines_read, '', [
+                ('-', *self._dropped_lines_entry(reason, prefix='left out, ', show_types=False), 0)
+                if reason in gene_only else
+                ('-', sum(n for gff_type, n in self.dropped_lines[reason].items() if gff_type in GENE_TYPES),
+                 f'left out, {DROPPED_LINE_REASONS[reason]} (see {GFF_LINES})', 0)
+                for reason in reasons
             ] + [
-                (sum(self.coding_transcripts_dropped.values()), 'coding transcripts lost while grouping GFF '
-                                                                'lines, never imported (see the GFF lines '
-                                                                'section)'),
-            ] * reading_counts, True),
-        ]
-        # what the overlap masks cost is reported in the training data section instead
-        errors = [(count, error_type) for error_type, count in sorted(self.errors.items())
-                  if error_type != types.SL_OVERLAP_ERROR]
-        if errors:
-            sections.append(('errors of the exported transcripts, which make up their masks above\n'
-                             '(each type counted once per transcript, a transcript possibly having several)',
-                             errors, False))
-        return sections
+                ('+', self.genes_inferred_for_missing_parents,
+                 'created for transcripts naming a Parent that matches no line', 0),
+                ('+', self.floating_cds_genes, 'created to mask CDS lines without a transcript line', 0),
+            ], []))
+
+        n_with_transcripts = (self.total_super_loci - self.empty_super_loci
+                              - sum(self.genes_left_out_on_import.values()))
+        n_exported = self.longest_transcripts
+        n_transcripts_left_out = self.total_transcripts - self.imported_transcripts
+        steps.append((GENES_IMPORTED, self.total_super_loci, '', [
+            ('-', self.empty_super_loci, 'without a transcript under them', 0),
+        ] + [('-', n, f'{LEFT_OUT_REASONS[reason]}: all their transcripts left out', 0)
+             for reason, n in sorted(self.genes_left_out_on_import.items())], []))
+
+        transcripts_detail = plural(self.imported_transcripts, 'transcript')
+        if n_transcripts_left_out:
+            transcripts_detail += f', {n_transcripts_left_out} more left out on import'
+        steps.append((GENES_WITH_TRANSCRIPTS, n_with_transcripts, transcripts_detail,
+                      [('-', self.non_coding_genes, 'non-coding, no CDS line(s)', 0)], []))
+
+        coding_detail = [plural(self.coding_transcripts_imported, 'coding transcript')]
+        if self.transcripts_with_exons_built:
+            coding_detail.append(f'exons built from CDS and UTR lines for {self.transcripts_with_exons_built}')
+        if self.stop_codons_recovered:
+            past = self.stop_codons_recovered_past_exons
+            coding_detail.append(f'stop codon after the CDS added for {self.stop_codons_recovered}, typical GTF -> '
+                                 f'GFF3 conversion artifact' + (f', {past} of them past their exons' if past else ''))
+        not_exported = [('-', self.coding_genes_not_exported.get(types.OVERLAP_DROPPED, 0),
+                         f'not exported, dropped in favor of an overlapping gene '
+                         f'({self.overlap_loci_dropped_labeled} would have been labeled in full)', 0)]
+        not_exported += [('-', n, f'not exported, {UNEXPORTED_REASONS[reason]}', 0)
+                         for reason, n in sorted(self.coding_genes_not_exported.items())
+                         if reason != types.OVERLAP_DROPPED]
+        steps.append((CODING_GENES, n_with_transcripts - self.non_coding_genes, '; '.join(coding_detail),
+                      not_exported, []))
+
+        exported_detail = 'one transcript each, the longest coding one'
+        if self.unselected_coding_transcripts:
+            exported_detail += (f'; {plural(self.unselected_coding_transcripts, "further coding isoform")} '
+                                f'not exported')
+        utrs = self.utrs_missing
+        utr_lines = [(utrs['none'], 'both UTRs annotated'), (utrs['5p'], "only the 5' UTR missing"),
+                     (utrs['3p'], "only the 3' UTR missing"), (utrs['both'], 'both UTRs missing')]
+        utr_width = len(str(max(n for n, _ in utr_lines)))
+        utr_block = [f"UTRs of these, each gene in one line (5' UTR missing in "
+                     f"{self.errors.get(types.MISSING_UTR_5P, 0)}, 3' UTR missing in "
+                     f"{self.errors.get(types.MISSING_UTR_3P, 0)}; can overlap with other "
+                     f"errors):"] * bool(n_exported) + [f'  {n:>{utr_width}}  {text}' for n, text in utr_lines if n]
+        n_wrong_phase = self.errors.get(types.WRONG_PHASE_5P, 0)
+        steps.append((EXPORTED_CODING_GENES, n_exported, exported_detail,
+                      [('-', self.exported_outcomes[outcome], EXPORTED_OUTCOMES[outcome], 0)
+                       for outcome in MASKED_IN_FULL_OUTCOMES],
+                      self._error_lines('errors masking them in full, each type counted once per transcript '
+                                        '(can overlap):',
+                                        self.errors_masking_in_full)
+                      + utr_block
+                      + [f'first CDS phase in the file not 0, masking nothing: {n_wrong_phase}'] * bool(n_wrong_phase)))
+
+        # overlapping masks, and the spans of overlapping exported genes, on one strand count once
+        merged_masks = {key: GFFErrorHandling._merge_ranges(ranges) for key, ranges in self.mask_ranges.items()}
+        merged_spans = {key: GFFErrorHandling._merge_ranges(ranges) for key, ranges in self.gene_spans.items()}
+        n_masked_bases = sum(hi - lo for ranges in merged_masks.values() for lo, hi in ranges)
+        n_gene_bases = sum(hi - lo for ranges in merged_spans.values() for lo, hi in ranges)
+        n_masked_gene_bases = sum(overlap_length(spans, merged_masks.get(key, []))
+                                  for key, spans in merged_spans.items())
+        both_strands = 2 * self.genome_bases
+        n_labeled = n_exported - sum(self.exported_outcomes[outcome] for outcome in MASKED_IN_FULL_OUTCOMES)
+        labeled, empty = self.labeled_utrs, self.labeled_empty_utr_flanks
+        n_one_empty = empty['5p'] + empty['3p']
+        one_detail = f"{labeled['5p']} 5', {labeled['3p']} 3'" + (f'; {n_one_empty} of these masks empty, no room '
+                                                                  f'beside the gene' if n_one_empty else '')
+        both_detail = f' ({empty["both"]} of these masks empty, no room beside the gene)' if empty['both'] else ''
+        steps.append((GENES_GIVING_LABELS, n_labeled, 'each labeled in full, masks only beside it', [
+            (' ', labeled['none'], 'labeled in full, no UTR flank masked', 0),
+            (' ', labeled['both'], f'the flanks of both UTRs masked beside the gene{both_detail}', 0),
+            (' ', labeled['5p'] + labeled['3p'], f'the flank of one UTR masked beside the gene ({one_detail})', 0),
+        ], [f'{self.labeled_with_overhang} of them also with the overhang of an overlapping gene dropped in their '
+            f'favor masked beside them'] * bool(self.labeled_with_overhang)
+                      + [f'{n_masked_bases} of the genome\'s {both_strands} bases on both strands masked '
+                         f'({100 * n_masked_bases / both_strands if both_strands else 0:.2f}%), each mask on its '
+                         f'gene\'s strand only; Helixer gets no labels there',
+                         f'{n_masked_gene_bases} of the {n_gene_bases} bases of the exported genes masked '
+                         f'({100 * n_masked_gene_bases / n_gene_bases if n_gene_bases else 0:.2f}%), union of '
+                         f'overlapping genes spans used']))
+        return steps
 
     def summary_notes(self) -> list[str]:
         """Explanations for the parts of the summary above that a count alone does not convey."""
@@ -401,17 +536,12 @@ class ImportStatistics(object):
                          + self.overlap_pairs_nested + self.overlap_pairs_in_chains)
         notes = []
         if overlap_pairs:
-            notes.append(f'{overlap_pairs} pairs of exported genes overlap on the same strand, '
-                         f'{self.overlap_pairs_resolved} of them settled by not exporting one of the two, '
-                         f'the rest left unresolved, both genes masked in full (see docs/overlap_masking.md)')
+            notes.append(f'{overlap_pairs} pairs of exported genes overlap on one strand: '
+                         f'{self.overlap_pairs_resolved} settled by dropping one gene, the rest masked in full '
+                         f'(docs/overlap_masking.md)')
         if self.errors:
-            notes.append('errors are counted as found, so one whose masked range came out empty, such as '
-                         'a missing UTR with no room to mask it in, still counts (see docs/spec_vs_gff.md)')
-        if self.overlap_pairs_recorded:
-            notes.append(f'the super_locus_overlap table separately records {self.overlap_pairs_recorded} '
-                         f'pairs over {self.super_loci_in_overlap_pairs} coding genes, counting every '
-                         f'coding transcript a gene has rather than only the exported one; it masks '
-                         f'nothing and is there for consumers other than Helixer')
+            notes.append('errors count as found, also where their mask came out empty, e.g. a missing UTR '
+                         'without room beside the gene')
         return notes
 
 
@@ -594,9 +724,6 @@ class OrganizedGeenuffImporterGroup(object):
         sl = entries['super_locus']
         stats = self.controller.stats
         stats.total_super_loci += 1
-        stats.empty_super_loci += not entries['transcripts']
-        if any(t_entries['cds'] for t_entries in entries['transcripts'].values()):
-            stats.coding_super_loci += 1
         try:
             sl_is_plus_strand = get_strand_direction(sl)
         except ValueError:
@@ -606,7 +733,6 @@ class OrganizedGeenuffImporterGroup(object):
             # therefore stays False for everything here, which keeps it out of every
             # longest-only-filtered export query (see GeenuffExportController._genome_query)
             # without needing a dedicated error/mask type, i.e. left alone entirely
-            stats.unstranded_super_loci += 1
             logger.debug(f"super locus '{sl.get_ID()}' has strand '{sl.strand}' (not '+' "
                          f"or '-'), most likely a trans-spliced gene; saving it without "
                          f"any transcripts so it is never exported or masked")
@@ -984,6 +1110,7 @@ class OrganizedGFFEntries(object):
                 pieces.append((entry, PIECE_KEYS[entry.type]))
             else:
                 logger.debug(f'ignoring {entry.type} at {entry.seqid}:{entry.start}-{entry.end}')
+        self.stats.gene_lines_read += len(genes)
 
         # {ID of a gene or transcript line left out: the reason the first line of its chain was left
         # out for}, so that the lines below it go too, and what they lose is put down to that reason
@@ -1062,7 +1189,7 @@ class OrganizedGFFEntries(object):
                 self._drop(line, 'no_id')
             elif counts[line_id] > 1:
                 self._drop(line, 'shared_id')
-                dropped_ids[line_id] = 'shared_id'
+                dropped_ids[line_id] = ('shared_id', line_id if line.type in GENE_TYPES else None)
             else:
                 by_id[line_id] = line
         return by_id
@@ -1078,10 +1205,16 @@ class OrganizedGFFEntries(object):
         """
         parentless = [t_id for t_id, t in transcripts_by_id.items() if not t.get_Parent()]
         if parentless:
+            # where they lie tells a few strays, e.g. on an organelle sequence, from a whole file without gene lines
+            by_seqid = Counter(transcripts_by_id[t_id].seqid for t_id in parentless).most_common()
+            on = ', '.join(f'{seqid}: {n}' for seqid, n in by_seqid[:3]) + (', ...' if len(by_seqid) > 3 else '')
+            share = len(parentless) / len(transcripts_by_id)
             raise MissingGeneLines(
-                f'{len(parentless)} of {len(transcripts_by_id)} transcript lines name no Parent gene or '
-                f'"Parent=" attribute, e.g. {", ".join(parentless[:3])}, as gene predictors such as AUGUSTUS, '
-                f'BRAKER and Tiberius write them without gene lines. Add the gene lines with '
+                f'{len(parentless)} of {len(transcripts_by_id)} transcript lines '
+                f'({f"{share:.1%}" if share >= 0.001 else "<0.1%"}) name no Parent gene or "Parent=" attribute, on '
+                f'{len(by_seqid)} sequence{"s" if len(by_seqid) > 1 else ""} ({on}), e.g. '
+                f'{", ".join(parentless[:3])}, as gene predictors such as '
+                f'AUGUSTUS, BRAKER and Tiberius write them without gene lines. Add the gene lines with '
                 f'add_gene_lines.py and import the GFF3 file it writes.')
         named_missing_parent = defaultdict(list)
         for t_id, t in transcripts_by_id.items():
@@ -1091,7 +1224,7 @@ class OrganizedGFFEntries(object):
             elif len(parents) > 1:
                 reason = 'several_genes'
             elif parents[0] in dropped_ids:
-                self._drop_below(t, dropped_ids[parents[0]])
+                self._drop_below(t, dropped_ids[parents[0]][0])
                 dropped_ids[t_id] = dropped_ids[parents[0]]
                 continue
             elif parents[0] in transcripts_by_id:
@@ -1103,13 +1236,13 @@ class OrganizedGFFEntries(object):
                 groups[parents[0]]['transcripts'][t] = self._new_t_entries()
             else:
                 self._drop(t, reason)
-                dropped_ids[t_id] = reason
+                dropped_ids[t_id] = (reason, None)
 
         for parent_id, members in named_missing_parent.items():
             if len({(t.seqid, t.strand) for t in members}) > 1:
                 for t in members:
                     self._drop(t, 'missing_parent_unplaceable')
-                    dropped_ids[t.get_ID()] = 'missing_parent_unplaceable'
+                    dropped_ids[t.get_ID()] = ('missing_parent_unplaceable', None)
                 continue
             groups[parent_id] = {'super_locus': self._inferred_gene(parent_id, members),
                                  'transcripts': {t: self._new_t_entries() for t in members}}
@@ -1130,7 +1263,8 @@ class OrganizedGFFEntries(object):
         transcripts = {t.get_ID(): (t, t_entries) for group in groups.values()
                        for t, t_entries in group['transcripts'].items()}
         gene_parented, floating = [], defaultdict(list)
-        # {ID of a left out line that CDS lines name: the reason its chain was left out for}
+        # {ID of a left out line that CDS lines name: (the reason its chain was left out for, the
+        # gene ID the chain starts from, or None where it starts from a transcript line)}
         coding_dropped = {}
         for piece, key in pieces:
             parents = piece.get_Parent() or []
@@ -1153,15 +1287,18 @@ class OrganizedGFFEntries(object):
                     else:
                         gene_parented.append((piece, key, parent_id))
                 elif parent_id in dropped_ids:
-                    self._drop_below(piece, dropped_ids[parent_id])
+                    self._drop_below(piece, dropped_ids[parent_id][0])
                     if key == 'cds':
                         coding_dropped[parent_id] = dropped_ids[parent_id]
                 elif key == 'cds':
                     floating[('unknown_parent', parent_id)].append(piece)
                 else:
                     self._drop(piece, 'unknown_parent')
-        for reason in coding_dropped.values():
+        for reason, gene_id in coding_dropped.values():
             self.stats.coding_transcripts_dropped[reason] += 1
+            if gene_id is not None:
+                self.stats.coding_gene_ids_dropped[reason].add(gene_id)
+                self.stats.coding_transcripts_dropped_under_genes[reason] += 1
 
         # judged only once every transcript line is placed, so the order of lines does not matter
         genes_with_cds = set()
@@ -1209,11 +1346,14 @@ class OrganizedGFFEntries(object):
     def _useful_gff_entries(self):
         reader = self._gff_gen()
         for entry in reader:
-            if entry.type not in IGNORABLE_TYPES:
+            if entry.type in IGNORABLE_TYPES:
+                self.stats.ignored_feature_types[entry.type] += 1
+            else:
                 yield entry
 
     def _gff_gen(self):
         for line in helpers.gff_feature_lines(self.gff_file):
+            self.stats.gff_lines_read += 1
             entry = gffhelper.GFFObject(gffline=line)
             if entry.type not in KNOWN_TYPES:
                 # an unrecognized Sequence Ontology term shouldn't take down the whole
@@ -1860,35 +2000,37 @@ class ImportController(object):
             for group in plus + minus + unstranded:
                 # an unexported locus was never checked for errors either, so counting its
                 # transcript here would report a gene nothing was ever looked at as error-free
-                reason = group['super_locus'].excluded_from_export
+                sl = group['super_locus']
+                reason = sl.excluded_from_export
                 coding = [t for t in group['transcripts'] if 'cds' in t]
+                step = funnel_step(len(group['transcripts']), sl.n_dropped_transcripts, len(coding), reason)
+                if step == EMPTY:
+                    self.stats.empty_super_loci += 1
+                elif step == LEFT_OUT:
+                    self.stats.genes_left_out_on_import[left_out_reason(reason)] += 1
+                elif step == NON_CODING:
+                    self.stats.non_coding_genes += 1
+                else:
+                    self.stats.coding_transcripts_imported += len(coding)
                 if reason is not None:
-                    # its coding transcripts left out of the database count as well
-                    n_coding = len(coding) + group['super_locus'].n_dropped_coding_transcripts
                     self.stats.unexported_super_loci[reason] += 1
-                    self.stats.unexported_coding_transcripts[reason] += n_coding
-                    self.stats.unexported_coding_genes[reason] += bool(n_coding)
+                    if step == NOT_EXPORTED:
+                        self.stats.coding_genes_not_exported[reason] += 1
                     continue
                 for transcript in coding:
                     if not transcript['transcript'].longest:
                         self.stats.unselected_coding_transcripts += 1
                         continue
-                    self.stats.longest_transcripts += 1
-                    errors = transcript['detected_error_types']
-                    if not errors:
-                        self.stats.longest_error_free_transcripts += 1
                     # counted from the error types detected, not from what ended up masked: an
                     # error whose range comes out empty (e.g. a missing UTR of a gene nested in
                     # another, which has no unclaimed sequence to extend the mask into) is still a
                     # real finding about the transcript. Each type is counted once per transcript
-                    for error_type in errors:
-                        self.stats.errors[error_type] += 1
-                    self.stats.exported_outcomes[exported_outcome(
-                        errors, transcript['transcript_feature'], transcript['masks'],
-                        group.get('unresolved_overlap') == 'nested')] += 1
-                    for mask in transcript['masks']:
-                        self.stats.mask_ranges[(mask.coord.seqid, mask.is_plus_strand)].append(
-                            ascending_range(mask.start, mask.end, mask.is_plus_strand))
+                    errors, tf = transcript['detected_error_types'], transcript['transcript_feature']
+                    self.stats.add_exported(
+                        errors, exported_outcome(errors, tf, transcript['masks'],
+                                                 group.get('unresolved_overlap') == 'nested'),
+                        (tf.coord.seqid, tf.is_plus_strand), ascending_range(tf.start, tf.end, tf.is_plus_strand),
+                        [ascending_range(m.start, m.end, m.is_plus_strand) for m in transcript['masks']])
             # insert importers
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)
