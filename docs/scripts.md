@@ -212,24 +212,24 @@ itself, nothing needs adding and no file is written.
 
 ## add_transcript_lines.py
 
-Adds a transcript line for genes without one whose exon, CDS and UTR lines name the gene itself as
-`Parent`, as in some MAKER files. GeenuFF masks CDS lines without a transcript
-line (`floating_cds`) rather than guess a gene model from them, so such a file gives no training
-data. Each such gene gets an `mRNA` line spanning it, written after the gene line with the ID
-`<gene ID>_mRNA`, which the gene's exon, CDS and UTR lines get as `Parent` in place of the gene:
+Puts exon, CDS and UTR lines that name the gene itself as `Parent` under a transcript of that gene.
+GeenuFF masks CDS lines without a transcript line (`floating_cds`) rather than guess a gene model
+from them, and leaves out those of a gene with transcripts, which then count as non-coding: such a
+file gives little or no training data. Two cases are handled, the gene's lines getting the
+transcript as `Parent` in place of the gene:
 
-| before                             | after                                     |
-|------------------------------------|-------------------------------------------|
-| `gene ID=g1`                       | `gene ID=g1`                              |
-|                                    | `mRNA ID=g1_mRNA;Parent=g1`               |
-| `CDS ID=g1:CDS:1;Parent=g1`        | `CDS ID=g1:CDS:1;Parent=g1_mRNA`          |
+| case                                               | e.g.                                                   | transcript                                                    |
+|----------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------------|
+| the gene has no transcript line (some MAKER files) | `CDS ID=g1:CDS:1;Parent=g1`                            | a new `mRNA ID=g1_mRNA;Parent=g1` spanning the gene, after it |
+| the gene's only transcript has no lines of its own | `mRNA ID=g1.1;Parent=g1`, `CDS ID=g1.1.CDS1;Parent=g1` | that transcript, `g1.1`                                       |
 
-Genes with transcript lines stay as they are. The log warns where a gene has overlapping exon or
-CDS lines, a sign of several isoforms written as one gene, which GeenuFF masks. Where no gene
-lacks a transcript line, nothing needs adding and no file is written.  
-This should only be used on files where each gene parented feature belongs to one isoform only, as
-multi-isoform features all parented to one gene can not be sorted into the correct isoform reliably
-(automatically).
+Genes with several transcripts, or one with lines of its own, stay as they are; the import summary
+counts the non-coding genes with CDS lines naming them. The log warns where a gene has overlapping
+exon or CDS lines, a sign of several isoforms written as one gene, which GeenuFF masks. Where no
+line needs moving, no file is written.  
+This should in general only be used on files where each gene parented feature belongs to one isoform
+only, as multi-isoform features all parented to one gene can not be sorted into the correct isoform
+reliably (automatically); which is why genes with several transcripts are left as they are.
 
 ## rebuild_exons.py
 

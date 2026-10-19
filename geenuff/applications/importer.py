@@ -183,7 +183,8 @@ READING_ONLY_STEPS = SUMMARY_STEPS[:2]
 # training data and names the scripts preparing a GFF3 file for import
 LOW_TRAINING_DATA_SHARE = 0.1
 PREPARING_SCRIPTS = ('add_gene_lines.py for transcripts without a gene or naming themselves as Parent',
-                     'add_transcript_lines.py for genes whose exon and CDS lines name the gene itself',
+                     'add_transcript_lines.py for genes whose exon and CDS lines name the gene itself '
+                     '(only use on single isoform files!)',
                      'rebuild_exons.py for files listing exon lines for the UTRs only',
                      'rename_gff_seqids.py for GFF3 sequence IDs differing from the FASTA ones')
 # why all transcripts of a gene were left out on import, keyed as in left_out_reason
@@ -256,6 +257,8 @@ class ImportStatistics(object):
         self.empty_super_loci: int = 0
         self.genes_left_out_on_import: defaultdict[str, int] = defaultdict(int)
         self.non_coding_genes: int = 0
+        # of those, the ones with CDS lines naming the gene, left out as gene_parented_cds
+        self.non_coding_genes_with_gene_parented_cds: int = 0
         self.coding_genes_not_exported: defaultdict[str, int] = defaultdict(int)
         self.coding_transcripts_imported: int = 0  # of the coding genes, exported or not
         self.total_transcripts: int = 0  # every transcript read, imported or dropped
@@ -310,9 +313,9 @@ class ImportStatistics(object):
         # was left out for
         self.dropped_lines: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
         self.dropped_lines_below: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
-        # genes with CDS lines naming them that have transcripts, and how many of those CDS lines
-        # duplicate a CDS line of the gene's transcripts
-        self.gene_parented_cds_genes: int = 0
+        # the IDs of genes with CDS lines naming them that have transcripts, and how many of those CDS
+        # lines duplicate a CDS line of the gene's transcripts
+        self.gene_parented_cds_genes: set[str] = set()
         self.gene_parented_cds_duplicates: int = 0
         # kept in full but never exported, counted per reason and keyed by the value stored in
         # orm.SuperLocus.excluded_from_export
@@ -391,8 +394,9 @@ class ImportStatistics(object):
         if below:
             details.append(f'with {plural(sum(below.values()), "line")} below them: {self._per_type(below)}')
         if reason == 'gene_parented_cds':
-            details.append(f'on {plural(self.gene_parented_cds_genes, "gene")}, {self.gene_parented_cds_duplicates} '
-                           f'of them duplicating a CDS line of a transcript of their gene')
+            details.append(f'on {plural(len(self.gene_parented_cds_genes), "gene")}, '
+                           f'{self.gene_parented_cds_duplicates} of them duplicating a CDS line of a transcript of '
+                           f'their gene')
         text = prefix + DROPPED_LINE_REASONS[reason] + (f' ({"; ".join(details)})' if details else '')
         lost = self.coding_transcripts_dropped.get(reason, 0)
         under_genes = self.coding_transcripts_dropped_under_genes.get(reason, 0)
@@ -497,8 +501,12 @@ class ImportStatistics(object):
         transcripts_detail = plural(self.imported_transcripts, 'transcript')
         if n_transcripts_left_out:
             transcripts_detail += f', {n_transcripts_left_out} more left out on import'
+        non_coding_text = 'non-coding, no CDS line(s)'
+        if self.non_coding_genes_with_gene_parented_cds:
+            non_coding_text += (f', {self.non_coding_genes_with_gene_parented_cds} of them with CDS lines naming the '
+                                f'gene instead (use add_transcript_lines.py to fix)')
         steps.append((GENES_WITH_TRANSCRIPTS, n_with_transcripts, transcripts_detail,
-                      [('-', self.non_coding_genes, 'non-coding, no CDS line(s)', 0)], []))
+                      [('-', self.non_coding_genes, non_coding_text, 0)], []))
 
         coding_detail = [plural(self.coding_transcripts_imported, 'coding transcript')]
         if self.transcripts_with_exons_built:
@@ -1360,7 +1368,7 @@ class OrganizedGFFEntries(object):
                 self.stats.gene_parented_cds_duplicates += duplicate
             else:
                 self._drop(piece, 'gene_parented_duplicate' if duplicate else 'gene_parented')
-        self.stats.gene_parented_cds_genes += len(genes_with_cds)
+        self.stats.gene_parented_cds_genes |= genes_with_cds
         self._place_floating_cds(floating, groups)
 
     def _place_floating_cds(self, floating, groups):
@@ -2066,6 +2074,8 @@ class ImportController(object):
                     self.stats.genes_left_out_on_import[left_out_reason(reason)] += 1
                 elif step == NON_CODING:
                     self.stats.non_coding_genes += 1
+                    self.stats.non_coding_genes_with_gene_parented_cds += (sl.given_name
+                                                                           in self.stats.gene_parented_cds_genes)
                 else:
                     self.stats.coding_transcripts_imported += len(coding)
                 if reason is not None:

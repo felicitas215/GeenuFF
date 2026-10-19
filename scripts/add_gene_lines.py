@@ -181,7 +181,9 @@ def main(args: argparse.Namespace) -> None:
         logger.info('Every transcript with an ID has a Parent other than itself: nothing to add, no file written')
         return
     n_genes = write_with_genes(args.gff, args.out, gene_of, output_compression(args, args.gff))
-    logger.info(f'Wrote {n_genes} gene lines for {len(gene_of)} transcripts to "{args.out}"')
+    n_existing = sum(gene.has_line for gene in gene_of.values())
+    logger.info(f'Wrote "{args.out}": {n_genes} new gene lines for {len(gene_of) - n_existing} transcripts, and '
+                f'{n_existing} transcripts given the existing gene line of their gene ID as Parent')
 
 
 if __name__ == '__main__':

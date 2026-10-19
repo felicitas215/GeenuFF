@@ -1016,7 +1016,7 @@ def test_exon_and_cds_lines_naming_a_gene_are_left_out_not_glued_onto_a_transcri
                                               'gene_parented': {'exon': 2},
                                               'gene_parented_cds': {'CDS': 1}}
     # gene3's CDS line, counted per gene, duplicating no CDS line of its transcript
-    assert (controller.stats.gene_parented_cds_genes, controller.stats.gene_parented_cds_duplicates) == (1, 0)
+    assert (len(controller.stats.gene_parented_cds_genes), controller.stats.gene_parented_cds_duplicates) == (1, 0)
     found = {e.type.value for e in controller.session.query(TranscriptError)}
     assert types.OVERLAPPING_EXONS not in found
 
@@ -1548,7 +1548,7 @@ def test_lines_without_a_transcript_line_that_are_not_masked_are_left_out(cds_wi
         'unknown_parent': {'three_prime_UTR': 1, 'exon': 1},
         'floating_cds_unplaceable': {'CDS': 2},
     }
-    assert (stats.gene_parented_cds_genes, stats.gene_parented_cds_duplicates) == (1, 1)
+    assert (len(stats.gene_parented_cds_genes), stats.gene_parented_cds_duplicates) == (1, 1)
     gene_b = cds_without_transcript_controller.session.query(SuperLocus).filter_by(given_name='geneB').one()
     assert [t.given_name for t in gene_b.transcripts] == ['rnaB1']
 

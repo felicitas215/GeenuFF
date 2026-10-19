@@ -1,13 +1,15 @@
 #! /usr/bin/env python3
-"""Adds a transcript line for the genes of a GFF3 file that have none, their exon, CDS and UTR lines
-naming the gene itself as Parent, as in some MAKER files. GeenuFF masks CDS lines without a
-transcript line rather than guess a gene model from them. Each such gene gets an mRNA line spanning
-it, written after the gene line with the gene ID and _mRNA as its ID, which the gene's exon, CDS and
-UTR lines get as Parent in place of the gene. A gene with transcript lines is left as it is. The log
-warns where a gene has overlapping exon or CDS lines, a sign of several isoforms written as one
-gene, which GeenuFF masks.
-This should only be used on files where each gene parented feature belongs to one isoform only, as
-multi-isoform features all parented to one gene can not be sorted into the correct isoform reliably.
+"""Puts the exon, CDS and UTR lines of a GFF3 file that name a gene itself as Parent under a
+transcript of that gene, as GeenuFF leaves out or masks them otherwise. A gene without transcript
+lines, as in some MAKER files, gets an mRNA line spanning it, written after the gene line with the
+gene ID and _mRNA as its ID. A gene whose only transcript has no lines of its own gets them under
+that transcript. Either way the transcript becomes their Parent in place of the gene. Genes with
+several transcripts, or one with lines of its own, are left as they are. The log warns where a gene
+has overlapping exon or CDS lines, a sign of several isoforms written as one gene, which GeenuFF
+masks.
+This should in general only be used on files where each gene parented feature belongs to one isoform
+only, as multi-isoform features all parented to one gene can not be sorted into the correct isoform
+reliably; which is why genes with several transcripts are left as they are.
 """
 import argparse
 import logging
@@ -30,14 +32,16 @@ def overlapping(spans: list[tuple[int, int]]) -> bool:
     return any(start <= previous_end for (_, previous_end), (start, _) in zip(spans, spans[1:]))
 
 
-def genes_without_transcripts(gff_path: str) -> tuple[set[str], set[str]]:
-    """The IDs of the genes without transcript lines whose exon, CDS or UTR lines name them as
-    Parent, and of those the ones with overlapping exon or CDS lines.
+def transcripts_for_genes(gff_path: str) -> tuple[dict[str, str], set[str], set[str]]:
+    """{gene ID: the transcript its exon, CDS and UTR lines naming the gene go under} for the genes
+    without transcript lines and those whose only transcript has no lines of its own; of those, the
+    genes getting a new transcript line, and the ones with overlapping exon or CDS lines.
 
     Raises:
         SystemExit: where the ID a new transcript line would get is the ID of a line already
     """
-    gene_ids, all_ids, with_transcripts = set(), set(), set()
+    gene_ids, all_ids = set(), set()
+    transcripts_of = defaultdict(list)  # {gene ID: [its transcript IDs]}
     spans = defaultdict(lambda: defaultdict(list))  # {parent ID: {'exons', 'cds' or 'utrs': [(start, end)]}}
     for line in gff_feature_lines(gff_path):
         columns = line.rstrip('\n').split('\t')
@@ -47,28 +51,35 @@ def genes_without_transcripts(gff_path: str) -> tuple[set[str], set[str]]:
         if feature_type in GENE_TYPES:
             gene_ids.add(attributes.get('ID'))
         elif feature_type in TRANSCRIPT_TYPES:
-            with_transcripts.update(parents)
+            for parent in parents:
+                transcripts_of[parent].append(attributes.get('ID'))
         elif feature_type in PIECE_KEYS:
             for parent in parents:
                 spans[parent][PIECE_KEYS[feature_type]].append((int(columns[3]), int(columns[4])))
 
-    genes = (spans.keys() & gene_ids) - with_transcripts
-    n_mixed = len((spans.keys() & gene_ids) & with_transcripts)
-    if n_mixed:
-        logger.info(f'{n_mixed} genes with transcript lines also have exon, CDS or UTR lines naming the gene '
-                    f'itself; they are left as they are')
-    clashing = sorted(gene_id for gene_id in genes if f'{gene_id}{TRANSCRIPT_SUFFIX}' in all_ids)
+    gene_parented = spans.keys() & gene_ids
+    new = gene_parented - transcripts_of.keys()
+    target = {gene_id: f'{gene_id}{TRANSCRIPT_SUFFIX}' for gene_id in new}
+    target |= {gene_id: transcripts_of[gene_id][0] for gene_id in gene_parented - new
+               if len(transcripts_of[gene_id]) == 1 and transcripts_of[gene_id][0] not in spans}
+    n_left = len(gene_parented) - len(target)
+    if n_left:
+        logger.info(f'{n_left} genes with several transcripts, or one with lines of its own, also have exon, CDS or '
+                    f'UTR lines naming the gene itself; they are left as they are')
+    clashing = sorted(target[gene_id] for gene_id in new if target[gene_id] in all_ids)
     if clashing:
         raise SystemExit(f'{len(clashing)} IDs a new transcript line would get are the IDs of lines already, e.g. '
-                         f'{", ".join(gene_id + TRANSCRIPT_SUFFIX for gene_id in clashing[:5])}; no file written')
-    overlaps = {gene_id for gene_id in genes if overlapping(spans[gene_id]['exons'])
+                         f'{", ".join(clashing[:5])}; no file written')
+    overlaps = {gene_id for gene_id in target if overlapping(spans[gene_id]['exons'])
                 or overlapping(spans[gene_id]['cds'])}
-    return genes, overlaps
+    return target, new, overlaps
 
 
-def write_with_transcripts(gff_path: str, out_path: str, genes: set[str], compression_level: int | None) -> None:
-    """Writes the GFF3 file with an mRNA line after each gene line of the given IDs, spanning the gene,
-    and that mRNA as Parent of the gene's exon, CDS and UTR lines in place of the gene."""
+def write_with_transcripts(gff_path: str, out_path: str, target: dict[str, str], new: set[str],
+                           compression_level: int | None) -> None:
+    """Writes the GFF3 file with each gene's target transcript (see transcripts_for_genes) as Parent of
+    its exon, CDS and UTR lines in place of the gene, and an mRNA line spanning the gene after each
+    gene line of the new ones."""
     with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
@@ -80,33 +91,37 @@ def write_with_transcripts(gff_path: str, out_path: str, genes: set[str], compre
             attributes = gff_attributes(columns[8])
             if columns[2] in PIECE_KEYS and 'Parent' in attributes:
                 parents = attributes['Parent'].split(',')
-                if any(parent in genes for parent in parents):
-                    new = ','.join(f'{parent}{TRANSCRIPT_SUFFIX}' if parent in genes else parent for parent in parents)
-                    columns[8] = columns[8].replace(f'Parent={attributes["Parent"]}', f'Parent={new}')
+                if any(parent in target for parent in parents):
+                    renamed = ','.join(target.get(parent, parent) for parent in parents)
+                    columns[8] = columns[8].replace(f'Parent={attributes["Parent"]}', f'Parent={renamed}')
                     line = '\t'.join(columns) + '\n'
             f_out.write(line)
             gene_id = attributes.get('ID')
-            if columns[2] in GENE_TYPES and gene_id in genes:
+            if columns[2] in GENE_TYPES and gene_id in new:
                 seqid, source, _, start, end, _, strand = columns[:7]
                 f_out.write(f'{seqid}\t{source}\tmRNA\t{start}\t{end}\t.\t{strand}\t.\t'
-                            f'ID={gene_id}{TRANSCRIPT_SUFFIX};Parent={gene_id}\n')
+                            f'ID={target[gene_id]};Parent={gene_id}\n')
 
 
 def main(args: argparse.Namespace) -> None:
     setup_logging(args.log_file)
-    logger.info(f'Adding transcript lines to the genes without one in "{os.path.basename(args.gff)}"')
-    genes, overlaps = genes_without_transcripts(args.gff)
-    if not genes:
-        logger.info('No gene without transcript lines has exon, CDS or UTR lines naming it: nothing to add, '
-                    'no file written')
+    logger.info(f'Putting the exon, CDS and UTR lines naming a gene under a transcript in '
+                f'"{os.path.basename(args.gff)}"')
+    target, new, overlaps = transcripts_for_genes(args.gff)
+    if not target:
+        logger.info('No exon, CDS or UTR line names a gene without transcripts, or one whose only transcript has '
+                    'no lines of its own: nothing to change, no file written')
         return
-    logger.info(f'Found {len(genes)} genes without transcript lines whose exon, CDS or UTR lines name the gene, '
-                f'e.g. {", ".join(sorted(genes)[:3])}')
+    for genes, which in ((sorted(new), 'without transcript lines, each given an mRNA line'),
+                         (sorted(target.keys() - new), 'whose only transcript has no lines of its own')):
+        if genes:
+            logger.info(f'Found {len(genes)} genes {which}, e.g. {", ".join(genes[:3])}')
     if overlaps:
         logger.warning(f'{len(overlaps)} of them have overlapping exon or CDS lines, a sign of several isoforms '
                        f'written as one gene, which GeenuFF masks, e.g. {", ".join(sorted(overlaps)[:5])}')
-    write_with_transcripts(args.gff, args.out, genes, output_compression(args, args.gff))
-    logger.info(f'Wrote {len(genes)} transcript lines to "{args.out}"')
+    write_with_transcripts(args.gff, args.out, target, new, output_compression(args, args.gff))
+    logger.info(f'Wrote "{args.out}": the lines naming {len(target)} genes put under a transcript, '
+                f'{len(new)} transcript lines added')
 
 
 if __name__ == '__main__':
