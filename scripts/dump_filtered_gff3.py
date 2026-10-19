@@ -2,7 +2,7 @@
 import argparse
 
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
-from geenuff.base.helpers import setup_logging
+from geenuff.base.helpers import refuse_overwriting_inputs, setup_logging
 
 
 def main(args: argparse.Namespace) -> None:
@@ -27,5 +27,6 @@ if __name__ == '__main__':
                               'overlapping another gene. Only genes whose features cannot be '
                               'placed are left out, and the log says how many'))
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
-
-    main(parser.parse_args())
+    args = parser.parse_args()
+    refuse_overwriting_inputs(parser, [args.out, args.log_file], [args.db_path_in])
+    main(args)

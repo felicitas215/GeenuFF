@@ -6,21 +6,21 @@ either way, every sequence below a hard floor (--min-seq-len, by default 1000 bp
 docs/scripts.md).
 
 The output files default to the input files' names with _length_filtered before the extension,
-e.g. genome.fna.gz -> genome_length_filtered.fna.gz. The FASTA file is read in fixed-size chunks,
-so a sequence written on a single line is never held in memory whole.
+e.g. genome.fna.gz -> genome_length_filtered.fna.gz, each gzipped where its input is (see --gzip).
+The FASTA file is read in fixed-size chunks, so a sequence written on a single line is never held
+in memory whole.
 """
 import argparse
-import gzip
 import logging
 import math
 import os
 from collections import OrderedDict, defaultdict
-from typing import BinaryIO, TextIO
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import (fasta_header_id, fasta_lines, gff_feature_lines, insert_before_extension,
-                                  setup_logging)
+from geenuff.base.helpers import (add_output_compression_args, fasta_header_id, fasta_lines, gff_feature_lines,
+                                  insert_before_extension, open_out, output_compression, output_path,
+                                  refuse_overwriting_inputs, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +79,11 @@ def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) 
     return cluster
 
 
-def write_fasta_without(fasta_path: str, out_path: str, removed: set[str]) -> None:
+def write_fasta_without(fasta_path: str, out_path: str, removed: set[str], compression_level: int | None) -> None:
     """Copies the FASTA file without the sequences of the removed IDs. A sequence line longer than
     helpers.FASTA_CHUNK_SIZE comes out wrapped into lines of up to that length, which FASTA allows."""
     keep = True
-    with open_out(out_path, binary=True) as out:
+    with open_out(out_path, compression_level, binary=True) as out:
         for at_line_start, piece in fasta_lines(fasta_path):
             if at_line_start and piece.startswith(b'>'):
                 keep = fasta_header_id(piece[1:].decode()) not in removed
@@ -91,9 +91,9 @@ def write_fasta_without(fasta_path: str, out_path: str, removed: set[str]) -> No
                 out.write(piece + b'\n')
 
 
-def write_gff_without(gff_path: str, out_path: str, removed: set[str]) -> None:
+def write_gff_without(gff_path: str, out_path: str, removed: set[str], compression_level: int | None) -> None:
     """Copies the GFF3 file without the feature and ##sequence-region lines of the removed IDs."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
@@ -105,12 +105,6 @@ def write_gff_without(gff_path: str, out_path: str, removed: set[str]) -> None:
                 seqid = None
             if seqid not in removed:
                 f_out.write(line)
-
-
-def open_out(path: str, binary: bool = False) -> TextIO | BinaryIO:
-    if path.endswith('.gz'):
-        return gzip.open(path, 'wb' if binary else 'wt', compresslevel=6)
-    return open(path, 'wb' if binary else 'w')
 
 
 def coding_by_seqid(gff_path: str) -> dict[str, tuple[int, int]]:
@@ -193,11 +187,11 @@ def main(args: argparse.Namespace) -> None:
                 f'The removed ones are {min(removed_lengths)}-{max(removed_lengths)} bp long, '
                 f'{sum(removed_lengths)} of {sum(lengths.values())} bp{held}; removed: '
                 f'{", ".join(removed[:MAX_LOGGED_IDS])}' + (f', ... and {more} more' if more > 0 else ''))
-    out_paths = [args.fasta_out or insert_before_extension(args.fasta, OUT_SUFFIX)]
-    write_fasta_without(args.fasta, out_paths[0], set(removed))
+    out_paths = [args.fasta_out]
+    write_fasta_without(args.fasta, args.fasta_out, set(removed), output_compression(args, args.fasta))
     if args.gff:
-        out_paths.append(args.gff_out or insert_before_extension(args.gff, OUT_SUFFIX))
-        write_gff_without(args.gff, out_paths[1], set(removed))
+        out_paths.append(args.gff_out)
+        write_gff_without(args.gff, args.gff_out, set(removed), output_compression(args, args.gff))
     if args.removed_out:
         with open(args.removed_out, 'w') as f:
             f.writelines(f'{seq_id}\t{lengths[seq_id]}\n' for seq_id in removed)
@@ -212,13 +206,13 @@ if __name__ == '__main__':
                         help='GFF3 file of the FASTA file (may be gzipped); left out to filter the FASTA file alone, '
                              'e.g. before prediction')
     parser.add_argument('--fasta-out', type=str,
-                        help=('filtered FASTA file, gzipped if it ends in .gz (default: the FASTA file\'s name with '
-                              '_length_filtered before the extension, e.g. genome_length_filtered.fa.gz); not '
-                              'written when nothing is removed'))
+                        help=('filtered FASTA file, gzipped where the FASTA file is (see --gzip) (default: the FASTA '
+                              'file\'s name with _length_filtered before the extension, e.g. '
+                              'genome_length_filtered.fa.gz); not written when nothing is removed'))
     parser.add_argument('--gff-out', type=str,
-                        help=('filtered GFF3 file, gzipped if it ends in .gz (default: the GFF3 file\'s name with '
-                              '_length_filtered before the extension, e.g. genes_length_filtered.gff3); not '
-                              'written when nothing is removed'))
+                        help=('filtered GFF3 file, gzipped where the GFF3 file is (see --gzip) (default: the GFF3 '
+                              'file\'s name with _length_filtered before the extension, e.g. '
+                              'genes_length_filtered.gff3); not written when nothing is removed'))
     parser.add_argument('--removed-out', type=str, help='TSV file listing each removed sequence ID and its length')
     parser.add_argument('--min-seq-len', type=int, default=DEFAULT_MIN_SEQ_LEN,
                         help=f'hard floor: sequences shorter than this are always removed (default: '
@@ -228,10 +222,18 @@ if __name__ == '__main__':
     parser.add_argument('--max-cluster-length-fraction', type=float, default=DEFAULT_MAX_CLUSTER_LENGTH_FRACTION,
                         help=f'the cluster of small sequences is kept where it holds more than this share of the '
                              f'total length (default: {DEFAULT_MAX_CLUSTER_LENGTH_FRACTION})')
+    add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
     if args.gff_out and not args.gff:
         parser.error('--gff-out needs --gff')
     if not 0 <= args.max_cluster_length_fraction <= 1:
         parser.error('--max-cluster-length-fraction must be between 0 and 1')
+    args.fasta_out = output_path(args.fasta_out or insert_before_extension(args.fasta, OUT_SUFFIX),
+                                 output_compression(args, args.fasta))
+    if args.gff:
+        args.gff_out = output_path(args.gff_out or insert_before_extension(args.gff, OUT_SUFFIX),
+                                   output_compression(args, args.gff))
+    refuse_overwriting_inputs(parser, [args.fasta_out, args.gff_out, args.removed_out, args.log_file],
+                              [args.fasta, args.gff])
     main(args)

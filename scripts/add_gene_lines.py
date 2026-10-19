@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
-from geenuff.base.helpers import gff_attributes, gff_feature_lines, open_text_out, setup_logging
+from geenuff.base.helpers import (add_output_compression_args, gff_attributes, gff_feature_lines, open_out,
+                                  output_compression, output_path, refuse_overwriting_inputs, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
         logger.warning(f'{n_without_id} transcripts have neither a Parent nor an ID and are left as they are; no '
                        f'exon or CDS line can name them as Parent')
     if n_self_parent:
-        logger.info(f'{n_self_parent} transcripts name themselves as Parent and is treated as having none')
+        logger.info(f'{n_self_parent} transcripts name themselves as Parent and are treated as having none')
     if orphans:
         logger.info(f'Found {len(orphans)} transcripts without a Parent, their gene IDs taken from '
                     + ', '.join(f'{how} for {n}' for how, n in sorted(sources.items(), key=lambda item: -item[1])))
@@ -142,12 +143,12 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     return by_transcript
 
 
-def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene]) -> int:
+def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene], compression_level: int | None) -> int:
     """Writes the GFF3 file with each new gene line before its first transcript and each orphan
     transcript's gene as its Parent, in place of the transcript's own ID where it names itself.
     Returns the number of gene lines written."""
     written = set()
-    with text_or_gzip_open(gff_path) as f_in, open_text_out(out_path) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
@@ -179,7 +180,7 @@ def main(args: argparse.Namespace) -> None:
     if not gene_of:
         logger.info('Every transcript with an ID has a Parent other than itself: nothing to add, no file written')
         return
-    n_genes = write_with_genes(args.gff, args.out, gene_of)
+    n_genes = write_with_genes(args.gff, args.out, gene_of, output_compression(args, args.gff))
     logger.info(f'Wrote {n_genes} gene lines for {len(gene_of)} transcripts to "{args.out}"')
 
 
@@ -187,7 +188,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     parser.add_argument('-o', '--out', type=str, required=True,
-                        help='output GFF3 file, gzipped if it ends in .gz; not written when nothing is to be added')
+                        help=('output GFF3 file, gzipped where the input is (see --gzip); not written when nothing '
+                              'is to be added'))
     # None where not given, to tell an explicit value from --one-gene-per-transcript
     parser.add_argument('--gene-id-attributes', type=str,
                         help=(f'comma-separated attributes of a transcript line holding its gene ID, the first one '
@@ -201,8 +203,11 @@ if __name__ == '__main__':
     parser.add_argument('--one-gene-per-transcript', action='store_true',
                         help=('give every transcript without a Parent a gene of its own, using neither gene ID '
                               'attributes nor a split text; only for files with one isoform per gene'))
+    add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
+    args.out = output_path(args.out, output_compression(args, args.gff))
+    refuse_overwriting_inputs(parser, [args.out, args.log_file], [args.gff])
     if args.one_gene_per_transcript and (args.gene_id_attributes is not None or args.split_at is not None):
         parser.error('--one-gene-per-transcript uses neither --gene-id-attributes nor --split-at')
     args.gene_id_attributes = DEFAULT_ATTRIBUTES if args.gene_id_attributes is None else args.gene_id_attributes

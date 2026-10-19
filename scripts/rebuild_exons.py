@@ -16,7 +16,8 @@ from collections import defaultdict
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import CDS_OUTSIDE_EXONS_WARN_SHARE, PIECE_KEYS, TRANSCRIPT_TYPES
-from geenuff.base.helpers import gff_attributes, gff_feature_lines, open_text_out, setup_logging
+from geenuff.base.helpers import (add_output_compression_args, gff_attributes, gff_feature_lines, open_out,
+                                  output_compression, output_path, refuse_overwriting_inputs, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,12 @@ def rebuilt_exons(gff_path: str) -> tuple[dict[str, list[tuple[int, int]]], int]
     return rebuilt, n_coding
 
 
-def write_rebuilt(gff_path: str, out_path: str, rebuilt: dict[str, list[tuple[int, int]]]) -> None:
+def write_rebuilt(gff_path: str, out_path: str, rebuilt: dict[str, list[tuple[int, int]]],
+                  compression_level: int | None) -> None:
     """Writes the GFF3 file with the old exon lines of the rebuilt transcripts left out (an exon line
     shared with other transcripts keeps those as Parent) and their new exon lines after each
     transcript line."""
-    with text_or_gzip_open(gff_path) as f_in, open_text_out(out_path) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
@@ -102,7 +104,7 @@ def main(args: argparse.Namespace) -> None:
         logger.warning(f'Only {share:.1%} of the coding transcripts have CDS lines outside their exons, which '
                        f'looks like a few wrong genes rather than exon lines for the UTRs only; GeenuFF masks '
                        f'those on its own, so the original file is likely the better choice')
-    write_rebuilt(args.gff, args.out, rebuilt)
+    write_rebuilt(args.gff, args.out, rebuilt, output_compression(args, args.gff))
     logger.info(f'Wrote "{args.out}"')
 
 
@@ -110,9 +112,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     parser.add_argument('-o', '--out', type=str, required=True,
-                        help='output GFF3 file, gzipped if it ends in .gz; not written when nothing is to be rebuilt')
+                        help=('output GFF3 file, gzipped where the input is (see --gzip); not written when nothing '
+                              'is to be rebuilt'))
+    add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
-    if os.path.realpath(args.out) == os.path.realpath(args.gff):
-        parser.error('-o must differ from --gff, which is read while the output is written')
+    args.out = output_path(args.out, output_compression(args, args.gff))
+    refuse_overwriting_inputs(parser, [args.out, args.log_file], [args.gff])
     main(args)

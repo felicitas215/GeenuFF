@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from geenuff.base.orm import (Coordinate, Genome, Feature, Transcript, TranscriptPiece,
                               association_transcript_piece_to_feature as asso_tp_2_f, SuperLocus)
 from geenuff.base.handlers import TranscriptHandlerBase, SuperLocusHandlerBase
-from geenuff.base.helpers import full_db_path, Counter, in_enum_values
+from geenuff.base.helpers import full_db_path, Counter, in_enum_values, refuse_overwriting_inputs
 from geenuff.base import types
 
 # this module is called from inside Helixer's export pipeline (helixer/export/exporter.py),
@@ -58,6 +58,7 @@ class ExportArgParser(object):
 
     def parse_args(self):
         self.args = self.parser.parse_args()
+        refuse_overwriting_inputs(self.parser, [self.args.out], [self.args.db_path_in])
 
 
 class RangeArgParser(ExportArgParser):

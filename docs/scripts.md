@@ -14,7 +14,13 @@ called by name, e.g.
 
 `dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `rebuild_exons.py` and
 `filter_sequence_lengths.py` log what they leave out or change; `--log-file` writes that log to a
-file as well as the terminal, to keep it beside the output.
+file as well as the terminal, to keep it beside the output. No script writes over its input files
+or database: an output path naming one stops it before anything is written.
+
+The preparing scripts read gzipped or plain files alike. Each file they write is gzipped where its
+input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override
+this for all of them. Gzipped output is written at `--compression-level` 4 by default (1 fastest,
+9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster.
 
 ## dump_filtered_gff3.py
 

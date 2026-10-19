@@ -1,3 +1,4 @@
+import argparse
 import copy
 import gzip
 import hashlib
@@ -186,19 +187,68 @@ def gff_attributes(column: str) -> dict[str, str]:
     return dict(pair.split('=', 1) for pair in column.strip().strip(';').split(';') if '=' in pair)
 
 
-def open_text_out(path: str) -> TextIO:
-    """Opens a text file for writing, gzipped if the path ends in .gz."""
-    return gzip.open(path, 'wt', compresslevel=6) if path.endswith('.gz') else open(path, 'w')
+# gzip level of the scripts' output files; 4 compresses a genome nearly as well as gzip's default 6,
+# several times faster
+DEFAULT_COMPRESSION_LEVEL = 4
+
+
+def add_output_compression_args(parser: argparse.ArgumentParser) -> None:
+    """Adds --gzip/--no-gzip and --compression-level, read by output_compression, to a script's arguments."""
+    parser.add_argument('--gzip', action=argparse.BooleanOptionalAction,
+                        help=('gzip the output files, or write them as plain text; by default each output file is '
+                              'gzipped where its input file is, its name given .gz or not to match'))
+    parser.add_argument('--compression-level', type=int, default=DEFAULT_COMPRESSION_LEVEL, choices=range(1, 10),
+                        metavar='{1-9}', help=(f'gzip level of the output files, 1 fastest, 9 smallest (default: '
+                                               f'{DEFAULT_COMPRESSION_LEVEL})'))
+
+
+def compression_for(input_path: str, gzipped: bool | None, compression_level: int) -> int | None:
+    """The gzip level of an output file, None for plain text: gzipped as given, else as its input file."""
+    if gzipped is None:
+        gzipped = is_gzipped(input_path)
+    return compression_level if gzipped else None
+
+
+def output_compression(args: argparse.Namespace, input_path: str) -> int | None:
+    """compression_for with a script's --gzip and --compression-level (see add_output_compression_args)."""
+    return compression_for(input_path, args.gzip, args.compression_level)
+
+
+def output_path(path: str, compression_level: int | None) -> str:
+    """The path ending in .gz for gzipped output, without it for plain text."""
+    stem = path.removesuffix('.gz')
+    return stem if compression_level is None else f'{stem}.gz'
+
+
+def refuse_overwriting_inputs(parser: argparse.ArgumentParser, outputs: Iterable[str | None],
+                              inputs: Iterable[str | None]) -> None:
+    """Stops with a usage error where an output path names an input file, which writing it would
+    empty before it is read. Paths given as None, i.e. options left out, are skipped."""
+    input_paths = {os.path.realpath(path) for path in inputs if path}
+    for path in outputs:
+        if path and os.path.realpath(path) in input_paths:
+            parser.error(f'the output "{path}" is an input file, which writing it would destroy; give another path')
+
+
+def open_out(path: str, compression_level: int | None, binary: bool = False) -> TextIO | BinaryIO:
+    """Opens a file for writing, gzipped at compression_level, or as plain text where it is None."""
+    if compression_level is None:
+        return open(path, 'wb' if binary else 'w')
+    return gzip.open(path, 'wb' if binary else 'wt', compresslevel=compression_level)
 
 
 FASTA_CHUNK_SIZE = 1 << 20
 
 
+def is_gzipped(path: str) -> bool:
+    """Whether a file is gzipped, by its first two bytes rather than its name."""
+    with open(path, 'rb') as f:
+        return f.read(2) == b'\x1f\x8b'
+
+
 def open_binary(path: str) -> BinaryIO:
     """Opens a file, gzipped or not, for reading bytes."""
-    with open(path, 'rb') as f:
-        is_gzip = f.read(2) == b'\x1f\x8b'
-    return gzip.open(path, 'rb') if is_gzip else open(path, 'rb')
+    return gzip.open(path, 'rb') if is_gzipped(path) else open(path, 'rb')
 
 
 def fasta_lines(path: str) -> Iterator[tuple[bool, bytes]]:
