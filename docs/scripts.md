@@ -177,26 +177,30 @@ after annotation) rather than stopping as for different assemblies.
 
 Adds gene lines for transcripts without a `Parent`, as gene predictors such as AUGUSTUS, BRAKER
 and Tiberius write them, which stop GeenuFF's import where they are coding (a transcript naming a
-`Parent` that matches no line gets a gene inferred instead). Each such transcript's gene ID is
-taken from the first source that gives one, or with `--one-gene-per-transcript`, for files with
-one isoform per gene, every transcript gets a gene of its own:
+`Parent` that matches no line gets a gene inferred instead). A transcript naming itself as
+`Parent`, e.g. `ID=g7-mRNA-1;Parent=g7-mRNA-1`, is treated as having none:
+GeenuFF leaves it out as naming a transcript as parent. Each such transcript's gene ID is taken
+from the first of these sources that gives one:
 
-| source                                                                                  | e.g. transcript line            | gene ID   |
-|-----------------------------------------------------------------------------------------|---------------------------------|-----------|
-| an attribute, by default `geneID`, `gene_id` or `gene` (`--gene-id-attributes`)         | `ID=g1.t1;geneID=g1` (Tiberius) | `g1`      |
-| the ID up to the last occurrence of a split text, by default `.` (`--split-at`)         | `ID=g653.t1` (AUGUSTUS)         | `g653`    |
-| neither: a gene of its own                                                              | `ID=X1`                         | `X1_gene` |
+| source                                                                                                                                | e.g. transcript line            | gene ID   |
+|---------------------------------------------------------------------------------------------------------------------------------------|---------------------------------|-----------|
+| an attribute, by default `geneID`, `gene_id` or `gene` (`--gene-id-attributes`)                                                       | `ID=g1.t1;geneID=g1` (Tiberius) | `g1`      |
+| the ID up to the last occurrence of a split text, by default `.` (`--split-at`)                                                       | `ID=g653.t1` (AUGUSTUS)         | `g653`    |
+| neither: a gene of its own (set `--one-gene-per-transcript` to apply this method to every transcript instead of trying the first two) | `ID=X1`                         | `X1_gene` |
 
-Cutting at the last occurrence, `.` gives `Glyma.01G000100` for `Glyma.01G000100.1`; for MAKER's
-`gene7-mRNA-2` give `--split-at -mRNA-`. The log shows a few example splits and warns where
-transcripts put into one gene do not overlap each other as isoforms do, a sign of the wrong split
-text or attribute.
+Cutting at the last occurrence, `.` gives `Glyma.01G000100` for `Glyma.01G000100.1`; for
+`gene7-mRNA-2` give `--split-at=-mRNA-` (with `=`, as the text starts with a dash). The log shows
+a few example splits and warns where transcripts put into one gene do not overlap each other as
+isoforms do, a sign of the wrong split text or attribute.
 
 Transcripts of one gene ID get it as `Parent` and share a gene line spanning them, written before
-the first of them, unless a gene line of that ID exists already. A gene ID on several sequences or
-strands, or already the ID of another line, gets the sequence and strand appended (e.g.
-`g2_CHR_minus`) with a warning, as do transcripts given a gene of their own. Without transcripts
-lacking a `Parent`, no file is written.
+the first of them. Where the file has a gene line of that ID already, whichever source gave the ID,
+the transcripts only get it as `Parent` and no second gene line is written; a transcript naming
+itself as `Parent` gets that gene in place of itself. A gene ID on several sequences or strands, or
+already the ID of a line other than a gene line, gets the sequence and strand appended (e.g.
+`g2_CHR_minus`) with a warning. Transcripts falling back to a gene of their own are warned about
+too, unless `--one-gene-per-transcript` is set. Where every transcript names a `Parent` other than
+itself, nothing needs adding and no file is written.
 
 ## rebuild_exons.py
 

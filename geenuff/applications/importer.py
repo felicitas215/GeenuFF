@@ -31,8 +31,10 @@ TRANSCRIPT_TYPES = frozenset(x.value for x in types.TranscriptLevel)
 # where an exon, CDS or UTR line goes among its transcript's lines, by type
 PIECE_KEYS = {x.value: key for level, key in [(types.ExonLevel, 'exons'), (types.CDSLevel, 'cds'),
                                               (types.UTRLevel, 'utrs')] for x in level}
-# above this share of coding transcripts with CDS lines outside their exon lines, the import warns
+# above these shares of coding transcripts with CDS lines outside their exon lines, or with
+# overlapping exon lines, the import warns
 CDS_OUTSIDE_EXONS_WARN_SHARE = 0.05
+OVERLAPPING_EXONS_WARN_SHARE = 0.05
 
 
 # how much of a locus its own errors take away, lower being better (see
@@ -177,6 +179,12 @@ EMPTY, LEFT_OUT, NON_CODING, NOT_EXPORTED, EXPORTED = 'empty', 'left_out', 'non_
  GENES_GIVING_LABELS) = SUMMARY_STEPS = ('GFF lines', 'GFF gene lines', 'Genes imported', 'Genes with transcripts',
                                         'Coding genes', 'Exported coding genes', 'Genes giving labels')
 READING_ONLY_STEPS = SUMMARY_STEPS[:2]
+# below this share of the coding transcripts read giving labels, the import warns of little
+# training data and names the scripts preparing a GFF3 file for import
+LOW_TRAINING_DATA_SHARE = 0.1
+PREPARING_SCRIPTS = ('add_gene_lines.py for transcripts without a gene or naming themselves as Parent',
+                     'rebuild_exons.py for files listing exon lines for the UTRs only',
+                     'rename_gff_seqids.py for GFF3 sequence IDs differing from the FASTA ones')
 # why all transcripts of a gene were left out on import, keyed as in left_out_reason
 LEFT_OUT_REASONS = {
     'no_strand': "on neither strand, e.g. NCBI's '?'",
@@ -287,6 +295,9 @@ class ImportStatistics(object):
         # coding transcripts with CDS lines outside their exon lines, warned about above a share of
         # CDS_OUTSIDE_EXONS_WARN_SHARE
         self.cds_outside_exons_transcripts: int = 0
+        # coding transcripts with exon lines overlapping each other, warned about above a share of
+        # OVERLAPPING_EXONS_WARN_SHARE
+        self.overlapping_exons_transcripts: int = 0
         # CDS missing only their stop codon, as in GFF3 converted from GTF, extended by the stop codon
         # after them; GTF itself is not read
         self.stop_codons_recovered: int = 0
@@ -389,6 +400,27 @@ class ImportStatistics(object):
             text += f', from {gene_ids}' if under_genes == lost else f', {under_genes} of them from {gene_ids}'
         return sum(counts.values()), text
 
+    def labeled_genes(self) -> int:
+        """The exported genes giving labels, i.e. not masked in full."""
+        return self.longest_transcripts - sum(self.exported_outcomes[outcome] for outcome in MASKED_IN_FULL_OUTCOMES)
+
+    def no_training_data_reason(self) -> str:
+        """The largest loss of coding transcripts or genes in the summary's funnel, or the lack of
+        CDS lines where nothing coding was lost."""
+        losses = [(n, f'{plural(n, "coding transcript")} left out while grouping lines into genes, '
+                      f'{DROPPED_LINE_REASONS[reason]}') for reason, n in self.coding_transcripts_dropped.items()]
+        losses += [(n, f'{plural(n, "gene")} with all transcripts left out on import, {LEFT_OUT_REASONS[reason]}')
+                   for reason, n in self.genes_left_out_on_import.items()]
+        losses += [(n, f'{plural(n, "coding gene")} not exported, {UNEXPORTED_REASONS[reason]}')
+                   for reason, n in self.coding_genes_not_exported.items()]
+        top_errors = ', '.join(error_type for error_type, _ in self.errors_masking_in_full.most_common(3))
+        for outcome in MASKED_IN_FULL_OUTCOMES:
+            n = self.exported_outcomes[outcome]
+            text = f'{plural(n, "exported gene")} {EXPORTED_OUTCOMES[outcome]}'
+            losses.append((n, text + (f', most often {top_errors}' if outcome == 'own_errors' and top_errors else '')))
+        n, reason = max(losses, key=lambda loss: loss[0], default=(0, ''))
+        return f'the largest loss is {reason}' if n else 'the GFF3 file has no CDS lines'
+
     def log_summary(self, species: str) -> None:
         """Logs one summary of the import (see format_summary), and at DEBUG level the complete
         lists of the GFF types skipped, of which the summary names the most frequent only."""
@@ -467,11 +499,9 @@ class ImportStatistics(object):
 
         coding_detail = [plural(self.coding_transcripts_imported, 'coding transcript')]
         if self.transcripts_with_exons_built:
-            coding_detail.append(f'exons built from CDS and UTR lines for {self.transcripts_with_exons_built}')
+            coding_detail.append(f'exons built from CDS & UTRs for {self.transcripts_with_exons_built}')
         if self.stop_codons_recovered:
-            past = self.stop_codons_recovered_past_exons
-            coding_detail.append(f'stop codon after the CDS added for {self.stop_codons_recovered}, typical GTF -> '
-                                 f'GFF3 conversion artifact' + (f', {past} of them past their exons' if past else ''))
+            coding_detail.append(f'stop codon found & added to {self.stop_codons_recovered}')
         not_exported = [('-', self.coding_genes_not_exported.get(types.OVERLAP_DROPPED, 0),
                          f'not exported, dropped in favor of an overlapping gene '
                          f'({self.overlap_loci_dropped_labeled} would have been labeled in full)', 0)]
@@ -511,7 +541,7 @@ class ImportStatistics(object):
         n_masked_gene_bases = sum(overlap_length(spans, merged_masks.get(key, []))
                                   for key, spans in merged_spans.items())
         both_strands = 2 * self.genome_bases
-        n_labeled = n_exported - sum(self.exported_outcomes[outcome] for outcome in MASKED_IN_FULL_OUTCOMES)
+        n_labeled = self.labeled_genes()
         labeled, empty = self.labeled_utrs, self.labeled_empty_utr_flanks
         n_one_empty = empty['5p'] + empty['3p']
         one_detail = f"{labeled['5p']} 5', {labeled['3p']} 3'" + (f'; {n_one_empty} of these masks empty, no room '
@@ -528,7 +558,7 @@ class ImportStatistics(object):
                          f'gene\'s strand only; Helixer gets no labels there',
                          f'{n_masked_gene_bases} of the {n_gene_bases} bases of the exported genes masked '
                          f'({100 * n_masked_gene_bases / n_gene_bases if n_gene_bases else 0:.2f}%), union of '
-                         f'overlapping genes spans used']))
+                         f'overlapping genes spans used; missing UTRs are of unknown length, not counted']))
         return steps
 
     def summary_notes(self) -> list[str]:
@@ -924,6 +954,7 @@ class OrganizedGeenuffImporterGroup(object):
                 inv_t_start, inv_t_end = sorted([tf_i.start, tf_i.end])
                 itree[inv_t_start:inv_t_end] = t_is_plus_strand
                 exons = t_entries['exons']
+                has_overlapping_exons = False
                 for exon in exons:
                     # an exon on another strand than its transcript, or on none at all, cannot be
                     # chopped out of the span below; without its exons that span is not intronic
@@ -940,17 +971,13 @@ class OrganizedGeenuffImporterGroup(object):
                     # also check for and mark overlapping exons (for now with a backward 'intron' # todo refactor)
                     overlapping = etree[inv_e_start:inv_e_end]
                     if overlapping:
+                        has_overlapping_exons = True
+                        logger.debug(f'{t_id} on {exon.seqid}: exon {exon.start}-{exon.end} overlaps '
+                                     f'{plural(len(overlapping), "other exon")} of its transcript')
                         overlapper_begin = min([o.begin for o in overlapping])
                         overlapper_end = max([o.end for o in overlapping])
-                        if len(overlapping) != 1:
-                            logger.warning('handling overlaps of >1 exon... (masking as if unioned), but this is a '
-                                           'weird enough sort of error that you should really check what is going on '
-                                           'if you read this (around {} {}-{})'.format(self.coord, overlapper_begin,
-                                                                                       overlapper_end))
-
                         ovlp_end = max(overlapper_begin, inv_e_start)
                         ovlp_start = min(overlapper_end, inv_e_end)
-                        logger.debug('found an overlap {}-{}'.format(ovlp_end, ovlp_start))
                         if not e_is_plus_strand:
                             ovlp_start, ovlp_end = ovlp_end, ovlp_start
                         # insert a dummy 'backwards' intron, which will later be turned into an overlap error
@@ -964,6 +991,7 @@ class OrganizedGeenuffImporterGroup(object):
                                                      controller=self.controller)
                         introns.append(intron_err)
                     etree[inv_e_start:inv_e_end] = e_is_plus_strand
+                stats.overlapping_exons_transcripts += has_overlapping_exons
 
                 for interval in itree:
                     i_start, i_end = interval.begin, interval.end
@@ -1024,10 +1052,13 @@ class OrganizedGeenuffImporterGroup(object):
 
     @staticmethod
     def _coding_length(cds, introns):
-        """Spliced length of a CDS: its span less the parts of the transcript's introns within it."""
+        """Spliced length of a CDS: its span less the parts of the transcript's introns within it.
+        The backwards introns standing in for overlapping exons are no introns and are skipped."""
         c_lo, c_hi = sorted((cds.start, cds.end))
         length = c_hi - c_lo
         for intron in introns:
+            if (intron.end < intron.start) if intron.is_plus_strand else (intron.end > intron.start):
+                continue
             lo, hi = sorted((intron.start, intron.end))
             length -= max(0, min(c_hi, hi) - max(c_lo, lo))
         return length
@@ -1926,17 +1957,27 @@ class ImportController(object):
                 logger.error(f'Aborting due to error: {type(e).__name__}: {e}')
             raise
         self.stats.log_summary(species)
-        if not self.stats.total_coding_transcripts:
-            logger.warning(f'NO TRAINING DATA: no coding transcript of "{species}" was imported, the GFF3 file '
-                           f'having no CDS lines or none that could be placed (see the summary above), so '
-                           f'Helixer gets nothing to learn from this genome. Use a GFF3 file with CDS lines.')
-        elif self.stats.cds_outside_exons_transcripts > (CDS_OUTSIDE_EXONS_WARN_SHARE
-                                                         * self.stats.total_coding_transcripts):
-            share = self.stats.cds_outside_exons_transcripts / self.stats.total_coding_transcripts
-            logger.warning(f'{self.stats.cds_outside_exons_transcripts} of {self.stats.total_coding_transcripts} '
-                           f'coding transcripts ({share:.1%}) have CDS lines outside their exon lines and are masked '
-                           f'in full (cds_outside_exons). The file may list exon lines for the UTRs only; check it '
-                           f'against its source, and see rebuild_exons.py in docs/scripts.md.')
+        n_total = self.stats.total_coding_transcripts
+        if self.stats.cds_outside_exons_transcripts > CDS_OUTSIDE_EXONS_WARN_SHARE * n_total:
+            share = self.stats.cds_outside_exons_transcripts / n_total
+            logger.warning(f'{self.stats.cds_outside_exons_transcripts} of {n_total} coding transcripts '
+                           f'({share:.1%}) have CDS lines outside their exon lines and are masked in full '
+                           f'(cds_outside_exons). The file may list exon lines for the UTRs only; check it against '
+                           f'its source, and see rebuild_exons.py in docs/scripts.md.')
+        if self.stats.overlapping_exons_transcripts > OVERLAPPING_EXONS_WARN_SHARE * n_total:
+            share = self.stats.overlapping_exons_transcripts / n_total
+            logger.warning(f'{self.stats.overlapping_exons_transcripts} of {n_total} coding transcripts '
+                           f'({share:.1%}) have overlapping exon lines and are masked in full (overlapping_exons). '
+                           f'The exon lines may be written wrongly, e.g. nested; where the CDS lines are intact, '
+                           f'drop the exon lines: GeenuFF then builds the exons from the CDS and UTR lines.')
+        n_labeled = self.stats.labeled_genes()
+        n_coding = n_total + sum(self.stats.coding_transcripts_dropped.values())
+        # this then also shows if the file has 0 coding transcripts (i.e. no CDS lines at all)
+        if not n_labeled or n_labeled < LOW_TRAINING_DATA_SHARE * n_coding:
+            logger.warning(f'{"NO" if not n_labeled else "LITTLE"} TRAINING DATA for "{species}": {n_labeled} genes '
+                           f'giving labels from {n_coding} coding transcripts in the GFF3 file; '
+                           f'{self.stats.no_training_data_reason()} (see the summary above). Scripts that can '
+                           f'help (GeenuFF/docs/scripts.md): {"; ".join(PREPARING_SCRIPTS)}.')
 
     def add_sequences(self, seq_path, genome_args=None):
         if genome_args is None:

@@ -76,9 +76,12 @@ file given to `import2geenuff.py --config-file` (see `config/import.yml`).
 
 Overlapping exon or CDS lines cannot exist, so both ends of the transcript and CDS count as not
 biological and nothing else is checked, the spliced CDS repeating the shared bases. The same holds
-for a CDS outside the exons, which lies in an intron; above 5% of the coding transcripts, the
-import warns, as the file may list exon lines for the UTRs only (see `rebuild_exons.py`). A wrong
-starting phase changes no label, the importer setting every phase itself, so it masks nothing; the
+for a CDS outside the exons, which lies in an intron. Above 5% of the coding transcripts with
+either error, the import warns: for a CDS outside the exons, the file may list exon lines for the
+UTRs only (see `rebuild_exons.py`); for overlapping exon lines, these may be written wrongly
+throughout, e.g. nested, and where the CDS lines are intact, dropping the exon lines lets the
+import build the exons from the CDS and UTR lines.  
+A wrong starting phase changes no label, the importer setting every phase itself, so it masks nothing; the
 phases of later CDS pieces are not checked, a CDS leaving its frame being caught as truncated_cds.
 
 ###### super_loci_overlap_error is positioned differently:
@@ -154,8 +157,7 @@ first (CDS lines only, or exons ending with the CDS), the 3 bases after the last
 the last exon and the transcript are extended to hold them. A stop codon further on is not looked
 for, as it would make a longer protein than the file annotates. The start codon is not recovered,
 GTF counting it as part of the CDS, so a missing one is likely a real error. The import summary
-counts the CDS extended, and apart those extended past their exons, so a file converted from GTF
-shows as such.
+counts the CDS extended, so a file converted from GTF shows as such.
 
 ##### grouping lines into genes
 
@@ -170,13 +172,13 @@ and the coding transcripts, i.e. potential training data, each reason cost.
 - Feature types are the Sequence Ontology's, plus three common non-SO spellings: NCBI's `lnc_RNA`
   as a transcript, and AUGUSTUS' lowercase `five_prime_utr` and `three_prime_utr` as UTRs, so that
   exons built from CDS and UTR lines keep the UTRs.
-- A transcript names exactly one gene; one naming several genes or another transcript is left
-  out. Coding transcripts naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius
-  write them, stop the import with an error pointing to `add_gene_lines.py`; non-coding ones, e.g.
-  organelle ncRNAs in NCBI annotations, are left out, giving no training data. Transcripts naming a
-  `Parent` that matches no line share a gene inferred for them, spanning them all, unless they lie
-  on different sequences or strands: then which belong together cannot be told, and all are left
-  out.
+- A transcript names exactly one gene; one naming several genes or a transcript, even itself, is
+  left out (`add_gene_lines.py` gives one naming itself its gene instead). Coding transcripts
+  naming no parent at all, as gene predictors such as AUGUSTUS and Tiberius write them, stop the
+  import with an error pointing to `add_gene_lines.py`; non-coding ones, e.g. organelle ncRNAs in
+  NCBI annotations, are left out, giving no training data. Transcripts naming a `Parent` that
+  matches no line share a gene inferred for them, spanning them all, unless they lie on different
+  sequences or strands: then which belong together cannot be told, and all are left out.
 - An exon, CDS or UTR line is put under every transcript it names. One naming a gene that has
   transcripts is left out unmasked, whether or not it duplicates a line of that gene's transcripts:
   it could equally belong to an isoform without a transcript line (the summary counts such CDS
@@ -220,11 +222,12 @@ The summary ends with:
 - the total number of overlapping masked (overlaps only counted on the same strand +/-)
 - the bases masked as a share of both strands
 - the bases masked as a share of the bases of the exported genes (both strands combined, for
-  overlapping genes the union of their spans is used)
+  overlapping genes the union of their spans is used); missing UTRs have no known length and are
+  not counted
 
-The complete lists of the GFF types skipped are logged with `--verbose`. Where no coding
-transcript is imported at all, e.g. from a GFF3 file without CDS lines, a warning after
-the summary says that the genome gives no training data.
+The complete lists of the GFF types skipped are logged with `--verbose`. Where no gene, or fewer
+than one in ten of the coding transcripts read, gives labels, a warning after the summary names
+the largest loss and the scripts preparing a GFF3 file for import (see `docs/scripts.md`).
 
 ##### reverse complement
 

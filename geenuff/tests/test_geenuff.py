@@ -1724,6 +1724,49 @@ def test_import_summary_counts_a_missing_utr_flank_without_room_as_empty(tmp_pat
                     "beside the gene)", 0) in entries[GENES_GIVING_LABELS]
 
 
+def test_a_transcript_with_nested_exons_is_selected_and_masked_in_full(tmp_path, caplog):
+    """Exon lines each running from the transcript start to the end of one CDS line overlap one
+    another; the gene's only coding transcript is still its longest, exported and masked in full
+    for overlapping_exons. With more than 5% of the coding transcripts affected, the import warns
+    once, suggesting to drop the exon lines."""
+    fasta, gff = tmp_path / 'nested.fa', tmp_path / 'nested.gff3'
+    fasta.write_text('>CHR\n' + 'C' * 1000 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t101\t700\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\tmRNA\t101\t700\t.\t+\t.\tID=t1;Parent=g1\n'
+                   + ''.join(f'CHR\ttest\texon\t101\t{end}\t.\t+\t.\tParent=t1\n'
+                             for end in (700, 600, 500, 400, 300))
+                   + ''.join(f'CHR\ttest\tCDS\t{start}\t{end}\t.\t+\t0\tParent=t1\n'
+                             for start, end in ((101, 300), (351, 400), (451, 500), (551, 600), (651, 700))))
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome(str(fasta), str(gff), clean_gff=True)
+    assert controller.session.query(Transcript).filter(Transcript.longest.is_(True)).count() == 1
+    assert controller.stats.longest_transcripts == 1
+    assert controller.stats.errors_masking_in_full == {types.OVERLAPPING_EXONS: 1}
+    warnings = [r.message for r in caplog.records if r.levelname == 'WARNING' and 'overlapping exon' in r.message]
+    assert len(warnings) == 1
+    assert warnings[0].startswith('1 of 1 coding transcripts (100.0%) have overlapping exon lines')
+    assert 'drop the exon lines' in warnings[0]
+
+
+def test_import_without_training_data_warns_with_the_largest_loss_and_helper_scripts(tmp_path, caplog):
+    """A transcript naming itself as Parent is left out while grouping, so no gene gives labels:
+    the import ends with a warning naming that loss and the scripts preparing a GFF3 file."""
+    fasta, gff = tmp_path / 'self_parent.fa', tmp_path / 'self_parent.gff3'
+    fasta.write_text('>CHR\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t1\t400\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\tmRNA\t1\t400\t.\t+\t.\tID=g1-mRNA-1;Parent=g1-mRNA-1\n'
+                   'CHR\ttest\texon\t1\t400\t.\t+\t.\tParent=g1-mRNA-1\n'
+                   'CHR\ttest\tCDS\t1\t300\t.\t+\t0\tParent=g1-mRNA-1\n')
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome(str(fasta), str(gff), clean_gff=True)
+    warning = next(r.message for r in caplog.records if 'TRAINING DATA' in r.message)
+    assert warning.startswith('NO TRAINING DATA')
+    assert '1 coding transcript left out while grouping lines into genes, naming a transcript as parent' in warning
+    assert all(script in warning for script in ('add_gene_lines.py', 'rebuild_exons.py', 'rename_gff_seqids.py'))
+
+
 def test_overlap_length_counts_the_shared_bases_of_two_range_lists():
     assert overlap_length([(0, 10), (20, 30)], [(5, 25)]) == 10
     assert overlap_length([(0, 10)], [(10, 20)]) == 0

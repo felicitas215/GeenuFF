@@ -76,7 +76,9 @@ species. For more information please see
 Each import ends with a summary that counts down from the GFF lines to the genes giving Helixer
 labels, step by step: what was left out or masked on the way, and why, including the errors of the
 exported transcripts. It is the quickest way to see whether an annotation is in the state you
-expected.
+expected. Where no gene, or fewer than one in ten of the coding transcripts read, gives labels, a
+warning after it names the largest loss and the scripts in [docs/scripts.md](docs/scripts.md)
+that prepare an incorrectly formatted GFF3 file for import.
 
 ## Future plans
 
