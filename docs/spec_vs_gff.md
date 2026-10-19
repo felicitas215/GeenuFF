@@ -187,10 +187,11 @@ and the coding transcripts, i.e. potential training data, each reason cost.
   models, whose CDS, exons and UTRs would have to be guessed from IDs every source writes
   differently; masked, their sequence is not taught as intergenic. They are grouped by a shared
   `ID` (else one by one) where they name no parent, by the `Parent` where it matches no line, and
-  by the gene where it has no transcripts. Each group gets a transcript spanning it, under its gene
-  or one created for it, masked whole with both flanks, and overlaps like any gene masked
-  outright. A group is left out if its lines lie on different sequences or strands, or on another
-  one than the gene they name.
+  by the gene where it has no transcripts (`add_transcript_lines.py` gives such genes an mRNA
+  before import; only use for single isoform gff files!). Each group gets a transcript spanning
+  it, under its gene or one created for it, masked whole with both flanks, and overlaps like any
+  gene masked outright. A group is left out if its lines lie on different sequences or strands,
+  or on another one than the gene they name.
 - A transcript with CDS lines but no exon lines gets exons built from its CDS and UTR lines, lines
   that touch forming one exon. Overlapping lines stay apart, so that the overlap is found as an
   error.

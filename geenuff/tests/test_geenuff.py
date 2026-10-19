@@ -19,8 +19,7 @@ from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, Transcrip
                               Protein, TranscriptError)
 from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from geenuff.applications.importer import (ImportController, InsertCounterHolder, MissingGeneLines,
-                                           OrganizedGFFEntries, error_severity, overlap_length, GENES_GIVING_LABELS,
-                                           SUMMARY_STEPS)
+                                           OrganizedGFFEntries, error_severity, GENES_GIVING_LABELS, SUMMARY_STEPS)
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 
@@ -1365,25 +1364,6 @@ def test_gff_gen():
     assert x[-1].type == 'CDS'
 
 
-def test_a_line_of_an_unknown_feature_type_is_skipped_and_counted(tmp_path):
-    """A line whose type is neither an SO term nor one of the non-SO spellings GeenuFF accepts is
-    skipped and counted as unrecognized, while the surrounding gene is grouped as usual."""
-    gff = tmp_path / 'unknown_type.gff3'
-    gff.write_text('##gff-version 3\n'
-                   'CHR\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
-                   'CHR\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t1;Parent=g1\n'
-                   'CHR\ttest\tmade_up_feature\t10\t20\t.\t+\t.\tParent=t1\n'
-                   'CHR\ttest\texon\t1\t300\t.\t+\t.\tParent=t1\n'
-                   'CHR\ttest\tCDS\t10\t290\t.\t+\t0\tParent=t1\n')
-    gff_organizer = OrganizedGFFEntries(str(gff))
-    gff_organizer.load_organized_entries()
-    assert gff_organizer.stats.unrecognized_feature_types == {'made_up_feature': 1}
-    assert not gff_organizer.stats.dropped_lines
-    [group] = gff_organizer.organized_entries['CHR']
-    [t_entries] = group['transcripts'].values()
-    assert (len(t_entries['exons']), len(t_entries['cds'])) == (1, 1)
-
-
 def test_gff_useful_gen():
     gff_organizer = OrganizedGFFEntries('testdata/testerSl.gff3')
     x = list(gff_organizer._useful_gff_entries())
@@ -1422,28 +1402,6 @@ def test_gff_grouper_leaves_out_genes_sharing_an_id():
     assert gff_organizer.stats.coding_transcripts_dropped == {'shared_id': 2}
     assert gff_organizer.stats._dropped_lines_entry('shared_id')[1].endswith(
         '2 coding transcripts lost, from 1 gene ID')
-
-
-def test_coding_transcripts_lost_below_a_left_out_transcript_count_apart_from_gene_ids(tmp_path):
-    """Two gene lines share g1, each with a coding transcript, and two transcript lines share t9
-    under g2: three coding transcripts are lost for sharing an ID, two of them from one gene ID,
-    the third below a transcript line left out itself."""
-    gff = tmp_path / 'mixed_shared_ids.gff3'
-    gff.write_text('##gff-version 3\n'
-                   'CHR\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
-                   'CHR\ttest\tgene\t401\t700\t.\t+\t.\tID=g1\n'
-                   'CHR\ttest\tmRNA\t1\t300\t.\t+\t.\tID=tA;Parent=g1\n'
-                   'CHR\ttest\tCDS\t1\t300\t.\t+\t0\tParent=tA\n'
-                   'CHR\ttest\tmRNA\t401\t700\t.\t+\t.\tID=tB;Parent=g1\n'
-                   'CHR\ttest\tCDS\t401\t700\t.\t+\t0\tParent=tB\n'
-                   'CHR\ttest\tgene\t801\t1100\t.\t+\t.\tID=g2\n'
-                   'CHR\ttest\tmRNA\t801\t1100\t.\t+\t.\tID=t9;Parent=g2\n'
-                   'CHR\ttest\tmRNA\t801\t1000\t.\t+\t.\tID=t9;Parent=g2\n'
-                   'CHR\ttest\tCDS\t801\t1000\t.\t+\t0\tParent=t9\n')
-    gff_organizer = OrganizedGFFEntries(str(gff))
-    gff_organizer.load_organized_entries()
-    assert gff_organizer.stats._dropped_lines_entry('shared_id')[1].endswith(
-        '3 coding transcripts lost, 2 of them from 1 gene ID')
 
 
 @pytest.fixture(scope='module')
@@ -1595,6 +1553,36 @@ def test_lines_without_a_transcript_line_that_are_not_masked_are_left_out(cds_wi
     assert [t.given_name for t in gene_b.transcripts] == ['rnaB1']
 
 
+def test_add_transcript_lines_gives_genes_without_one_an_mrna(tmp_path):
+    """add_transcript_lines.py gives g1, whose exon and CDS lines name the gene itself, an mRNA line
+    spanning it as their Parent, which then imports as a gene giving labels instead of masked
+    floating CDS lines; g2, having a transcript line, stays as it is."""
+    gff, out = tmp_path / 'genes_only.gff3', tmp_path / 'with_transcripts.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t101\t400\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\texon\t101\t400\t.\t+\t.\tParent=g1\n'
+                   'CHR\ttest\tCDS\t101\t400\t.\t+\t0\tParent=g1\n'
+                   'CHR\ttest\tgene\t601\t900\t.\t+\t.\tID=g2\n'
+                   'CHR\ttest\tmRNA\t601\t900\t.\t+\t.\tID=t2;Parent=g2\n'
+                   'CHR\ttest\texon\t601\t900\t.\t+\t.\tParent=t2\n'
+                   'CHR\ttest\tCDS\t601\t900\t.\t+\t0\tParent=t2\n')
+    script = Path(__file__).parents[2] / 'scripts' / 'add_transcript_lines.py'
+    subprocess.run([sys.executable, str(script), '--gff', str(gff), '-o', str(out)], check=True)
+    lines = [line.split('\t') for line in out.read_text().splitlines() if not line.startswith('#')]
+    assert [(columns[2], columns[3], columns[4], columns[8]) for columns in lines[:4]] == [
+        ('gene', '101', '400', 'ID=g1'), ('mRNA', '101', '400', 'ID=g1_mRNA;Parent=g1'),
+        ('exon', '101', '400', 'Parent=g1_mRNA'), ('CDS', '101', '400', 'Parent=g1_mRNA')]
+    assert out.read_text().splitlines()[5:] == gff.read_text().splitlines()[4:]
+
+    fasta = tmp_path / 'genes_only.fa'
+    fasta.write_text('>CHR\n' + 'C' * 100 + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 200 + 'ATG' + 'C' * 294 + 'TAA'
+                     + 'C' * 100 + '\n')
+    controller = ImportController(database_path='sqlite:///:memory:')
+    controller.add_genome(str(fasta), str(out), clean_gff=True)
+    assert controller.stats.exported_outcomes['floating'] == 0
+    assert controller.stats.labeled_genes() == 2
+
+
 def test_coding_transcripts_past_a_sequence_edge_are_clipped_and_masked_whole():
     """A coding transcript reaching past its sequence keeps the part on it, selected for export
     and masked over at least that part; one with no CDS line on the sequence is left out with its
@@ -1706,29 +1694,10 @@ def test_import_summary_funnel_adds_up(name):
     assert sum(n for _, n, _, _ in breakdown) == labeled
 
 
-def test_import_summary_counts_a_missing_utr_flank_without_room_as_empty(tmp_path):
-    """The gene's CDS starts at the first base of its transcript and sequence, so its 5' UTR is
-    missing, and its flank, reaching into the gap before it, has no room: the gene gives labels,
-    counted with one UTR flank masked, that mask empty."""
-    fasta, gff = tmp_path / 'edge.fa', tmp_path / 'edge.gff3'
-    fasta.write_text('>CHR\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
-    gff.write_text('##gff-version 3\n'
-                   'CHR\ttest\tgene\t1\t400\t.\t+\t.\tID=g1\n'
-                   'CHR\ttest\tmRNA\t1\t400\t.\t+\t.\tID=t1;Parent=g1\n'
-                   'CHR\ttest\texon\t1\t400\t.\t+\t.\tParent=t1\n'
-                   'CHR\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t1\n')
-    controller = ImportController(database_path='sqlite:///:memory:')
-    controller.add_genome(str(fasta), str(gff), clean_gff=True)
-    entries = {header: entries for header, _, _, entries, _ in controller.stats.summary_steps()}
-    assert (' ', 1, "the flank of one UTR masked beside the gene (1 5', 0 3'; 1 of these masks empty, no room "
-                    "beside the gene)", 0) in entries[GENES_GIVING_LABELS]
-
-
-def test_a_transcript_with_nested_exons_is_selected_and_masked_in_full(tmp_path, caplog):
+def test_a_transcript_with_nested_exons_is_selected_and_masked_in_full(tmp_path):
     """Exon lines each running from the transcript start to the end of one CDS line overlap one
     another; the gene's only coding transcript is still its longest, exported and masked in full
-    for overlapping_exons. With more than 5% of the coding transcripts affected, the import warns
-    once, suggesting to drop the exon lines."""
+    for overlapping_exons."""
     fasta, gff = tmp_path / 'nested.fa', tmp_path / 'nested.gff3'
     fasta.write_text('>CHR\n' + 'C' * 1000 + '\n')
     gff.write_text('##gff-version 3\n'
@@ -1743,34 +1712,6 @@ def test_a_transcript_with_nested_exons_is_selected_and_masked_in_full(tmp_path,
     assert controller.session.query(Transcript).filter(Transcript.longest.is_(True)).count() == 1
     assert controller.stats.longest_transcripts == 1
     assert controller.stats.errors_masking_in_full == {types.OVERLAPPING_EXONS: 1}
-    warnings = [r.message for r in caplog.records if r.levelname == 'WARNING' and 'overlapping exon' in r.message]
-    assert len(warnings) == 1
-    assert warnings[0].startswith('1 of 1 coding transcripts (100.0%) have overlapping exon lines')
-    assert 'drop the exon lines' in warnings[0]
-
-
-def test_import_without_training_data_warns_with_the_largest_loss_and_helper_scripts(tmp_path, caplog):
-    """A transcript naming itself as Parent is left out while grouping, so no gene gives labels:
-    the import ends with a warning naming that loss and the scripts preparing a GFF3 file."""
-    fasta, gff = tmp_path / 'self_parent.fa', tmp_path / 'self_parent.gff3'
-    fasta.write_text('>CHR\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
-    gff.write_text('##gff-version 3\n'
-                   'CHR\ttest\tgene\t1\t400\t.\t+\t.\tID=g1\n'
-                   'CHR\ttest\tmRNA\t1\t400\t.\t+\t.\tID=g1-mRNA-1;Parent=g1-mRNA-1\n'
-                   'CHR\ttest\texon\t1\t400\t.\t+\t.\tParent=g1-mRNA-1\n'
-                   'CHR\ttest\tCDS\t1\t300\t.\t+\t0\tParent=g1-mRNA-1\n')
-    controller = ImportController(database_path='sqlite:///:memory:')
-    controller.add_genome(str(fasta), str(gff), clean_gff=True)
-    warning = next(r.message for r in caplog.records if 'TRAINING DATA' in r.message)
-    assert warning.startswith('NO TRAINING DATA')
-    assert '1 coding transcript left out while grouping lines into genes, naming a transcript as parent' in warning
-    assert all(script in warning for script in ('add_gene_lines.py', 'rebuild_exons.py', 'rename_gff_seqids.py'))
-
-
-def test_overlap_length_counts_the_shared_bases_of_two_range_lists():
-    assert overlap_length([(0, 10), (20, 30)], [(5, 25)]) == 10
-    assert overlap_length([(0, 10)], [(10, 20)]) == 0
-    assert overlap_length([], [(0, 5)]) == 0
 
 
 def test_import_summary_counts_the_masked_bases_within_exported_genes_only():

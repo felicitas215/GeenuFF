@@ -183,6 +183,7 @@ READING_ONLY_STEPS = SUMMARY_STEPS[:2]
 # training data and names the scripts preparing a GFF3 file for import
 LOW_TRAINING_DATA_SHARE = 0.1
 PREPARING_SCRIPTS = ('add_gene_lines.py for transcripts without a gene or naming themselves as Parent',
+                     'add_transcript_lines.py for genes whose exon and CDS lines name the gene itself',
                      'rebuild_exons.py for files listing exon lines for the UTRs only',
                      'rename_gff_seqids.py for GFF3 sequence IDs differing from the FASTA ones')
 # why all transcripts of a gene were left out on import, keyed as in left_out_reason
@@ -364,7 +365,9 @@ class ImportStatistics(object):
         missing = [side for side, error_type in (('5p', types.MISSING_UTR_5P), ('3p', types.MISSING_UTR_3P))
                    if error_type in errors]
         utrs = 'both' if len(missing) == 2 else missing[0] if missing else 'none'
-        self.utrs_missing[utrs] += 1
+        # a transcript made to mask floating CDS lines is never checked for its UTRs
+        if outcome != 'floating':
+            self.utrs_missing[utrs] += 1
         if outcome in MASKED_IN_FULL_OUTCOMES:
             self.errors_masking_in_full.update(errors - NOT_MASKING_IN_FULL)
             return
@@ -519,10 +522,13 @@ class ImportStatistics(object):
         utr_lines = [(utrs['none'], 'both UTRs annotated'), (utrs['5p'], "only the 5' UTR missing"),
                      (utrs['3p'], "only the 3' UTR missing"), (utrs['both'], 'both UTRs missing')]
         utr_width = len(str(max(n for n, _ in utr_lines)))
+        n_floating = self.exported_outcomes['floating']
+        not_counted = f'; the {n_floating} created to mask CDS lines not counted' if n_floating else ''
         utr_block = [f"UTRs of these, each gene in one line (5' UTR missing in "
                      f"{self.errors.get(types.MISSING_UTR_5P, 0)}, 3' UTR missing in "
                      f"{self.errors.get(types.MISSING_UTR_3P, 0)}; can overlap with other "
-                     f"errors):"] * bool(n_exported) + [f'  {n:>{utr_width}}  {text}' for n, text in utr_lines if n]
+                     f"errors{not_counted}):"] * bool(sum(utrs.values()))
+        utr_block += [f'  {n:>{utr_width}}  {text}' for n, text in utr_lines if n]
         n_wrong_phase = self.errors.get(types.WRONG_PHASE_5P, 0)
         steps.append((EXPORTED_CODING_GENES, n_exported, exported_detail,
                       [('-', self.exported_outcomes[outcome], EXPORTED_OUTCOMES[outcome], 0)

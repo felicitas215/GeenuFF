@@ -6,17 +6,18 @@ with `-o`, which they require; `list_transcripts.py` writes to stdout or, given 
 and `summarize_geenuff_db.py` to stdout.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
-`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `rebuild_exons.py` and
-`filter_sequence_lengths.py` check and prepare the files for import. Installing GeenuFF, directly
-or as a dependency of Helixer, puts all of them onto the PATH (see `pyproject.toml`), so they are
-called by name, e.g.
+`check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
+`rebuild_exons.py` and `filter_sequence_lengths.py` check and prepare the files for import.
+Installing GeenuFF, directly or as a dependency of Helixer, puts all of them onto the PATH
+(see `pyproject.toml`), so they are called by name, e.g.
 `check_seqids.py --fasta genome.fa --gff genome.gff3`.
 
-`dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `rebuild_exons.py` and
-`filter_sequence_lengths.py` log what they leave out or change; `--log-file` writes that log to a
-file as well as the terminal, to keep it beside the output. No script writes over its input files
-or database: an output path naming one stops it before anything is written, as do an input file
-or database that does not exist and an output path in a directory that does not exist.
+`dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
+`rebuild_exons.py` and `filter_sequence_lengths.py` log what they leave out or change; `--log-file`
+writes that log to a file as well as the terminal, to keep it beside the output. No script writes
+over its input files or database: an output path naming one stops it before anything is written,
+as do an input file or database that does not exist and an output path in a directory that does
+not exist.
 
 The preparing scripts read gzipped or plain files alike. Each file they write is gzipped where its
 input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override
@@ -208,6 +209,27 @@ already the ID of a line other than a gene line, gets the sequence and strand ap
 `g2_CHR_minus`) with a warning. Transcripts falling back to a gene of their own are warned about
 too, unless `--one-gene-per-transcript` is set. Where every transcript names a `Parent` other than
 itself, nothing needs adding and no file is written.
+
+## add_transcript_lines.py
+
+Adds a transcript line for genes without one whose exon, CDS and UTR lines name the gene itself as
+`Parent`, as in some MAKER files. GeenuFF masks CDS lines without a transcript
+line (`floating_cds`) rather than guess a gene model from them, so such a file gives no training
+data. Each such gene gets an `mRNA` line spanning it, written after the gene line with the ID
+`<gene ID>_mRNA`, which the gene's exon, CDS and UTR lines get as `Parent` in place of the gene:
+
+| before                             | after                                     |
+|------------------------------------|-------------------------------------------|
+| `gene ID=g1`                       | `gene ID=g1`                              |
+|                                    | `mRNA ID=g1_mRNA;Parent=g1`               |
+| `CDS ID=g1:CDS:1;Parent=g1`        | `CDS ID=g1:CDS:1;Parent=g1_mRNA`          |
+
+Genes with transcript lines stay as they are. The log warns where a gene has overlapping exon or
+CDS lines, a sign of several isoforms written as one gene, which GeenuFF masks. Where no gene
+lacks a transcript line, nothing needs adding and no file is written.  
+This should only be used on files where each gene parented feature belongs to one isoform only, as
+multi-isoform features all parented to one gene can not be sorted into the correct isoform reliably
+(automatically).
 
 ## rebuild_exons.py
 

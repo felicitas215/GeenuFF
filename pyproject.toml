@@ -48,6 +48,7 @@ package-data = {geenuff = ["testdata/*.fa", "testdata/*.gff3", "testdata/*.gff"]
 script-files = [
     "import2geenuff.py",
     "scripts/add_gene_lines.py",
+    "scripts/add_transcript_lines.py",
     "scripts/check_seqids.py",
     "scripts/dump_filtered_gff3.py",
     "scripts/dump_json.py",
