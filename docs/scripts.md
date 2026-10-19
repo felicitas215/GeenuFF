@@ -15,7 +15,8 @@ called by name, e.g.
 `dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `rebuild_exons.py` and
 `filter_sequence_lengths.py` log what they leave out or change; `--log-file` writes that log to a
 file as well as the terminal, to keep it beside the output. No script writes over its input files
-or database: an output path naming one stops it before anything is written.
+or database: an output path naming one stops it before anything is written, as do an input file
+or database that does not exist and an output path in a directory that does not exist.
 
 The preparing scripts read gzipped or plain files alike. Each file they write is gzipped where its
 input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override

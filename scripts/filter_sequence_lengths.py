@@ -18,9 +18,9 @@ from collections import OrderedDict, defaultdict
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import (add_output_compression_args, fasta_header_id, fasta_lines, gff_feature_lines,
-                                  insert_before_extension, open_out, output_compression, output_path,
-                                  refuse_overwriting_inputs, setup_logging)
+from geenuff.base.helpers import (add_output_compression_args, check_output_paths, fasta_header_id, fasta_lines,
+                                  gff_feature_lines, insert_before_extension, open_out, output_compression,
+                                  output_path, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +225,7 @@ if __name__ == '__main__':
     add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
+    require_input_files(parser, [args.fasta, args.gff])
     if args.gff_out and not args.gff:
         parser.error('--gff-out needs --gff')
     if not 0 <= args.max_cluster_length_fraction <= 1:
@@ -234,6 +235,6 @@ if __name__ == '__main__':
     if args.gff:
         args.gff_out = output_path(args.gff_out or insert_before_extension(args.gff, OUT_SUFFIX),
                                    output_compression(args, args.gff))
-    refuse_overwriting_inputs(parser, [args.fasta_out, args.gff_out, args.removed_out, args.log_file],
-                              [args.fasta, args.gff])
+    check_output_paths(parser, [args.fasta_out, args.gff_out, args.removed_out, args.log_file],
+                       [args.fasta, args.gff])
     main(args)

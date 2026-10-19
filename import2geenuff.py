@@ -6,6 +6,7 @@ import logging
 import argparse
 
 from geenuff.applications.importer import ImportController
+from geenuff.base.helpers import check_output_paths, require_input_files
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +24,17 @@ class PathFinder(object):
         self.species = species
         self.input = '{}/{}/'.format(self.basedir, PathFinder.INPUT)
         self.output = '{}/{}/'.format(self.basedir, PathFinder.OUTPUT)
+        # basedir and, unless both input files are given, basedir/input exist (checked before)
         if self.basedir is not None:
-            for dir in [self.basedir, self.input, self.output]:
-                os.makedirs(dir, exist_ok=True)
-            self.problems_out = '{}import.log'.format(self.output)
+            os.makedirs(self.output, exist_ok=True)
         # files
         self.fasta_in = self._get_fa(fasta)
         self.gff_in = self._get_gff(gff)
         if not self.db_out:
             self.db_out = '{}{}.sqlite3'.format(self.output, species)
-        if logfile is not None:
-            self.problems_out = logfile
+        # beside the database, named after it, e.g. genome.sqlite3 -> genome_geenuff_import.log
+        db_stem = self.db_out.removeprefix('sqlite:///').removesuffix('.sqlite3')
+        self.problems_out = logfile or f'{db_stem}_geenuff_import.log'
 
     def _get_fa(self, provided):
         if provided is not None:
@@ -60,13 +61,7 @@ class PathFinder(object):
                                             info, possibilities)
 
 
-def main(args):
-    if args.basedir is None:
-        assert all([x is not None for x in [args.fasta, args.gff3, args.db_path, args.log_file]]), \
-            "if basedir is none, all four custom input/output files must be manually specified " \
-            "with --gff3, --fasta, --log-file and --db-path parameters"
-    paths = PathFinder(args.db_path, args.basedir, args.species, fasta=args.fasta, gff=args.gff3,
-                       logfile=args.log_file)
+def main(args, paths):
     # checked before the log file is opened, which would overwrite the existing database's import log
     if os.path.exists(paths.db_out.removeprefix('sqlite:///')) and not args.replace_db:
         sys.exit(f'database already existing at {paths.db_out} and --replace-db not set')
@@ -106,8 +101,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, all four custom '
-                        'input parameters must be set.')
+    parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, --fasta, --gff3 '
+                        'and --db-path must be set.')
     parser.add_argument('--config-file', type=str, default=DEFAULT_CONFIG_FILE,
                         help=f'YAML file setting min_intron_length and min_cds_length, the intron and spliced CDS '
                              f'lengths in bp below which a transcript is masked, e.g. config/import.yml of the '
@@ -117,8 +112,10 @@ if __name__ == '__main__':
     custominput = parser.add_argument_group('Override default with custom input/output location')
     custominput.add_argument('--gff3', help='gff3 formatted file to parse / standardize')
     custominput.add_argument('--fasta', help='fasta file to parse / standardize')
-    custominput.add_argument('--db-path', help='path of the GeenuFF database')
-    custominput.add_argument('--log-file', help="output path for import log (default basedir/output/import.log)")
+    custominput.add_argument('--db-path', help=('path of the GeenuFF database, which must end in .sqlite3 (default: '
+                                                'basedir/output/<species>.sqlite3)'))
+    custominput.add_argument('--log-file', help=('output path for import log (default: beside the database, named '
+                                                 'after it, e.g. genome.sqlite3 -> genome_geenuff_import.log)'))
 
     parser.add_argument('--replace-db', action='store_true',
                         help=('whether to override a GeenuFF database found at '
@@ -134,5 +131,17 @@ if __name__ == '__main__':
     genome_attr.add_argument('--acquired-from', default='', help='genome source')
 
     args = parser.parse_args()
-
-    main(args)
+    if args.basedir is None and None in (args.fasta, args.gff3, args.db_path):
+        parser.error('without --basedir, --fasta, --gff3 and --db-path are needed')
+    if args.basedir is not None:
+        # the input files are looked for in basedir/input, unless both are given
+        needed = args.basedir if args.fasta and args.gff3 else os.path.join(args.basedir, PathFinder.INPUT)
+        if not os.path.isdir(needed):
+            parser.error(f'the directory "{needed}" does not exist')
+    if args.db_path and not args.db_path.endswith('.sqlite3'):
+        parser.error(f'--db-path must end in .sqlite3, got "{args.db_path}"')
+    paths = PathFinder(args.db_path, args.basedir, args.species, fasta=args.fasta, gff=args.gff3,
+                       logfile=args.log_file)
+    require_input_files(parser, [paths.fasta_in, paths.gff_in])
+    check_output_paths(parser, [paths.db_out, paths.problems_out], [paths.fasta_in, paths.gff_in])
+    main(args, paths)

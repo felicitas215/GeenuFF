@@ -18,9 +18,9 @@ from dataclasses import dataclass, field
 
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
-from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, add_output_compression_args, compression_for,
-                                  fasta_header_id, gff_feature_lines, insert_before_extension, open_out,
-                                  output_compression, output_path, refuse_overwriting_inputs, setup_logging)
+from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, add_output_compression_args, check_output_paths,
+                                  compression_for, fasta_header_id, gff_feature_lines, insert_before_extension,
+                                  open_out, output_compression, output_path, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -577,6 +577,7 @@ if __name__ == '__main__':
     add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
+    require_input_files(parser, [args.gff, args.fasta])
     args.out = output_path(args.out, output_compression(args, args.gff))
-    refuse_overwriting_inputs(parser, [args.out, args.pairs_out, args.log_file], [args.gff, args.fasta])
+    check_output_paths(parser, [args.out, args.pairs_out, args.log_file], [args.gff, args.fasta])
     main(args)

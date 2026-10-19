@@ -220,14 +220,28 @@ def output_path(path: str, compression_level: int | None) -> str:
     return stem if compression_level is None else f'{stem}.gz'
 
 
-def refuse_overwriting_inputs(parser: argparse.ArgumentParser, outputs: Iterable[str | None],
-                              inputs: Iterable[str | None]) -> None:
-    """Stops with a usage error where an output path names an input file, which writing it would
+def check_output_paths(parser: argparse.ArgumentParser, outputs: Iterable[str | None],
+                       inputs: Iterable[str | None]) -> None:
+    """Stops with a usage error, before anything is written, where an output's directory does not
+    exist, as for a mistyped path, or where an output names an input file, which writing it would
     empty before it is read. Paths given as None, i.e. options left out, are skipped."""
-    input_paths = {os.path.realpath(path) for path in inputs if path}
+    input_paths = {os.path.realpath(path.removeprefix('sqlite:///')) for path in inputs if path}
     for path in outputs:
-        if path and os.path.realpath(path) in input_paths:
+        if not path:
+            continue
+        directory = os.path.dirname(path.removeprefix('sqlite:///')) or '.'
+        if not os.path.isdir(directory):
+            parser.error(f'the directory "{directory}" of the output "{path}" does not exist')
+        if os.path.realpath(path.removeprefix('sqlite:///')) in input_paths:
             parser.error(f'the output "{path}" is an input file, which writing it would destroy; give another path')
+
+
+def require_input_files(parser: argparse.ArgumentParser, paths: Iterable[str | None]) -> None:
+    """Stops with a usage error where an input file does not exist, before any output is created (a
+    database opened at a mistyped path would be created empty). Paths given as None are skipped."""
+    for path in paths:
+        if path and not os.path.isfile(path.removeprefix('sqlite:///')):
+            parser.error(f'the input file "{path}" does not exist')
 
 
 def open_out(path: str, compression_level: int | None, binary: bool = False) -> TextIO | BinaryIO:

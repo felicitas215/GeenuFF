@@ -14,6 +14,7 @@ from collections import defaultdict
 from types import SimpleNamespace
 
 from geenuff.base import types
+from geenuff.base.helpers import require_input_files
 from geenuff.applications.importer import (EMPTY, LEFT_OUT, NON_CODING, NOT_EXPORTED, NOT_MASKING_IN_FULL,
                                            READING_ONLY_STEPS, ImportStatistics, GFFErrorHandling, ascending_range,
                                            exported_outcome, format_summary, funnel_step, left_out_reason)
@@ -170,4 +171,6 @@ if __name__ == '__main__':
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--db-path-in', type=str, required=True,
                         help='Path to the GeenuFF SQLite database.')
-    main(parser.parse_args())
+    args = parser.parse_args()
+    require_input_files(parser, [args.db_path_in])
+    main(args)

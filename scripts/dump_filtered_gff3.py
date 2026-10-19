@@ -2,7 +2,7 @@
 import argparse
 
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
-from geenuff.base.helpers import refuse_overwriting_inputs, setup_logging
+from geenuff.base.helpers import check_output_paths, require_input_files, setup_logging
 
 
 def main(args: argparse.Namespace) -> None:
@@ -28,5 +28,6 @@ if __name__ == '__main__':
                               'placed are left out, and the log says how many'))
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
-    refuse_overwriting_inputs(parser, [args.out, args.log_file], [args.db_path_in])
+    require_input_files(parser, [args.db_path_in])
+    check_output_paths(parser, [args.out, args.log_file], [args.db_path_in])
     main(args)

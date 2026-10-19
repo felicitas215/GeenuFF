@@ -9,9 +9,13 @@ what you specify:
 
 ```
 import2geenuff.py --fasta <PATH_TO_GENOME_FASTA_FILE> --gff3 <PATH_TO_GFF3_FILE> \
-    --db-path <YOUR_DATA_NAME>.sqlite3 --log-file <YOUR_DATA_NAME>.import.log \
-    --species <SPECIES_NAME>
+    --db-path <YOUR_DATA_NAME>.sqlite3 --species <SPECIES_NAME>
 ```
+
+`--db-path` must end in `.sqlite3`. The log is written beside the database as
+`<YOUR_DATA_NAME>_geenuff_import.log`, or to the path given with `--log-file`. The import stops
+before writing anything where an input file does not exist or where `--db-path` or `--log-file`
+names an input file or lies in a directory that does not exist.
 
 Or with some of the testdata filled in:
 ```
@@ -19,7 +23,7 @@ geenuff_path=<PATH/TO/GeenuFF/>
 
 import2geenuff.py --fasta $geenuff_path/geenuff/testdata/exporting.fa \
     --gff3 $geenuff_path/geenuff/testdata/exporting.gff3 \
-    --db-path dummy.sqlite3 --log-file dummy.import.log --species dummy
+    --db-path dummy.sqlite3 --species dummy
 ```
 
 
@@ -33,12 +37,13 @@ With the files arranged as below, `--basedir` sets input and output in one go:
 # simplified import
 import2geenuff.py --basedir <BASEDIR> --species <SPECIES_NAME>
 
-# the output files "<SPECIES_NAME>.sqlite3" and "import.log" will be written in
-# the directory <BASEDIR>/output/
+# the output files "<SPECIES_NAME>.sqlite3" and "<SPECIES_NAME>_geenuff_import.log" will be
+# written in the directory <BASEDIR>/output/
 ```
 
-Explicit paths override those from `--basedir`. Import one species into one database once; to
-redo it, delete the database or pass `--replace-db`.
+`<BASEDIR>/input` must exist, `<BASEDIR>/output` is created. Explicit paths override those from
+`--basedir`. Import one species into one database once; to redo it, delete the database or pass
+`--replace-db`.
 
 ## extract fasta sequences from a database
 

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from geenuff.applications.importer import UNEXPORTED_REASONS, error_severity
 from geenuff.base import types
-from geenuff.base.helpers import geenuff_to_gff_start_end, is_masked_whole, refuse_overwriting_inputs
+from geenuff.base.helpers import check_output_paths, geenuff_to_gff_start_end, is_masked_whole, require_input_files
 
 logger = logging.getLogger(__name__)
 
@@ -201,5 +201,6 @@ if __name__ == '__main__':
     parser.add_argument('--include-noncoding', action='store_true',
                         help='list non-coding transcripts too (never checked for errors)')
     args = parser.parse_args()
-    refuse_overwriting_inputs(parser, [args.out], [args.db_path_in])
+    require_input_files(parser, [args.db_path_in])
+    check_output_paths(parser, [args.out], [args.db_path_in])
     main(args)
