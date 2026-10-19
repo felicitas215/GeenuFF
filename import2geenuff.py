@@ -6,7 +6,7 @@ import logging
 import argparse
 
 from geenuff.applications.importer import ImportController
-from geenuff.base.helpers import check_output_paths, require_input_files
+from geenuff.base.helpers import check_output_paths, require_fasta_and_gff, require_input_files
 
 logger = logging.getLogger(__name__)
 
@@ -144,5 +144,6 @@ if __name__ == '__main__':
     paths = PathFinder(args.db_path, args.basedir, args.species, fasta=args.fasta, gff=args.gff3,
                        logfile=args.log_file)
     require_input_files(parser, [paths.fasta_in, paths.gff_in])
+    require_fasta_and_gff(parser, paths.fasta_in, paths.gff_in)
     check_output_paths(parser, [paths.db_out, paths.problems_out], [paths.fasta_in, paths.gff_in])
     main(args, paths)
