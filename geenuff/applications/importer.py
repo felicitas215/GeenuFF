@@ -35,6 +35,9 @@ PIECE_KEYS = {x.value: key for level, key in [(types.ExonLevel, 'exons'), (types
 # overlapping exon lines, the import warns
 CDS_OUTSIDE_EXONS_WARN_SHARE = 0.05
 OVERLAPPING_EXONS_WARN_SHARE = 0.05
+# the number of sequences whose progress lines are logged at INFO level, the rest at DEBUG
+# (--verbose), so a fragmented assembly does not flood the log
+MAX_LOGGED_SEQUENCES = 30
 
 
 # how much of a locus its own errors take away, lower being better (see
@@ -189,7 +192,7 @@ PREPARING_SCRIPTS = ('add_gene_lines.py for transcripts without a gene or naming
                      'rename_gff_seqids.py for GFF3 sequence IDs differing from the FASTA ones')
 # why all transcripts of a gene were left out on import, keyed as in left_out_reason
 LEFT_OUT_REASONS = {
-    'no_strand': "on neither strand, e.g. NCBI's '?'",
+    'no_strand': 'on neither strand',
     types.OUTSIDE_SEQUENCE: 'with a line outside their sequence',
     types.UNPLACEABLE_COORDINATES: 'with a line running backwards',
 }
@@ -2002,7 +2005,12 @@ class ImportController(object):
         logger.info('Starting to add sequences from the FASTA file')
         self.latest_fasta_importer.add_sequences(seq_path)
         self.session.commit()
-        logger.info(f'Added {len(self.latest_fasta_importer.genome.coordinates)} sequences')
+        n_sequences = len(self.latest_fasta_importer.genome.coordinates)
+        # cut down on these messages for highly fragmented genomes (i.e. a lot of sequenced to add)
+        # if the logging level is not info (i.e. with --verbose it's debug) the old overprinting way is used
+        logger.info(f'Added {n_sequences} sequences' +
+                    (f', the first {MAX_LOGGED_SEQUENCES} logged (all with --verbose)'
+                     if n_sequences > MAX_LOGGED_SEQUENCES and logger.getEffectiveLevel() == logging.INFO else ''))
 
     def clean_tmp_data(self):
         self.latest_genome = None
@@ -2112,6 +2120,10 @@ class ImportController(object):
 
         organized_gff_entries = gff_organizer.organized_entries
         n_organized_gff_entries = len(organized_gff_entries)
+        # beyond MAX_LOGGED_SEQUENCES, a line per tenth of the sequences instead of one per sequence
+        # if the logging level is not info (--verbose = debug) the old overprinting way is used like up top
+        many = n_organized_gff_entries > MAX_LOGGED_SEQUENCES if logger.getEffectiveLevel() == logging.INFO else False
+        tenth = math.ceil(n_organized_gff_entries / 10)
         geenuff_importer_groups = []
         for i, seqid in enumerate(organized_gff_entries.keys()):
             for entry_group in organized_gff_entries[seqid]:
@@ -2121,9 +2133,21 @@ class ImportController(object):
             # never do error checking across fasta sequence borders
             is_final_coord = (i == (n_organized_gff_entries - 1))
             clean_and_insert(self, geenuff_importer_groups, clean, is_final_coord)
-            logger.info(f'Finished importing features from {len(geenuff_importer_groups)} super loci '
-                        f'from coordinate with seqid {seqid} ({i + 1}/{n_organized_gff_entries})')
+            logger.log(logging.DEBUG if many else logging.INFO,
+                       f'Finished importing features from {len(geenuff_importer_groups)} super loci '
+                       f'from coordinate with seqid {seqid} ({i + 1}/{n_organized_gff_entries})')
+            if many and ((i + 1) % tenth == 0 or is_final_coord):
+                logger.info(f'Finished importing features from {i + 1}/{n_organized_gff_entries} sequences')
             geenuff_importer_groups = []
+        if many:
+            # the sequences with the most genes/loci, the most telling ones in a fragmented assembly
+            position = {seqid: i + 1 for i, seqid in enumerate(organized_gff_entries)}
+            top = sorted(organized_gff_entries, key=lambda seqid: -len(organized_gff_entries[seqid]))
+            logger.info(f'The {MAX_LOGGED_SEQUENCES} of the {n_organized_gff_entries} sequences with the most super '
+                        f'loci (every sequence with --verbose):')
+            for seqid in top[:MAX_LOGGED_SEQUENCES]:
+                logger.info(f'Finished importing features from {len(organized_gff_entries[seqid])} super loci from '
+                            f'coordinate with seqid {seqid} ({position[seqid]}/{n_organized_gff_entries})')
 
 
 class Insertable(ABC):
@@ -2146,13 +2170,14 @@ class FastaImporter(object):
 
     def add_sequences(self, seq_file):
         # todo, parallelize sequence & annotation format, then import directly from ~Slice
-        for seqid, seq in self.parse_fasta(seq_file):
+        for i, (seqid, seq) in enumerate(self.parse_fasta(seq_file)):
             coord = orm.Coordinate(sequence=seq,
                                    length=len(seq),
                                    seqid=seqid,
                                    sha1=helpers.sequence_hash(seq),
                                    genome=self.genome)
-            logger.info(f'Added coordinate object for FASTA sequence with seqid {seqid} to the queue')
+            logger.log(logging.INFO if i < MAX_LOGGED_SEQUENCES else logging.DEBUG,
+                       f'Added coordinate object for FASTA sequence with seqid {seqid} to the queue')
 
     def parse_fasta(self, seq_file):
         fp = fastahelper.FastaParser()

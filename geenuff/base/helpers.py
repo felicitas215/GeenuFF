@@ -469,7 +469,7 @@ class QueueController(object):
                 conn.execute(queue.action, queue.queue)
                 del queue.queue[:]
         self.session.commit()
-        logger.info(f'All core queues executed ({n_elements} elements)')
+        logger.debug(f'All core queues executed ({n_elements} elements)')
 
 
 class CoreQueue(object):

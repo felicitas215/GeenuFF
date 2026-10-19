@@ -17,6 +17,11 @@ import2geenuff.py --fasta <PATH_TO_GENOME_FASTA_FILE> --gff3 <PATH_TO_GFF3_FILE>
 before writing anything where an input file does not exist or where `--db-path` or `--log-file`
 names an input file or lies in a directory that does not exist.
 
+For an assembly of more than 30 sequences, the log shows the first 30 sequences added from the
+FASTA file, a progress line per 10 % of the sequences while the features are imported, and then
+the 30 sequences with the most genes. `--verbose` logs every sequence, along with every individual
+error.
+
 Or with some of the testdata filled in:
 ```
 geenuff_path=<PATH/TO/GeenuFF/>

@@ -122,7 +122,8 @@ if __name__ == '__main__':
                               'the default location or at the location of --db-path'))
     parser.add_argument('--verbose', action='store_true',
                         help=('log every individual error as it is found (DEBUG level), '
-                              'instead of just the aggregate summary at the end'))
+                              'instead of just the aggregate summary at the end, and the progress lines of '
+                              'every sequence, of which only 30 are logged otherwise'))
 
     genome_attr = parser.add_argument_group('Possible genome attributes:')
     genome_attr.add_argument('--species', required=True, help='name of the species')
