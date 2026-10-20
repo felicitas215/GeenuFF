@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
 from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, add_output_compression_args, check_output_paths,
-                                  compression_for, fasta_header_id, gff_feature_lines, insert_before_extension,
-                                  open_out, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging)
+                                  codon_after_cds, compression_for, fasta_header_id, gff_attributes, gff_feature_lines,
+                                  insert_before_extension, open_out, output_compression, output_path,
+                                  require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.base.types import PIECE_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ MOTIF_LENGTHS = {'start': 3, 'stop': 3, STOP_OR_NEXT: 3, 'donor': 2, 'acceptor':
 # the chance of a random position passing each check
 RANDOM_PASS = {'start': 1 / 64, 'stop': 3 / 64, STOP_OR_NEXT: 6 / 64, 'donor': 2 / 16, 'acceptor': 1 / 16}
 COMPLEMENT = str.maketrans('ACGT', 'TGCA')
+# (kind, 0-based position on the plus strand, is_plus), a STOP_OR_NEXT check with the 0-based
+# positions of the codon after the CDS added (see codon_after)
+Check = tuple[str, int, bool] | tuple[str, int, bool, tuple[int, int, int]]
 # A check is one position where the GFF3 file places a start codon, a stop codon or one end of an
 # intron, tested for the bases expected there; a transcript with n introns gives 2 + 2n checks.
 # At most MAX_CHECKS per sequence ID, spread evenly along it, far more than needed to tell its sequence
@@ -66,6 +70,7 @@ class StopSite:
     position: int  # 0-based start of the last codon of the CDS on the plus strand
     is_plus: bool
     exon_beyond: bool  # whether its exons reach 3 bases or more past the CDS
+    after: tuple[int, int, int]  # the codon following the CDS (see codon_after)
 
 
 @dataclass
@@ -74,7 +79,7 @@ class GffSequence:
     region_length: int | None = None  # from a ##sequence-region line
     n_lines: int = 0
     coding_transcripts: int = 0
-    checks: list[tuple[str, int, bool]] = field(default_factory=list)  # (kind, 0-based position, is_plus)
+    checks: list[Check] = field(default_factory=list)
     stops: list[StopSite] = field(default_factory=list)
 
 
@@ -93,10 +98,22 @@ class Pairing:
     duplicates: dict[str, str] = field(default_factory=dict)  # GFF3 sequence ID: FASTA ID paired already
 
 
-def transcript_checks(cds: list[tuple[int, int]], exons: list[tuple[int, int]],
-                      is_plus: bool) -> list[tuple[str, int, bool]]:
+def end_codons_whole(cds: list[tuple[int, int]]) -> tuple[bool, bool]:
+    """Whether the CDS lines lowest and highest on the sequence hold 3 bases or more each, so that the
+    codon at that end of the CDS is 3 contiguous bases; one split by an intron is not checked."""
+    low, high = min(cds), max(cds, key=lambda piece: piece[1])
+    return low[1] - low[0] >= 2, high[1] - high[0] >= 2
+
+
+def codon_after(cds: list[tuple[int, int]], exons: list[tuple[int, int]], is_plus: bool) -> tuple[int, int, int]:
+    """The 0-based plus-strand positions of the 3 bases following a transcript's CDS, in reading order,
+    as GeenuFF's import reads them (see geenuff.base.helpers.codon_after_cds)."""
+    return tuple(p - 1 for p in codon_after_cds(cds, exons, is_plus)[0])
+
+
+def transcript_checks(cds: list[tuple[int, int]], exons: list[tuple[int, int]], is_plus: bool) -> list[Check]:
     """The start and stop codon of a transcript's CDS and the splice sites of the introns between its
-    exons, or its CDS lines without exon lines, as (kind, 0-based position on the plus strand, is_plus).
+    exons, or its CDS lines without exon lines, as checks (see Check).
 
     Args:
         cds: the GFF3 (start, end) of its CDS lines
@@ -106,10 +123,12 @@ def transcript_checks(cds: list[tuple[int, int]], exons: list[tuple[int, int]],
     checks = []
     if cds:
         first, last = min(cds)[0] - 1, max(end for _, end in cds) - 3
+        low_whole, high_whole = end_codons_whole(cds)
+        after = codon_after(cds, exons, is_plus)
         if is_plus:
-            checks += [('start', first, True), (STOP_OR_NEXT, last, True)]
+            checks += [('start', first, True)] * low_whole + [(STOP_OR_NEXT, last, True, after)] * high_whole
         else:
-            checks += [(STOP_OR_NEXT, first, False), ('start', last, False)]
+            checks += [(STOP_OR_NEXT, first, False, after)] * low_whole + [('start', last, False)] * high_whole
     pieces = sorted(exons or cds)
     left, right = ('donor', 'acceptor') if is_plus else ('acceptor', 'donor')
     for (_, end), (start, _) in zip(pieces, pieces[1:]):
@@ -122,13 +141,14 @@ def stop_site(transcript_id: str, cds: list[tuple[int, int]], exons: list[tuple[
               is_plus: bool) -> StopSite:
     """Where a transcript's CDS ends, and whether its exons go on 3 bases or more past it, which GeenuFF
     needs to extend the CDS by a stop codon left out of it."""
+    after = codon_after(cds, exons, is_plus)
     if is_plus:
         cds_end = max(end for _, end in cds)
         beyond = sum(max(0, end - max(start - 1, cds_end)) for start, end in exons)
-        return StopSite(transcript_id, cds_end - 3, True, beyond >= 3)
+        return StopSite(transcript_id, cds_end - 3, True, beyond >= 3, after)
     cds_start = min(start for start, _ in cds)
     beyond = sum(max(0, min(end + 1, cds_start) - start) for start, end in exons)
-    return StopSite(transcript_id, cds_start - 1, False, beyond >= 3)
+    return StopSite(transcript_id, cds_start - 1, False, beyond >= 3, after)
 
 
 def sequence_regions(gff_path: str) -> dict[str, int]:
@@ -145,25 +165,30 @@ def sequence_regions(gff_path: str) -> dict[str, int]:
 def read_gff(gff_path: str) -> dict[str, GffSequence]:
     """The sequence IDs of a GFF3 file's feature lines, with what is needed to pair and check them."""
     sequences = defaultdict(GffSequence)
-    pieces = defaultdict(lambda: {'CDS': [], 'exon': [], 'strands': set()})  # by (seqid, Parent)
+    # by (seqid, Parent); the exon and CDS types GeenuFF imports, a line under each transcript it names
+    pieces = defaultdict(lambda: {'cds': [], 'exons': [], 'strands': set()})
     for line in gff_feature_lines(gff_path):
-        seqid, _, feature_type, start, end, _, strand, _, attributes = line.rstrip('\n').split('\t')[:9]
+        seqid, _, feature_type, start, end, _, strand, _, column = line.rstrip('\n').split('\t')[:9]
         sequences[seqid].max_end = max(sequences[seqid].max_end, int(end))
         sequences[seqid].n_lines += 1
-        parent = re.search(r'Parent=([^;]+)', attributes)
-        if feature_type in ('CDS', 'exon') and parent:
-            transcript = pieces[(seqid, parent.group(1))]
-            transcript[feature_type].append((int(start), int(end)))
-            transcript['strands'].add(strand)
+        key = PIECE_KEYS.get(feature_type)
+        if key not in ('cds', 'exons'):
+            continue
+        for parent in gff_attributes(column).get('Parent', '').split(','):
+            if parent:
+                transcript = pieces[(seqid, parent)]
+                transcript[key].append((int(start), int(end)))
+                transcript['strands'].add(strand)
     for (seqid, transcript_id), transcript in pieces.items():
         sequence = sequences[seqid]
-        sequence.coding_transcripts += bool(transcript['CDS'])
+        sequence.coding_transcripts += bool(transcript['cds'])
         if transcript['strands'] not in ({'+'}, {'-'}):
             continue
         is_plus = transcript['strands'] == {'+'}
-        sequence.checks += transcript_checks(transcript['CDS'], transcript['exon'], is_plus)
-        if transcript['CDS']:
-            sequence.stops.append(stop_site(transcript_id, transcript['CDS'], transcript['exon'], is_plus))
+        sequence.checks += transcript_checks(transcript['cds'], transcript['exons'], is_plus)
+        # a stop codon split by an intron cannot lie after the CDS, the CDS ending in it
+        if transcript['cds'] and end_codons_whole(transcript['cds'])[is_plus]:
+            sequence.stops.append(stop_site(transcript_id, transcript['cds'], transcript['exons'], is_plus))
     for sequence in sequences.values():
         # MAX_CHECKS spread evenly along the sequence, so a change anywhere on it shows, between its first
         # and last MIN_DECISIVE_CHECKS checks, those of its first and last genes (see failing_window)
@@ -180,29 +205,39 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
     return sequences
 
 
-def passes(sequence: str, kind: str, position: int, is_plus: bool) -> bool:
+def codon_at(sequence: str, positions: tuple[int, int, int], is_plus: bool) -> str:
+    """The bases at 0-based plus-strand positions in reading order, complemented on the minus strand,
+    or '' where one lies outside the sequence."""
+    if not all(0 <= p < len(sequence) for p in positions):
+        return ''
+    bases = ''.join(sequence[p] for p in positions)
+    return bases if is_plus else bases.translate(COMPLEMENT)
+
+
+def passes(sequence: str, kind: str, position: int, is_plus: bool, after: tuple[int, int, int] | None = None) -> bool:
+    """Whether the bases at a check's position are the motif expected there; a STOP_OR_NEXT check also
+    passes where the codon after the CDS, at after (which it needs), is a stop codon."""
     if position < 0:
         return False
     if kind == STOP_OR_NEXT:
-        return (passes(sequence, 'stop', position, is_plus)
-                or passes(sequence, 'stop', position + (3 if is_plus else -3), is_plus))
+        return passes(sequence, 'stop', position, is_plus) or codon_at(sequence, after, is_plus) in MOTIFS['stop']
     motif = sequence[position:position + MOTIF_LENGTHS[kind]]
     if not is_plus:
         motif = motif.translate(COMPLEMENT)[::-1]
     return motif in MOTIFS[kind]
 
 
-def n_passed(sequence: str, checks: list[tuple[str, int, bool]]) -> int:
+def n_passed(sequence: str, checks: list[Check]) -> int:
     return sum(passes(sequence, *check) for check in checks)
 
 
-def random_pass_log10(checks: list[tuple[str, int, bool]], n: int) -> float:
+def random_pass_log10(checks: list[Check], n: int) -> float:
     """log10 of an upper bound on the chance that a random sequence passes n of the checks."""
-    log_chances = sorted(math.log10(RANDOM_PASS[kind]) for kind, _, _ in checks)
+    log_chances = sorted(math.log10(RANDOM_PASS[kind]) for kind, *_ in checks)
     return math.log10(math.comb(len(checks), n)) + sum(log_chances[len(checks) - n:])
 
 
-def failing_window(sequence: str, checks: list[tuple[str, int, bool]]) -> str | None:
+def failing_window(sequence: str, checks: list[Check]) -> str | None:
     """The first window of consecutive checks along the sequence (see WINDOW_CHECKS) of which fewer
     than MIN_NAMED_SCORE pass, described, or None where all pass; checks are sorted by position. The
     first and the last MIN_DECISIVE_CHECKS checks, those of the first and last genes, are windows of
@@ -469,7 +504,7 @@ def log_stop_codons(gff_sequences: dict[str, GffSequence], pairs: dict[str, Pair
         sequence = sequences[pair.fasta_id]
         for stop in gff_sequences[gff_id].stops:
             if (not passes(sequence, 'stop', stop.position, stop.is_plus)
-                    and passes(sequence, STOP_OR_NEXT, stop.position, stop.is_plus)):
+                    and passes(sequence, STOP_OR_NEXT, stop.position, stop.is_plus, stop.after)):
                 outside += 1
                 if not stop.exon_beyond:
                     unextendable.append(stop.transcript_id)

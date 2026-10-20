@@ -16,29 +16,20 @@ from collections import defaultdict
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import CDS_OUTSIDE_EXONS_WARN_SHARE, PIECE_KEYS, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (add_output_compression_args, check_output_paths, gff_attributes, gff_feature_lines,
-                                  insert_before_extension, open_out, output_compression, output_path,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.base.helpers import (add_output_compression_args, cds_outside_exons, check_output_paths, gff_attributes,
+                                  gff_feature_lines, insert_before_extension, merge_gff_spans, open_out,
+                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
+                                  setup_logging)
 
 logger = logging.getLogger(__name__)
 
 OUT_SUFFIX = '_exons_rebuilt'  # inserted before the extension of the GFF3 file's name for the default output
 
 
-def merged(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Sorted GFF spans (1-based, inclusive) merged where they touch or overlap."""
-    out = []
-    for start, end in sorted(spans):
-        if out and start <= out[-1][1] + 1:
-            out[-1][1] = max(out[-1][1], end)
-        else:
-            out.append([start, end])
-    return [(start, end) for start, end in out]
-
-
 def rebuilt_exons(gff_path: str) -> tuple[dict[str, list[tuple[int, int]]], int]:
     """{transcript ID: its new exon spans} for the transcripts with exon lines whose CDS lines reach
-    outside them, and the number of coding transcripts with exon lines."""
+    outside them, and the number of coding transcripts, with exon lines or not, as GeenuFF's import
+    counts them for its warning."""
     transcript_ids = set()
     pieces = defaultdict(lambda: defaultdict(list))  # {transcript ID: {'exons'/'cds'/'utrs': [spans]}}
     for line in gff_feature_lines(gff_path):
@@ -52,12 +43,11 @@ def rebuilt_exons(gff_path: str) -> tuple[dict[str, list[tuple[int, int]]], int]
 
     rebuilt, n_coding = {}, 0
     for transcript_id, spans in pieces.items():
-        if transcript_id not in transcript_ids or not spans['cds'] or not spans['exons']:
+        if transcript_id not in transcript_ids or not spans['cds']:
             continue
         n_coding += 1
-        exons = merged(spans['exons'])
-        if any(not any(lo <= start and end <= hi for lo, hi in exons) for start, end in spans['cds']):
-            rebuilt[transcript_id] = merged(spans['exons'] + spans['cds'] + spans['utrs'])
+        if spans['exons'] and cds_outside_exons(spans['cds'], spans['exons']):
+            rebuilt[transcript_id] = merge_gff_spans(spans['exons'] + spans['cds'] + spans['utrs'])
     return rebuilt, n_coding
 
 
@@ -101,8 +91,8 @@ def main(args: argparse.Namespace) -> None:
         return
     share = len(rebuilt) / n_coding
     examples = ', '.join(sorted(rebuilt)[:5])
-    logger.info(f'Rebuilt the exons of {len(rebuilt)} of {n_coding} coding transcripts with exon lines '
-                f'({share:.1%}), e.g. {examples}')
+    logger.info(f'Rebuilt the exons of {len(rebuilt)} of {n_coding} coding transcripts ({share:.1%}), '
+                f'e.g. {examples}')
     if share <= CDS_OUTSIDE_EXONS_WARN_SHARE:
         logger.warning(f'Only {share:.1%} of the coding transcripts have CDS lines outside their exons, which '
                        f'looks like a few wrong genes rather than exon lines for the UTRs only; GeenuFF masks '

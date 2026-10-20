@@ -2,6 +2,7 @@ import argparse
 import copy
 import gzip
 import hashlib
+import itertools
 import logging
 import enum
 import os
@@ -20,7 +21,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-##### types related #######
+# Types related
+# ----------------------------------
 
 
 # Enum makers
@@ -38,7 +40,8 @@ def make_enum(name, *args):
     return enum.Enum(name, [(x, x) for x in args])
 
 
-##### General #####
+# General
+# ----------------------------------
 def sequence_hash(sequence):
     sha1 = hashlib.sha1(sequence.encode())
     return sha1.hexdigest()
@@ -118,8 +121,8 @@ def setup_logging(log_file: str | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s', handlers=handlers)
 
 
-##### Mapper #####
-
+# Mapper
+# ----------------------------------
 class NonMatchableIDs(Exception):
     pass
 
@@ -174,22 +177,8 @@ def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, 
     return matched | substring_matched
 
 
-def gff_feature_lines(gff_file: str) -> Iterator[str]:
-    """Yields the feature lines of a (gzipped) GFF3 file, skipping comments and blank lines, up to an
-    embedded FASTA section (a ##FASTA line or a line starting with '>')."""
-    with dustdas.fastahelper.text_or_gzip_open(gff_file) as f:
-        for line in f:
-            if line.startswith(('##FASTA', '>')):
-                return
-            if line.strip() and not line.startswith('#'):
-                yield line
-
-
-def gff_attributes(column: str) -> dict[str, str]:
-    """{tag: value} of a GFF3 attribute column, values left unsplit (e.g. 'a,b' for several parents)."""
-    return dict(pair.split('=', 1) for pair in column.strip().strip(';').split(';') if '=' in pair)
-
-
+# Script options and file checks
+# ----------------------------------
 # gzip level of the scripts' output files; 4 compresses a genome nearly as well as gzip's default 6,
 # several times faster
 DEFAULT_COMPRESSION_LEVEL = 4
@@ -293,6 +282,8 @@ def open_out(path: str, compression_level: int | None, binary: bool = False) -> 
     return gzip.open(path, 'wb' if binary else 'wt', compresslevel=compression_level)
 
 
+# FASTA and GFF3 reading
+# ----------------------------------
 FASTA_CHUNK_SIZE = 1 << 20
 
 
@@ -347,11 +338,28 @@ def fasta_ids(path: str) -> list[str]:
             if at_line_start and piece.startswith(b'>')]
 
 
+def gff_feature_lines(gff_file: str) -> Iterator[str]:
+    """Yields the feature lines of a (gzipped) GFF3 file, skipping comments and blank lines, up to an
+    embedded FASTA section (a ##FASTA line or a line starting with '>')."""
+    with dustdas.fastahelper.text_or_gzip_open(gff_file) as f:
+        for line in f:
+            if line.startswith(('##FASTA', '>')):
+                return
+            if line.strip() and not line.startswith('#'):
+                yield line
+
+
+def gff_attributes(column: str) -> dict[str, str]:
+    """{tag: value} of a GFF3 attribute column, values left unsplit (e.g. 'a,b' for several parents)."""
+    return dict(pair.split('=', 1) for pair in column.strip().strip(';').split(';') if '=' in pair)
+
+
 def get_seqids_from_gff(gff_file: str) -> set[str]:
     return {line.split('\t')[0] for line in gff_feature_lines(gff_file)}
 
 
-##### GFF start/end to GeenuFF #####
+# GFF start/end to GeenuFF
+# ----------------------------------
 def strand_as_bool(strand):
     # anything but '+' or '-' raises; use strand_or_none below where that is not fatal
     if strand == '+':
@@ -422,7 +430,8 @@ def is_masked_whole(transcript_feature, masks) -> bool:
 GFF_PHASE_FROM_NORMAL: dict[int, int] = {0: 0, 1: 2, 2: 1}
 
 
-##### Reverse complement #####
+# Reverse complement
+# ----------------------------------
 
 def mk_rc_key():
     fw = "ACGTMRWSYKVHDBN"
@@ -448,8 +457,8 @@ def reverse_complement(seq):
     return rc_seq
 
 
-##### Start/Stop codon detection #####
-
+# Start/Stop codon detection
+# ----------------------------------
 START_CODON = 'ATG'
 STOP_CODONS = ['TAG', 'TGA', 'TAA']
 
@@ -475,6 +484,28 @@ def has_inframe_stop_codon(cds_seq: str) -> bool:
     return any(codon in STOP_CODONS for codon in codons)
 
 
+def codon_after_cds(cds: Sequence[tuple[int, int]], exons: Sequence[tuple[int, int]],
+                    is_plus_strand: bool) -> tuple[list[int], int]:
+    """The 1-based positions of the 3 bases following a CDS in reading order, along its exons, across
+    an intron if need be, and straight on past the last exon where fewer are left in them, with how
+    many of the 3 lie past the exons; where a stop codon GTF leaves out of the CDS lies. The positions
+    can repeat, for overlapping exons, or lie past the sequence end."""
+    if is_plus_strand:
+        cds_end = max(end for _, end in cds)
+        in_exons = (p for start, end in sorted(exons) for p in range(max(start, cds_end + 1), end + 1))
+        past = itertools.count(max(end for _, end in [*exons, *cds]) + 1)
+    else:
+        cds_start = min(start for start, _ in cds)
+        in_exons = (p for start, end in sorted(exons, reverse=True)
+                    for p in range(min(end, cds_start - 1), start - 1, -1))
+        past = itertools.count(min(start for start, _ in [*exons, *cds]) - 1, -1)
+    following = list(itertools.islice(in_exons, 3))
+    n_past = 3 - len(following)
+    return following + list(itertools.islice(past, n_past)), n_past
+
+
+# Span/range helpers
+# ----------------------------------
 def merge_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
     """Merges ascending, half-open (lo, hi) ranges into a minimal, sorted list of ranges."""
     merged = []
@@ -486,13 +517,35 @@ def merge_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
     return [tuple(r) for r in merged]
 
 
+def merge_gff_spans(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """GFF spans (1-based, inclusive) sorted and merged where they touch or overlap."""
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
+
+
+# CDS position check
+# ----------------------------------
+def cds_outside_exons(cds: Iterable[tuple[int, int]], exons: Iterable[tuple[int, int]]) -> bool:
+    """Whether a CDS span reaches outside the exon spans (GFF, 1-based, inclusive), touching or
+    overlapping exons counting as one."""
+    covered = merge_gff_spans(exons)
+    return any(not any(lo <= start and end <= hi for lo, hi in covered) for start, end in cds)
+
+
+# String/import summary formatting
+# ----------------------------------
 def plural(n: int, noun: str) -> str:
     """'1 transcript', '2 transcripts'."""
     return f'{n} {noun}{"" if n == 1 else "s"}'
 
 
-##### SQL alchemy core queue control #####
-
+# SQL alchemy core queue control
+# ----------------------------------
 class Counter(object):
     def __init__(self, cl=None, at=0):
         self.cl = cl

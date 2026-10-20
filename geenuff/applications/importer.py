@@ -1,6 +1,5 @@
 import os
 import copy
-import itertools
 import bisect
 import math
 import logging
@@ -185,21 +184,13 @@ class OrganizedGeenuffImporterGroup(object):
         to recover the stop codon GTF leaves out of the CDS, in GFF3 converted from GTF, which can
         also lack the exon part holding it; GTF itself is not read."""
         cds, exons = t_entries['cds'], t_entries['exons']
-        if is_plus_strand:
-            in_exons = (p for exon in exons for p in range(max(exon.start, cds[-1].end + 1), exon.end + 1))
-            past_exons = range(max(line.end for line in exons + cds) + 1, seq_length + 1)
-        else:
-            in_exons = (p for exon in reversed(exons) for p in range(min(exon.end, cds[0].start - 1),
-                                                                    exon.start - 1, -1))
-            past_exons = range(min(line.start for line in exons + cds) - 1, 0, -1)
-        following = list(itertools.islice(in_exons, 3))
+        following, n_past = helpers.codon_after_cds([(c.start, c.end) for c in cds], [(e.start, e.end) for e in exons],
+                                                    is_plus_strand)
         # overlapping exons repeat a base
         if len(set(following)) < len(following):
             return None
-        n_past = 3 - len(following)
-        following += itertools.islice(past_exons, n_past)
         # the sequence ends first
-        if len(following) < 3:
+        if not all(1 <= p <= seq_length for p in following):
             return None
 
         pieces = [copy.copy(c) for c in cds]
@@ -408,7 +399,8 @@ class OrganizedGeenuffImporterGroup(object):
                 # the lines are sorted by start, so any overlap shows between neighbors
                 cds_lines = t_entries['cds']
                 overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))
-                cds_outside_exons = self._cds_outside_exons(cds_lines, t_entries['exons'])
+                cds_outside_exons = helpers.cds_outside_exons([(c.start, c.end) for c in cds_lines],
+                                                              [(e.start, e.end) for e in t_entries['exons']])
                 stats.cds_outside_exons_transcripts += cds_outside_exons
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
@@ -548,18 +540,6 @@ class OrganizedGeenuffImporterGroup(object):
                 t['transcript'].longest = True
             else:
                 t['transcript'].longest = False
-
-    @staticmethod
-    def _cds_outside_exons(cds_lines, exon_lines):
-        """Whether a CDS line reaches outside the exon lines, touching or overlapping exons counting as
-        one; both lists are GFF lines sorted by start."""
-        covered = []
-        for exon in exon_lines:
-            if covered and exon.start <= covered[-1][1] + 1:
-                covered[-1][1] = max(covered[-1][1], exon.end)
-            else:
-                covered.append([exon.start, exon.end])
-        return any(not any(lo <= cds.start and cds.end <= hi for lo, hi in covered) for cds in cds_lines)
 
     @staticmethod
     def _coding_length(cds, introns):

@@ -45,6 +45,14 @@ def setup_data_handler(handler_type, data_type, **kwargs):
     return data, handler
 
 
+def run_script(name: str, *args: str) -> None:
+    subprocess.run([sys.executable, str(Path(__file__).parents[2] / 'scripts' / name), *args], check=True)
+
+
+def feature_lines(path: Path) -> list[list[str]]:
+    return [line.split('\t') for line in path.read_text().splitlines() if line and not line.startswith('#')]
+
+
 # Do not implement as __eq__ to not change __hash__ behavior
 def matching_super_loci(s1, s2):
     if not isinstance(s1, s2.__class__):
@@ -413,11 +421,8 @@ def test_rebuild_exons_covers_the_cds_of_utr_only_exon_lines(tmp_path):
     UTR and CDS lines, as rnaOneExon has, which then import without an error, and leaves the other
     transcripts as they are."""
     out = tmp_path / 'rebuilt.gff3'
-    script = Path(__file__).parents[2] / 'scripts' / 'rebuild_exons.py'
-    subprocess.run([sys.executable, str(script), '--gff', 'testdata/cds_outside_exons.gff3', '-o', str(out)],
-                   check=True)
-    exons = [line.split('\t')[3:5] + [line.rstrip().split('\t')[8]] for line in out.read_text().splitlines()
-             if not line.startswith('#') and line.split('\t')[2] == 'exon']
+    run_script('rebuild_exons.py', '--gff', 'testdata/cds_outside_exons.gff3', '-o', str(out))
+    exons = [columns[3:5] + [columns[8]] for columns in feature_lines(out) if columns[2] == 'exon']
     assert exons == [['101', '700', 'Parent=rnaUtrOnly'],
                      ['101', '700', 'ID=exon-rnaOneExon;Parent=rnaOneExon'],
                      ['101', '200', 'ID=exon-rnaControl-1;Parent=rnaControl'],
@@ -1570,6 +1575,78 @@ def test_lines_without_a_transcript_line_that_are_not_masked_are_left_out(cds_wi
     assert [t.given_name for t in gene_b.transcripts] == ['rnaB1']
 
 
+def test_add_gene_lines_gives_parentless_transcripts_their_gene(tmp_path):
+    """g1.t1 and g1.t2, without a Parent, get a gene line g1 spanning both, written to the default
+    name; x.t1, naming itself as Parent, gets the gene line x already in the file instead, no second
+    one being written."""
+    gff = tmp_path / 'genes.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=g1.t1\n'
+                   'CHR\ttest\tCDS\t101\t400\t.\t+\t0\tParent=g1.t1\n'
+                   'CHR\ttest\tmRNA\t201\t500\t.\t+\t.\tID=g1.t2\n'
+                   'CHR\ttest\tCDS\t201\t500\t.\t+\t0\tParent=g1.t2\n'
+                   'CHR\ttest\tgene\t701\t900\t.\t+\t.\tID=x\n'
+                   'CHR\ttest\tmRNA\t701\t900\t.\t+\t.\tID=x.t1;Parent=x.t1\n'
+                   'CHR\ttest\tCDS\t701\t900\t.\t+\t0\tParent=x.t1\n')
+    run_script('add_gene_lines.py', '--gff', str(gff))
+    lines = feature_lines(tmp_path / 'genes_with_genes.gff3')
+    assert [(c[2], c[3], c[4], c[8]) for c in lines if c[2] == 'gene'] == [('gene', '101', '500', 'ID=g1'),
+                                                                           ('gene', '701', '900', 'ID=x')]
+    assert {c[8] for c in lines if c[2] == 'mRNA'} == {'ID=g1.t1;Parent=g1', 'ID=g1.t2;Parent=g1',
+                                                       'ID=x.t1;Parent=x'}
+
+
+def test_rename_gff_seqids_renames_to_fasta_ids_and_leaves_out_unmatched_sequences(tmp_path):
+    """The GFF3 sequence ID scaffold_7 is a word of the FASTA header 'Chr1 scaffold_7', so its lines
+    are renamed to Chr1; lost matches no FASTA sequence and its lines are left out."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text('>Chr1 scaffold_7\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'scaffold_7\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
+                   'scaffold_7\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'scaffold_7\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t1\n'
+                   'lost\ttest\tgene\t1\t300\t.\t+\t.\tID=g2\n'
+                   'lost\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t2;Parent=g2\n'
+                   'lost\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t2\n')
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--max-missing-percent', '50')
+    lines = feature_lines(tmp_path / 'genes_renamed.gff3')
+    assert [(c[0], c[2]) for c in lines] == [('Chr1', 'gene'), ('Chr1', 'mRNA'), ('Chr1', 'CDS')]
+
+
+def test_filter_sequence_lengths_removes_a_short_sequence_and_its_lines(tmp_path):
+    """With the hard floor alone, lowered to 10 bp, the 5 bp sequence tiny is removed from the FASTA file
+    and its lines from the GFF3 file, written to the default names; the longer sequences and their lines
+    stay."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text(''.join(f'>long{i}\n' + 'A' * 20 + '\n' for i in range(3)) + '>tiny\n' + 'A' * 5 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   '##sequence-region tiny 1 5\n'
+                   'long0\ttest\tgene\t1\t5\t.\t+\t.\tID=g1\n'
+                   'tiny\ttest\tgene\t1\t5\t.\t+\t.\tID=g2\n')
+    run_script('filter_sequence_lengths.py', '--fasta', str(fasta), '--gff', str(gff), '--no-adaptive',
+               '--min-seq-len', '10')
+    out_fasta = (tmp_path / 'genome_length_filtered.fa').read_text()
+    assert [line for line in out_fasta.splitlines() if line.startswith('>')] == ['>long0', '>long1', '>long2']
+    out_gff = (tmp_path / 'genes_length_filtered.gff3').read_text()
+    assert 'tiny' not in out_gff and [c[8] for c in feature_lines(tmp_path / 'genes_length_filtered.gff3')] == ['ID=g1']
+
+
+def test_filter_sequence_lengths_removes_a_cluster_of_small_sequences_and_those_below_the_floor(tmp_path):
+    """Of six 200-250 bp sequences, two of 15 and 18 bp and one of 5 bp, the two small ones form a
+    cluster below the largest gap between the log10 lengths, standing out from the other gaps and
+    holding under 5% of the bases, and are removed although above the floor, lowered to 10 bp; the
+    5 bp one is removed by the floor. Their GFF3 lines go with them."""
+    lengths = {f'chr{i}': 200 + 10 * i for i in range(6)} | {'small1': 15, 'small2': 18, 'tiny': 5}
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text(''.join(f'>{seq_id}\n' + 'A' * length + '\n' for seq_id, length in lengths.items()))
+    gff.write_text('##gff-version 3\n' + ''.join(f'{seq_id}\ttest\tgene\t1\t5\t.\t+\t.\tID=g_{seq_id}\n'
+                                                 for seq_id in lengths))
+    run_script('filter_sequence_lengths.py', '--fasta', str(fasta), '--gff', str(gff), '--min-seq-len', '10')
+    out_fasta = (tmp_path / 'genome_length_filtered.fa').read_text()
+    assert [line[1:] for line in out_fasta.splitlines() if line.startswith('>')] == [f'chr{i}' for i in range(6)]
+    assert [c[0] for c in feature_lines(tmp_path / 'genes_length_filtered.gff3')] == [f'chr{i}' for i in range(6)]
+
+
 def test_add_transcript_lines_gives_genes_without_one_an_mrna(tmp_path):
     """add_transcript_lines.py gives g1, whose exon and CDS lines name the gene itself, an mRNA line
     spanning it as their Parent, which then imports as a gene giving labels instead of masked
@@ -1583,9 +1660,8 @@ def test_add_transcript_lines_gives_genes_without_one_an_mrna(tmp_path):
                    'CHR\ttest\tmRNA\t601\t900\t.\t+\t.\tID=t2;Parent=g2\n'
                    'CHR\ttest\texon\t601\t900\t.\t+\t.\tParent=t2\n'
                    'CHR\ttest\tCDS\t601\t900\t.\t+\t0\tParent=t2\n')
-    script = Path(__file__).parents[2] / 'scripts' / 'add_transcript_lines.py'
-    subprocess.run([sys.executable, str(script), '--gff', str(gff), '-o', str(out)], check=True)
-    lines = [line.split('\t') for line in out.read_text().splitlines() if not line.startswith('#')]
+    run_script('add_transcript_lines.py', '--gff', str(gff), '-o', str(out))
+    lines = feature_lines(out)
     assert [(columns[2], columns[3], columns[4], columns[8]) for columns in lines[:4]] == [
         ('gene', '101', '400', 'ID=g1'), ('mRNA', '101', '400', 'ID=g1_mRNA;Parent=g1'),
         ('exon', '101', '400', 'Parent=g1_mRNA'), ('CDS', '101', '400', 'Parent=g1_mRNA')]
