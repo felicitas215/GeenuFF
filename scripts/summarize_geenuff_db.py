@@ -15,9 +15,10 @@ from types import SimpleNamespace
 
 from geenuff.base import types
 from geenuff.base.helpers import require_input_files
-from geenuff.applications.importer import (EMPTY, LEFT_OUT, NON_CODING, NOT_EXPORTED, NOT_MASKING_IN_FULL,
-                                           READING_ONLY_STEPS, ImportStatistics, GFFErrorHandling, ascending_range,
-                                           exported_outcome, format_summary, funnel_step, left_out_reason)
+from geenuff.applications.import_summary import (EMPTY, LEFT_OUT, NON_CODING, NOT_EXPORTED, NOT_MASKING_IN_FULL,
+                                                 READING_ONLY_STEPS, ImportStatistics, ascending_range,
+                                                 exported_outcome, format_summary, funnel_step, left_out_reason)
+from geenuff.applications.importer import GFFErrorHandling
 
 logger = logging.getLogger(__name__)
 

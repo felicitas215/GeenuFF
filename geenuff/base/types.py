@@ -45,6 +45,11 @@ USEFUL_GFF_TYPES = frozenset(x.value for level in (SuperLocusAll, TranscriptLeve
 IGNORABLE_GFF_TYPES = ((SO_SEQUENCE_TERMS - USEFUL_GFF_TYPES)
                        | {TRANSCRIPTION_START_SITE, TRANSCRIPTION_START_SITE2, TRANSCRIPTION_TERMINATION_SITE2})
 KNOWN_GFF_TYPES = IGNORABLE_GFF_TYPES | USEFUL_GFF_TYPES
+# the GFF3 types of each kind, and where an exon, CDS or UTR line goes among its transcript's lines
+GENE_TYPES = frozenset(x.value for x in SuperLocusAll)
+TRANSCRIPT_TYPES = frozenset(x.value for x in TranscriptLevel)
+PIECE_KEYS = {x.value: key for level, key in [(ExonLevel, 'exons'), (CDSLevel, 'cds'), (UTRLevel, 'utrs')]
+              for x in level}
 
 ###########
 # GeenuFF #

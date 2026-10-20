@@ -19,7 +19,8 @@ from geenuff.base.orm import (Genome, Feature, Coordinate, Transcript, Transcrip
                               Protein, TranscriptError)
 from geenuff.base.handlers import SuperLocusHandlerBase, TranscriptHandlerBase
 from geenuff.applications.importer import (ImportController, InsertCounterHolder, MissingGeneLines,
-                                           OrganizedGFFEntries, error_severity, GENES_GIVING_LABELS, SUMMARY_STEPS)
+                                           OrganizedGFFEntries, error_severity)
+from geenuff.applications.import_summary import GENES_GIVING_LABELS, SUMMARY_STEPS
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 

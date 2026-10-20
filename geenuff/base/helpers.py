@@ -455,6 +455,22 @@ def has_inframe_stop_codon(cds_seq: str) -> bool:
     return any(codon in STOP_CODONS for codon in codons)
 
 
+def merge_ranges(ranges: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merges ascending, half-open (lo, hi) ranges into a minimal, sorted list of ranges."""
+    merged = []
+    for lo, hi in sorted(ranges):
+        if merged and lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return [tuple(r) for r in merged]
+
+
+def plural(n: int, noun: str) -> str:
+    """'1 transcript', '2 transcripts'."""
+    return f'{n} {noun}{"" if n == 1 else "s"}'
+
+
 ##### SQL alchemy core queue control #####
 
 class Counter(object):

@@ -16,7 +16,8 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from geenuff.applications.importer import UNEXPORTED_REASONS, error_severity
+from geenuff.applications.import_summary import UNEXPORTED_REASONS
+from geenuff.applications.importer import error_severity
 from geenuff.base import types
 from geenuff.base.helpers import check_output_paths, geenuff_to_gff_start_end, is_masked_whole, require_input_files
 
