@@ -153,9 +153,16 @@ def main(args: argparse.Namespace) -> None:
         raise SystemExit(f'"{args.db_path_in}" was written by a GeenuFF without the transcript_error '
                          f'table (i.e. version <= 0.3.2); import it again to summarize it')
     species = con.execute('SELECT species FROM genome').fetchone()
+    # recorded since the sequence_chunk layout
+    source = None
+    if 'fasta_path' in {row[1] for row in con.execute('PRAGMA table_info(genome)')}:
+        source = con.execute('SELECT fasta_path, gff_path, geenuff_version, imported FROM genome').fetchone()
     stats = statistics(con)
     con.close()
 
+    if source:
+        fasta_path, gff_path, geenuff_version, imported = source
+        logger.info(f'Imported from "{fasta_path}" and "{gff_path}" by GeenuFF {geenuff_version} on {imported}')
     title = f'Summary rebuilt from "{args.db_path_in}"' + (f' for "{species[0]}"' if species else '')
     print(format_summary(title, stats.summary_steps(reading_counts=False), stats.summary_notes()), flush=True)
     print('not in the database, only ever in the import log:', flush=True)

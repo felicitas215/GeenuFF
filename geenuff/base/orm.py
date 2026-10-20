@@ -21,6 +21,11 @@ class Genome(Base):
     accession = Column(String)
     version = Column(String)
     acquired_from = Column(String)
+    # where the genome was imported from, by which GeenuFF version and when (ISO 8601)
+    fasta_path = Column(String)
+    gff_path = Column(String)
+    geenuff_version = Column(String)
+    imported = Column(String)
     coordinates = relationship("Coordinate", back_populates="genome")
 
     __table_args__ = (
