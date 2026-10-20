@@ -100,7 +100,7 @@ class GeenuffExportController(object):
         self.engine = create_engine(full_db_path(self.db_path_in), echo=False)
         if 'sequence_chunk' not in inspect(self.engine).get_table_names():
             raise ValueError(f'"{self.db_path_in}" was written by a GeenuFF storing each sequence in one row '
-                             f'i.e. (version <= 0.3.1); import the genome again')
+                             f'i.e. (version <= 0.3.2); import the genome again')
         self.session = sessionmaker(bind=self.engine)()
 
     def get_coord_by_id(self, coord_id):

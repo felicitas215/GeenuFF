@@ -151,12 +151,12 @@ def main(args: argparse.Namespace) -> None:
     con = sqlite3.connect(args.db_path_in)
     if not has_table(con, 'transcript_error'):
         raise SystemExit(f'"{args.db_path_in}" was written by a GeenuFF without the transcript_error '
-                         f'table (i.e. version <= 0.3.1); import it again to summarize it')
+                         f'table (i.e. version <= 0.3.2); import it again to summarize it')
     species = con.execute('SELECT species FROM genome').fetchone()
     stats = statistics(con)
     con.close()
 
-    title = f'summary rebuilt from "{args.db_path_in}"' + (f' for "{species[0]}"' if species else '')
+    title = f'Summary rebuilt from "{args.db_path_in}"' + (f' for "{species[0]}"' if species else '')
     print(format_summary(title, stats.summary_steps(reading_counts=False), stats.summary_notes()), flush=True)
     print('not in the database, only ever in the import log:', flush=True)
     for line in (f'the {" and ".join(READING_ONLY_STEPS)} steps: lines read, skipped or left out while grouping '

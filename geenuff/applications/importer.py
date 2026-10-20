@@ -114,6 +114,10 @@ MASKED_IN_FULL_OUTCOMES = ('floating', 'own_errors', 'nested', 'chain')
 # full (see GFFErrorHandling._find_errors)
 NOT_MASKING_IN_FULL = frozenset({types.MISSING_UTR_5P, types.MISSING_UTR_3P, types.WRONG_PHASE_5P,
                                  types.SL_OVERLAP_ERROR})
+# the errors that mask a transcript in full before anything else, its UTRs among it, is checked
+# (see GFFErrorHandling._find_errors)
+UTRS_NOT_CHECKED = frozenset({types.FLOATING_CDS, types.BEYOND_SEQUENCE_EDGE, types.OVERLAPPING_EXONS,
+                              types.OVERLAPPING_CDS, types.CDS_OUTSIDE_EXONS})
 
 
 def error_severity(errors) -> str:
@@ -226,19 +230,22 @@ def format_summary(title: str, steps: list[tuple[str, int | None, str, list[tupl
     the way to the next step, so the counts add up from the GFF lines down to the training labels.
 
     steps holds (header, count or None, bracketed detail or '', [(sign, count, text, level)], extra
-    lines); sign is '-', '+' or ' ' for a breakdown, and level indents an entry further. An entry
-    with a count of 0 is left out, and so is a step without count or entries. The counts of a step
-    are right-aligned to its longest one."""
+    lines); sign is '-' (loose lines/genes/features), '+' (gain genes/features; very very rare) or ' '
+    for a breakdown. Level indents an entry further. An entry with a count of 0 is left out, and so
+    is a step without count or entries. The counts of a step are right-aligned to its longest one,
+    and a pipe line separates the steps."""
     steps = [(header, count, detail, [e for e in entries if e[1]], extra)
              for header, count, detail, entries, extra in steps]
     steps = [step for step in steps if step[1] is not None or step[3]]
-    lines = [f'{title}:']
-    for header, count, detail, entries, extra in steps:
+    lines = [f'{title}:', '-' * 100]
+    for i, (header, count, detail, entries, extra) in enumerate(steps):
+        if i:
+            lines.append(f'{" " * 8}|')
         width = max((len(str(n)) for _, n, _, _ in entries), default=1)
         lines.append(header + (f': {count}' if count is not None else ':') + (f' ({detail})' if detail else ''))
         lines += [f'  {"    " * level}{sign} {n:>{width}}  {text}' for sign, n, text, level in entries]
-        lines += [f'  {line}' for line in extra]
-    lines += [f'note: {note}' for note in notes]
+        lines += [f'  {line}' if line else '' for line in extra]
+    lines += ['-' * 100] + [f'note: {note}' for note in notes]
     return '\n'.join(lines)
 
 
@@ -347,10 +354,12 @@ class ImportStatistics(object):
         self.errors: defaultdict[str, int] = defaultdict(int)
         # the errors masking a transcript in full, counted over the transcripts masked in full
         self.errors_masking_in_full: Counter[str] = Counter()
-        # the exported transcripts by their missing UTRs, 'none', '5p', '3p' or 'both'; the same for
-        # the ones giving labels, with the missing UTRs whose flank mask came out empty and those
-        # also with the overhang of an overlapping gene dropped in their favor masked
+        # the exported transcripts by their missing UTRs, 'none', '5p', '3p' or 'both', and those never
+        # checked for them (UTRS_NOT_CHECKED); the same for the ones giving labels, with the missing
+        # UTRs whose flank mask came out empty and those also with the overhang of an overlapping
+        # gene dropped in their favor masked
         self.utrs_missing: Counter[str] = Counter()
+        self.utrs_not_checked: int = 0
         self.labeled_utrs: Counter[str] = Counter()
         self.labeled_empty_utr_flanks: Counter[str] = Counter()
         self.labeled_with_overhang: int = 0
@@ -371,8 +380,9 @@ class ImportStatistics(object):
         missing = [side for side, error_type in (('5p', types.MISSING_UTR_5P), ('3p', types.MISSING_UTR_3P))
                    if error_type in errors]
         utrs = 'both' if len(missing) == 2 else missing[0] if missing else 'none'
-        # a transcript made to mask floating CDS lines is never checked for its UTRs
-        if outcome != 'floating':
+        if errors & UTRS_NOT_CHECKED:
+            self.utrs_not_checked += 1
+        else:
             self.utrs_missing[utrs] += 1
         if outcome in MASKED_IN_FULL_OUTCOMES:
             self.errors_masking_in_full.update(errors - NOT_MASKING_IN_FULL)
@@ -531,24 +541,24 @@ class ImportStatistics(object):
                                 f'not exported')
         utrs = self.utrs_missing
         utr_lines = [(utrs['none'], 'both UTRs annotated'), (utrs['5p'], "only the 5' UTR missing"),
-                     (utrs['3p'], "only the 3' UTR missing"), (utrs['both'], 'both UTRs missing')]
+                     (utrs['3p'], "only the 3' UTR missing"), (utrs['both'], 'both UTRs missing'),
+                     (self.utrs_not_checked, 'not checked, errors making UTR checks impossible')]
         utr_width = len(str(max(n for n, _ in utr_lines)))
-        n_floating = self.exported_outcomes['floating']
-        not_counted = f'; the {n_floating} created to mask CDS lines not counted' if n_floating else ''
-        utr_block = [f"UTRs of these, each gene in one line (5' UTR missing in "
-                     f"{self.errors.get(types.MISSING_UTR_5P, 0)}, 3' UTR missing in "
-                     f"{self.errors.get(types.MISSING_UTR_3P, 0)}; can overlap with other "
-                     f"errors{not_counted}):"] * bool(sum(utrs.values()))
+        utr_block = ['', f"UTRs of these (5' UTR missing in "
+                         f"{self.errors.get(types.MISSING_UTR_5P, 0)}, 3' UTR missing in "
+                         f"{self.errors.get(types.MISSING_UTR_3P, 0)}; can overlap with other "
+                         f"errors):"] * bool(n_exported)
         utr_block += [f'  {n:>{utr_width}}  {text}' for n, text in utr_lines if n]
         n_wrong_phase = self.errors.get(types.WRONG_PHASE_5P, 0)
+        error_lines = self._error_lines('errors masking them in full, each type counted once per transcript '
+                                        '(can overlap):', self.errors_masking_in_full)
         steps.append((EXPORTED_CODING_GENES, n_exported, exported_detail,
                       [('-', self.exported_outcomes[outcome], EXPORTED_OUTCOMES[outcome], 0)
                        for outcome in MASKED_IN_FULL_OUTCOMES],
-                      self._error_lines('errors masking them in full, each type counted once per transcript '
-                                        '(can overlap):',
-                                        self.errors_masking_in_full)
+                      [''] * bool(error_lines) + error_lines
                       + utr_block
-                      + [f'first CDS phase in the file not 0, masking nothing: {n_wrong_phase}'] * bool(n_wrong_phase)))
+                      + ['', f'first CDS phase in the file not 0; corrected, masks nothing: {n_wrong_phase}']
+                      * bool(n_wrong_phase)))
 
         # overlapping masks, and the spans of overlapping exported genes, on one strand count once
         merged_masks = {key: GFFErrorHandling._merge_ranges(ranges) for key, ranges in self.mask_ranges.items()}
@@ -570,7 +580,7 @@ class ImportStatistics(object):
             (' ', labeled['5p'] + labeled['3p'], f'the flank of one UTR masked beside the gene ({one_detail})', 0),
         ], [f'{self.labeled_with_overhang} of them also with the overhang of an overlapping gene dropped in their '
             f'favor masked beside them'] * bool(self.labeled_with_overhang)
-                      + [f'{n_masked_bases} of the genome\'s {both_strands} bases on both strands masked '
+                      + ['', f'{n_masked_bases} of the genome\'s {both_strands} bases on both strands masked '
                          f'({100 * n_masked_bases / both_strands if both_strands else 0:.2f}%), each mask on its '
                          f'gene\'s strand only; Helixer gets no labels there',
                          f'{n_masked_gene_bases} of the {n_gene_bases} bases of the exported genes masked '
