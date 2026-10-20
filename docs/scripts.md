@@ -7,7 +7,8 @@ and `summarize_geenuff_db.py` to stdout.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
 `check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
-`rebuild_exons.py` and `filter_sequence_lengths.py` check and prepare the files for import.
+`rebuild_exons.py` and `filter_sequence_lengths.py` (i.e. the preparation scripts), check and
+prepare the files for import.  
 Installing GeenuFF, directly or as a dependency of Helixer, puts all of them onto the PATH
 (see `pyproject.toml`), so they are called by name, e.g.
 `check_seqids.py --fasta genome.fa --gff genome.gff3`.
@@ -21,10 +22,22 @@ not exist. The scripts reading a FASTA or GFF3 file, like `import2geenuff.py`, a
 two look swapped by their names, the FASTA file does not start with `>`, or the GFF3 file's first
 feature line does not have 9 tab-separated columns (e.g. 10 from a sequence ID holding a tab).
 
-The preparing scripts read gzipped or plain files alike. Each file they write is gzipped where its
+The preparation scripts read gzipped or plain files alike. Each file they write is gzipped where its
 input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override
 this for all of them. Gzipped output is written at `--compression-level` 4 by default (1 fastest,
 9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster.
+
+Without an output path (`-o`, or `--fasta-out` and `--gff-out` for `filter_sequence_lengths.py`),
+each preparation script writes beside its input, the input's name with a suffix before the extension,
+so a chain of them names every step, e.g. `genes_renamed_length_filtered_with_genes.gff3`:
+
+| script                       | suffix              |
+|------------------------------|---------------------|
+| `rename_gff_seqids.py`       | `_renamed`          |
+| `filter_sequence_lengths.py` | `_length_filtered`  |
+| `add_gene_lines.py`          | `_with_genes`       |
+| `add_transcript_lines.py`    | `_with_transcripts` |
+| `rebuild_exons.py`           | `_exons_rebuilt`    |
 
 ## dump_filtered_gff3.py
 

@@ -19,13 +19,14 @@ from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (add_output_compression_args, check_output_paths, gff_attributes, gff_feature_lines,
-                                  open_out, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging)
+                                  insert_before_extension, open_out, output_compression, output_path,
+                                  require_fasta_and_gff, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_ATTRIBUTES = 'geneID,gene_id,gene'
 DEFAULT_SPLIT = '.'
+OUT_SUFFIX = '_with_genes'  # inserted before the extension of the GFF3 file's name for the default output
 
 
 @dataclass
@@ -184,15 +185,16 @@ def main(args: argparse.Namespace) -> None:
     n_genes = write_with_genes(args.gff, args.out, gene_of, output_compression(args, args.gff))
     n_existing = sum(gene.has_line for gene in gene_of.values())
     logger.info(f'Wrote "{args.out}": {n_genes} new gene lines for {len(gene_of) - n_existing} transcripts, and '
-                f'{n_existing} transcripts given the existing gene line of their gene ID as Parent')
+                f'{n_existing} transcripts given an existing gene line of their gene ID as Parent')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
-    parser.add_argument('-o', '--out', type=str, required=True,
-                        help=('output GFF3 file, gzipped where the input is (see --gzip); not written when nothing '
-                              'is to be added'))
+    parser.add_argument('-o', '--out', type=str,
+                        help=(f'output GFF3 file, gzipped where the input is (see --gzip) (default: the GFF3 file\'s '
+                              f'name with {OUT_SUFFIX} before the extension, e.g. genes{OUT_SUFFIX}.gff3); not '
+                              f'written when nothing is to be added'))
     # None where not given, to tell an explicit value from --one-gene-per-transcript
     parser.add_argument('--gene-id-attributes', type=str,
                         help=(f'comma-separated attributes of a transcript line holding its gene ID, the first one '
@@ -211,7 +213,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     require_input_files(parser, [args.gff])
     require_fasta_and_gff(parser, None, args.gff)
-    args.out = output_path(args.out, output_compression(args, args.gff))
+    default_out = insert_before_extension(args.gff, OUT_SUFFIX)
+    args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.log_file], [args.gff])
     if args.one_gene_per_transcript and (args.gene_id_attributes is not None or args.split_at is not None):
         parser.error('--one-gene-per-transcript uses neither --gene-id-attributes nor --split-at')

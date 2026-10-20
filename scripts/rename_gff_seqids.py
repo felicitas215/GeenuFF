@@ -51,6 +51,7 @@ MIN_DECISIVE_CHECKS = 20
 WINDOW_CHECKS = 25
 MAX_CHANGED_SHARE = 0.05  # of the coding transcripts, on sequences changed after annotation
 MAX_MISSING_SHARE = 0.15  # of the coding transcripts, on sequences matching no FASTA sequence
+OUT_SUFFIX = '_renamed'  # inserted before the extension of the GFF3 file's name for the default output
 ADVICE = ('Renaming cannot fix this; use the FASTA file the GFF3 file was made on, or transfer the annotation '
           'to this assembly (e.g. with Liftoff).')
 
@@ -563,11 +564,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--fasta', type=str, required=True, help='FASTA file the GFF3 file annotates (may be gzipped)')
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file to rename (may be gzipped)')
-    parser.add_argument('-o', '--out', type=str, required=True,
-                        help=('output GFF3 file, gzipped where the GFF3 input is (see --gzip); not written when all '
-                              'sequence IDs match already. Where sequences changed after annotation are left out, '
-                              'the FASTA file is copied without them beside it, named like the FASTA file with '
-                              '_sequences_dropped before its extension and gzipped where the FASTA input is'))
+    parser.add_argument('-o', '--out', type=str,
+                        help=(f'output GFF3 file, gzipped where the GFF3 input is (see --gzip) (default: the GFF3 '
+                              f'file\'s name with {OUT_SUFFIX} before the extension, e.g. genes{OUT_SUFFIX}.gff3); '
+                              f'not written when all sequence IDs match already. Where sequences changed after '
+                              f'annotation are left out, the FASTA file is copied without them beside it, named like '
+                              f'the FASTA file with _sequences_dropped before its extension and gzipped where the '
+                              f'FASTA input is'))
     parser.add_argument('--pairs-out', type=str,
                         help=('TSV file listing each pair made, how, how many of its checks passed and the '
                               'full name of the FASTA sequence'))
@@ -580,6 +583,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     require_input_files(parser, [args.gff, args.fasta])
     require_fasta_and_gff(parser, args.fasta, args.gff)
-    args.out = output_path(args.out, output_compression(args, args.gff))
+    default_out = insert_before_extension(args.gff, OUT_SUFFIX)
+    args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.pairs_out, args.log_file], [args.gff, args.fasta])
     main(args)

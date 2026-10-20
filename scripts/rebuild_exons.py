@@ -17,10 +17,12 @@ from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import CDS_OUTSIDE_EXONS_WARN_SHARE, PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (add_output_compression_args, check_output_paths, gff_attributes, gff_feature_lines,
-                                  open_out, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging)
+                                  insert_before_extension, open_out, output_compression, output_path,
+                                  require_fasta_and_gff, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
+
+OUT_SUFFIX = '_exons_rebuilt'  # inserted before the extension of the GFF3 file's name for the default output
 
 
 def merged(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -112,14 +114,16 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
-    parser.add_argument('-o', '--out', type=str, required=True,
-                        help=('output GFF3 file, gzipped where the input is (see --gzip); not written when nothing '
-                              'is to be rebuilt'))
+    parser.add_argument('-o', '--out', type=str,
+                        help=(f'output GFF3 file, gzipped where the input is (see --gzip) (default: the GFF3 file\'s '
+                              f'name with {OUT_SUFFIX} before the extension, e.g. genes{OUT_SUFFIX}.gff3); not '
+                              f'written when nothing is to be rebuilt'))
     add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
     require_input_files(parser, [args.gff])
     require_fasta_and_gff(parser, None, args.gff)
-    args.out = output_path(args.out, output_compression(args, args.gff))
+    default_out = insert_before_extension(args.gff, OUT_SUFFIX)
+    args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.log_file], [args.gff])
     main(args)
