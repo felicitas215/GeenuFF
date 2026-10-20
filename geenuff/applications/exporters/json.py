@@ -184,7 +184,7 @@ class CoordinateJsonable(CoordinateHandlerBase):
     def to_jsonable(self, start, end):
         return {'id': self.data.id,
                 'seqid': self.data.seqid,
-                'sequence': self.data.sequence[start:end],
+                'sequence': self.data.sequence_range(start, end),
                 'start': start,
                 'end': end}
 

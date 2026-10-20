@@ -889,7 +889,7 @@ class OrganizedGeenuffImporterGroup(object):
                 # junction right at the transcript's edge): reading 3 contiguous genomic bases
                 # from the boundary, as the old per-feature check did, would read into the
                 # intron and report a false MISSING_START/STOP_CODON in that case.
-                cds_seq = spliced_cds_sequence(self.coord.sequence, t_entries['cds'], t_is_plus_strand)
+                cds_seq = spliced_cds_sequence(self.coord, t_entries['cds'], t_is_plus_strand)
                 is_truncated = len(cds_seq) % 3 != 0
                 has_inframe_stop = has_inframe_stop_codon(cds_seq)
                 has_stop_codon = cds_seq[-3:] in STOP_CODONS
@@ -903,7 +903,7 @@ class OrganizedGeenuffImporterGroup(object):
                     extended = self._cds_extended_by_a_codon(t_entries, t_is_plus_strand, self.coord.length)
                     if extended is not None:
                         extended_cds, n_past_exons = extended
-                        extended_seq = spliced_cds_sequence(self.coord.sequence, extended_cds, t_is_plus_strand)
+                        extended_seq = spliced_cds_sequence(self.coord, extended_cds, t_is_plus_strand)
                         if extended_seq[-3:] in STOP_CODONS:
                             t_entries['cds'], cds_seq, has_stop_codon = extended_cds, extended_seq, True
                             stats.stop_codons_recovered += 1

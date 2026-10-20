@@ -1,3 +1,5 @@
+import bisect
+
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Table, Column, Integer, ForeignKey, String, Enum, CheckConstraint, UniqueConstraint, Boolean, Float
 from sqlalchemy.orm import relationship
@@ -6,6 +8,9 @@ from geenuff.base import types
 
 # setup classes for data holding
 Base = declarative_base()
+
+# bases per row of the sequence_chunk table, well below SQLite's limit of 1,000,000,000 bytes per value
+SEQUENCE_CHUNK_SIZE = 100_000_000
 
 # todo , give option to report/provide this as a yaml or json?
 class Genome(Base):
@@ -30,7 +35,6 @@ class Coordinate(Base):
     __tablename__ = 'coordinate'
 
     id = Column(Integer, primary_key=True)
-    sequence = Column(String)
     length = Column(Integer)
     seqid = Column(String, nullable=False)
     sha1 = Column(String)
@@ -38,16 +42,59 @@ class Coordinate(Base):
     genome = relationship('Genome', back_populates='coordinates')
 
     features = relationship('Feature', back_populates='coordinate')
+    # the sequence in pieces, as SQLite holds at most 1,000,000,000 bytes in one value
+    chunks = relationship('SequenceChunk', back_populates='coordinate', order_by='SequenceChunk.start',
+                          cascade='all, delete-orphan')
 
     __table_args__ = (
         UniqueConstraint('genome_id', 'seqid', name='unique_coords_per_genome'),
         CheckConstraint('length >= 0', name='check_positive_length'),
     )
 
+    @property
+    def sequence(self) -> str | None:
+        """The whole sequence, None where none was stored; joined from its chunks on each call, so
+        for slices use sequence_range."""
+        if not self.chunks:
+            return None
+        return ''.join(chunk.sequence for chunk in self.chunks)
+
+    @sequence.setter
+    def sequence(self, sequence: str) -> None:
+        self.chunks = [SequenceChunk(start=start, sequence=sequence[start:start + SEQUENCE_CHUNK_SIZE])
+                       for start in range(0, max(len(sequence), 1), SEQUENCE_CHUNK_SIZE)]
+
+    def sequence_range(self, start: int, end: int) -> str:
+        """sequence[start:end], from the chunks overlapping the range only; start is clipped to 0."""
+        start = max(start, 0)
+        chunks = self.chunks
+        first = max(bisect.bisect_right([chunk.start for chunk in chunks], start) - 1, 0)
+        pieces = []
+        for chunk in chunks[first:]:
+            if chunk.start >= end:
+                break
+            pieces.append(chunk.sequence[max(start - chunk.start, 0):end - chunk.start])
+        return ''.join(pieces)
+
     def __repr__(self):
         return '<Coordinate {}, seqid: {}, len: {}, genome_id: {}, genome: {}>'.format(self.id, self.seqid, self.length,
                                                                                        self.genome_id,
                                                                                        self.genome.species)
+
+
+class SequenceChunk(Base):
+    """A piece of a Coordinate's sequence of up to SEQUENCE_CHUNK_SIZE bases, starting at start."""
+    __tablename__ = 'sequence_chunk'
+
+    id = Column(Integer, primary_key=True)
+    coordinate_id = Column(Integer, ForeignKey('coordinate.id'), nullable=False, index=True)
+    start = Column(Integer, nullable=False)
+    sequence = Column(String, nullable=False)
+    coordinate = relationship('Coordinate', back_populates='chunks')
+
+    __table_args__ = (
+        UniqueConstraint('coordinate_id', 'start', name='unique_chunk_start_per_coordinate'),
+    )
 
 
 class SuperLocus(Base):

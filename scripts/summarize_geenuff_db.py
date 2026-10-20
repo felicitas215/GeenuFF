@@ -151,7 +151,7 @@ def main(args: argparse.Namespace) -> None:
     con = sqlite3.connect(args.db_path_in)
     if not has_table(con, 'transcript_error'):
         raise SystemExit(f'"{args.db_path_in}" was written by a GeenuFF without the transcript_error '
-                         f'table; import it again to summarize it')
+                         f'table (i.e. version <= 0.3.1); import it again to summarize it')
     species = con.execute('SELECT species FROM genome').fetchone()
     stats = statistics(con)
     con.close()

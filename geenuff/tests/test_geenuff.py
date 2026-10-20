@@ -525,6 +525,23 @@ def test_fasta_import():
     assert coords[2].sequence == 'A' * 100
 
 
+def test_a_sequence_stored_in_chunks_reads_back_whole_and_in_ranges(tmp_path, monkeypatch):
+    """A sequence longer than SEQUENCE_CHUNK_SIZE is stored in several sequence_chunk rows and reads
+    back unchanged from a new session, whole and in ranges across the chunk borders."""
+    monkeypatch.setattr(orm, 'SEQUENCE_CHUNK_SIZE', 10)
+    db_path = f'sqlite:///{tmp_path / "chunks.sqlite3"}'
+    sequence = 'ACGTTGCAAC' 'GGTTAACCAT' 'TTGGC'
+    session = mk_memory_session(db_path)
+    session.add(Coordinate(seqid='a', length=len(sequence), sequence=sequence, genome=Genome()))
+    session.commit()
+
+    coordinate = mk_memory_session(db_path).query(Coordinate).one()
+    assert [chunk.start for chunk in coordinate.chunks] == [0, 10, 20]
+    assert coordinate.sequence == sequence
+    for start, end in ((0, 25), (8, 22), (10, 20), (19, 21), (22, 30)):
+        assert coordinate.sequence_range(start, end) == sequence[start:end]
+
+
 def test_dummyloci_errors():
     """The errors recorded for each transcript of dummyloci{.gff|.fa}, and the ranges they mask,
     merged into one geenuff_mask feature where they meet. Transcripts not listed have neither."""

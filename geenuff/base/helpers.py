@@ -9,10 +9,13 @@ import sys
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from types import GeneratorType
-from typing import BinaryIO, TextIO
+from typing import TYPE_CHECKING, BinaryIO, TextIO
 
 import dustdas.fastahelper
 from dustdas.gffhelper import GFFObject
+
+if TYPE_CHECKING:
+    from geenuff.base.orm import Coordinate
 
 logger = logging.getLogger(__name__)
 
@@ -431,22 +434,15 @@ START_CODON = 'ATG'
 STOP_CODONS = ['TAG', 'TGA', 'TAA']
 
 
-def substr_seq(seq, start, end, is_plus_strand):
-    """returns a substring of sequence according to geenuff coordinates and strand type"""
-    if is_plus_strand:
-        return seq[start:end]
-    else:
-        return seq[end + 1:start + 1]
-
-
-def spliced_cds_sequence(seq: str, cds_pieces: Sequence[GFFObject], is_plus_strand: bool) -> str:
+def spliced_cds_sequence(coordinate: 'Coordinate', cds_pieces: Sequence[GFFObject], is_plus_strand: bool) -> str:
     """joins raw GFF CDS pieces (each with a 1-based, inclusive .start/.end, sorted by
     ascending genomic start) into one continuous, 5' to 3' oriented sequence"""
     ordered = cds_pieces if is_plus_strand else reversed(cds_pieces)
     parts = []
     for piece in ordered:
         start, end = get_geenuff_start_end(piece.start, piece.end, is_plus_strand)
-        part = substr_seq(seq, start, end, is_plus_strand)
+        part = (coordinate.sequence_range(start, end) if is_plus_strand
+                else coordinate.sequence_range(end + 1, start + 1))
         parts.append(part if is_plus_strand else ''.join(reverse_complement(part)))
     return ''.join(parts)
 

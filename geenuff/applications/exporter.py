@@ -7,7 +7,7 @@ import argparse
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 from geenuff.base.orm import (Coordinate, Genome, Feature, Transcript, TranscriptPiece,
@@ -98,6 +98,9 @@ class GeenuffExportController(object):
 
     def _mk_session(self):
         self.engine = create_engine(full_db_path(self.db_path_in), echo=False)
+        if 'sequence_chunk' not in inspect(self.engine).get_table_names():
+            raise ValueError(f'"{self.db_path_in}" was written by a GeenuFF storing each sequence in one row '
+                             f'i.e. (version <= 0.3.1); import the genome again')
         self.session = sessionmaker(bind=self.engine)()
 
     def get_coord_by_id(self, coord_id):

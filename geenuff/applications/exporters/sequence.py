@@ -11,19 +11,16 @@ logger = logging.getLogger(__name__)
 class FastaExportController(GeenuffExportController):
     def __init__(self, db_path_in, longest=False, coding=False):
         super().__init__(db_path_in, longest, coding)
-        self.coordinate_id_cache = None
-        self.sequence_cache = None
+        self.coordinate_cache = None
 
     def get_seq(self, export_sequence):
         # simple and probably horribly inefficient
         out = []
         for a_range in export_sequence.ranges:
             coord_id = a_range.coordinate_id
-            if self.coordinate_id_cache != coord_id:
-                coordinate = self.session.query(Coordinate).filter(Coordinate.id == coord_id).first()
-                self.sequence_cache = coordinate.sequence
-            out += self.get_seq_fragment(a_range, self.sequence_cache)
-            self.coordinate_id_cache = coord_id
+            if self.coordinate_cache is None or self.coordinate_cache.id != coord_id:
+                self.coordinate_cache = self.session.query(Coordinate).filter(Coordinate.id == coord_id).first()
+            out += self.get_seq_fragment(a_range, self.coordinate_cache)
         return out
 
     def fmt_seq(self, export_sequence):
@@ -34,12 +31,12 @@ class FastaExportController(GeenuffExportController):
         return out
 
     @staticmethod
-    def get_seq_fragment(fragment, sequence):
+    def get_seq_fragment(fragment, coordinate):
         if fragment.is_plus_strand:
-            out = sequence[fragment.start:fragment.end]
+            out = coordinate.sequence_range(fragment.start, fragment.end)
         else:
             # +1 to flip inclusive/exclusive
-            out = sequence[(fragment.end + 1):(fragment.start + 1)]
+            out = coordinate.sequence_range(fragment.end + 1, fragment.start + 1)
             out = reverse_complement(out)
         return out
 
