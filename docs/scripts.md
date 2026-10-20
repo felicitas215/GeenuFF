@@ -17,7 +17,9 @@ Installing GeenuFF, directly or as a dependency of Helixer, puts all of them ont
 writes that log to a file as well as the terminal, to keep it beside the output. No script writes
 over its input files or database: an output path naming one stops it before anything is written,
 as do an input file or database that does not exist and an output path in a directory that does
-not exist.
+not exist. The scripts reading a FASTA or GFF3 file, like `import2geenuff.py`, also stop where the
+two look swapped by their names, the FASTA file does not start with `>`, or the GFF3 file's first
+feature line does not have 9 tab-separated columns (e.g. 10 from a sequence ID holding a tab).
 
 The preparing scripts read gzipped or plain files alike. Each file they write is gzipped where its
 input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override

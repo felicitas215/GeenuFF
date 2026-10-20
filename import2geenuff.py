@@ -6,7 +6,8 @@ import logging
 import argparse
 
 from geenuff.applications.importer import ImportController
-from geenuff.base.helpers import check_output_paths, require_fasta_and_gff, require_input_files
+from geenuff.base.helpers import (check_output_paths, is_fasta_name, is_gff_name, require_fasta_and_gff,
+                                  require_input_files)
 
 logger = logging.getLogger(__name__)
 
@@ -39,19 +40,14 @@ class PathFinder(object):
     def _get_fa(self, provided):
         if provided is not None:
             return provided
-        maybe = os.listdir(self.input)
-        # todo, actual file type detection
-        maybe = [x for x in maybe if any([x.endswith(ok) for ok in ['.fa', '.fasta', '.fa.gz', '.fasta.gz',
-                                                                    '.fa.zip', '.fasta.zip']])]
+        maybe = [x for x in os.listdir(self.input) if is_fasta_name(x)]
         self._confirm_exactly_one(maybe, 'fasta')
         return self.input + maybe[0]
 
     def _get_gff(self, provided):
         if provided is not None:
             return provided
-        maybe = os.listdir(self.input)
-        maybe = [x for x in maybe if any([x.endswith(ok) for ok in ['.gff', '.gff3', '.gff.gz', '.gff3.gz',
-                                                                    '.gff.zip', '.gff3.zip']])]
+        maybe = [x for x in os.listdir(self.input) if is_gff_name(x)]
         self._confirm_exactly_one(maybe, 'gff')
         return self.input + maybe[0]
 

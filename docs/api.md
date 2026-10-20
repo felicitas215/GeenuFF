@@ -46,9 +46,10 @@ import2geenuff.py --basedir <BASEDIR> --species <SPECIES_NAME>
 # written in the directory <BASEDIR>/output/
 ```
 
-`<BASEDIR>/input` must exist, `<BASEDIR>/output` is created. Explicit paths override those from
-`--basedir`. Import one species into one database once; to redo it, delete the database or pass
-`--replace-db`.
+`<BASEDIR>/input` must exist and hold one FASTA file (`.fa`, `.fasta`, `.fna` or `.fas`) and one
+GFF3 file (`.gff` or `.gff3`), each possibly gzipped or zipped (`.gz`, `.zip`); `<BASEDIR>/output`
+is created. Explicit paths override those from `--basedir`. Import one species into one database
+once; to redo it, delete the database or pass `--replace-db`.
 
 ## extract fasta sequences from a database
 

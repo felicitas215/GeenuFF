@@ -9,8 +9,8 @@ import argparse
 import logging
 import os
 
-from geenuff.base.helpers import (NonMatchableIDs, fasta_ids, get_seqids_from_gff, match_seqids, require_input_files,
-                                  setup_logging)
+from geenuff.base.helpers import (NonMatchableIDs, fasta_ids, get_seqids_from_gff, match_seqids,
+                                  require_fasta_and_gff, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -52,4 +52,5 @@ if __name__ == '__main__':
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     args = parser.parse_args()
     require_input_files(parser, [args.fasta, args.gff])
+    require_fasta_and_gff(parser, args.fasta, args.gff)
     main(args)

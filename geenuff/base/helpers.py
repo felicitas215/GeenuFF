@@ -247,23 +247,43 @@ def require_input_files(parser: argparse.ArgumentParser, paths: Iterable[str | N
             parser.error(f'the input file "{path}" does not exist')
 
 
-def require_fasta_and_gff(parser: argparse.ArgumentParser, fasta: str, gff: str) -> None:
-    """Stops with a usage error where the FASTA and GFF3 file names end like each other's, as when
+# the endings of FASTA and GFF3 file names, each possibly followed by .gz or .zip
+FASTA_EXTENSIONS = ('.fa', '.fasta', '.fna', '.fas')
+GFF_EXTENSIONS = ('.gff', '.gff3')
+
+
+def is_fasta_name(path: str) -> bool:
+    return path.lower().removesuffix('.gz').removesuffix('.zip').endswith(FASTA_EXTENSIONS)
+
+
+def is_gff_name(path: str) -> bool:
+    return path.lower().removesuffix('.gz').removesuffix('.zip').endswith(GFF_EXTENSIONS)
+
+
+def require_fasta_and_gff(parser: argparse.ArgumentParser, fasta: str | None, gff: str | None) -> None:
+    """Stops with a usage error where the FASTA or GFF3 file name ends like the other kind's, as when
     the two are swapped, where the FASTA file does not start with '>', or where the GFF3 file's first
     line that is no comment does not have the 9 tab-separated columns of a feature line, e.g. 10 from
-    a sequence ID holding a tab."""
-    if (fasta.removesuffix('.gz').lower().endswith(('.gff', '.gff3'))
-            or gff.removesuffix('.gz').lower().endswith(('.fa', '.fasta', '.fna', '.fas'))):
+    a sequence ID holding a tab. Either file may be None, for a script reading only the other."""
+    fasta_named_gff = fasta and is_gff_name(fasta)
+    gff_named_fasta = gff and is_fasta_name(gff)
+    if fasta_named_gff and gff_named_fasta:
         parser.error(f'the FASTA file "{fasta}" and the GFF3 file "{gff}" look swapped by their names')
-    with open_binary(fasta) as f:
-        if f.read(1) != b'>':
-            parser.error(f'"{fasta}" is no FASTA file: it does not start with ">"')
-    with open_binary(gff) as f:
-        line = next((line for line in f if line.strip() and not line.startswith(b'#')), b'')
-    n_columns = len(line.rstrip(b'\r\n').split(b'\t'))
-    if n_columns != 9:
-        parser.error(f'"{gff}" is no valid GFF3 file: its first feature line has {n_columns} tab-separated columns '
-                     f'instead of 9: {line.decode(errors="replace").strip()[:200]}')
+    if fasta_named_gff:
+        parser.error(f'"{fasta}", given as the FASTA file, is named like a GFF3 file')
+    if gff_named_fasta:
+        parser.error(f'"{gff}", given as the GFF3 file, is named like a FASTA file')
+    if fasta:
+        with open_binary(fasta) as f:
+            if f.read(1) != b'>':
+                parser.error(f'"{fasta}" is no FASTA file: it does not start with ">"')
+    if gff:
+        with open_binary(gff) as f:
+            line = next((line for line in f if line.strip() and not line.startswith(b'#')), b'')
+        n_columns = len(line.rstrip(b'\r\n').split(b'\t'))
+        if n_columns != 9:
+            parser.error(f'"{gff}" is no valid GFF3 file: its first feature line has {n_columns} tab-separated '
+                         f'columns instead of 9: {line.decode(errors="replace").strip()[:200]}')
 
 
 def open_out(path: str, compression_level: int | None, binary: bool = False) -> TextIO | BinaryIO:

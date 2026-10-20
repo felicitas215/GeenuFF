@@ -20,7 +20,8 @@ from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (add_output_compression_args, check_output_paths, gff_attributes, gff_feature_lines,
-                                  open_out, output_compression, output_path, require_input_files, setup_logging)
+                                  open_out, output_compression, output_path, require_fasta_and_gff,
+                                  require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,7 @@ if __name__ == '__main__':
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
     require_input_files(parser, [args.gff])
+    require_fasta_and_gff(parser, None, args.gff)
     args.out = output_path(args.out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.log_file], [args.gff])
     main(args)
