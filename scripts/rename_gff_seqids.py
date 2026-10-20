@@ -9,6 +9,7 @@ annotation are left out of both files, the FASTA file then being copied without 
 """
 import argparse
 import bisect
+import itertools
 import logging
 import math
 import os
@@ -29,13 +30,14 @@ logger = logging.getLogger(__name__)
 MOTIFS = {'start': {'ATG'}, 'stop': {'TAA', 'TAG', 'TGA'}, 'donor': {'GT', 'GC'}, 'acceptor': {'AG'}}
 # a stop codon at the end of the CDS or right after it, where GFF3 converted from GTF leaves it out
 STOP_OR_NEXT = 'stop_or_next'
-MOTIF_LENGTHS = {'start': 3, 'stop': 3, STOP_OR_NEXT: 3, 'donor': 2, 'acceptor': 2}
+MOTIF_LENGTHS = {'donor': 2, 'acceptor': 2}
 # the chance of a random position passing each check
 RANDOM_PASS = {'start': 1 / 64, 'stop': 3 / 64, STOP_OR_NEXT: 6 / 64, 'donor': 2 / 16, 'acceptor': 1 / 16}
 COMPLEMENT = str.maketrans('ACGT', 'TGCA')
-# (kind, 0-based position on the plus strand, is_plus), a STOP_OR_NEXT check with the 0-based
-# positions of the codon after the CDS added (see codon_after)
-Check = tuple[str, int, bool] | tuple[str, int, bool, tuple[int, int, int]]
+# (kind, 0-based position on the plus strand, is_plus), a codon check with the 0-based positions of
+# its bases in reading order added, read across an intron where it is split by one: the start codon,
+# or for STOP_OR_NEXT the stop codon and the codon after the CDS (see cds_end_codons, codon_after)
+Check = tuple[str, int, bool] | tuple[str, int, bool, tuple[int, ...]]
 # A check is one position where the GFF3 file places a start codon, a stop codon or one end of an
 # intron, tested for the bases expected there; a transcript with n introns gives 2 + 2n checks.
 # At most MAX_CHECKS per sequence ID, spread evenly along it, far more than needed to tell its sequence
@@ -67,7 +69,7 @@ class MismatchedFiles(Exception):
 @dataclass
 class StopSite:
     transcript_id: str
-    position: int  # 0-based start of the last codon of the CDS on the plus strand
+    codon: tuple[int, int, int]  # the last codon of the CDS (see cds_end_codons)
     is_plus: bool
     exon_beyond: bool  # whether its exons reach 3 bases or more past the CDS
     after: tuple[int, int, int]  # the codon following the CDS (see codon_after)
@@ -98,11 +100,17 @@ class Pairing:
     duplicates: dict[str, str] = field(default_factory=dict)  # GFF3 sequence ID: FASTA ID paired already
 
 
-def end_codons_whole(cds: list[tuple[int, int]]) -> tuple[bool, bool]:
-    """Whether the CDS lines lowest and highest on the sequence hold 3 bases or more each, so that the
-    codon at that end of the CDS is 3 contiguous bases; one split by an intron is not checked."""
-    low, high = min(cds), max(cds, key=lambda piece: piece[1])
-    return low[1] - low[0] >= 2, high[1] - high[0] >= 2
+def cds_end_codons(cds: list[tuple[int, int]], is_plus: bool) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """The 0-based plus-strand positions of a CDS's first and last codon, each in reading order and read
+    along the CDS lines, so across an intron where it is split by one."""
+    # the 3 lowest and the 3 highest CDS bases, taken from the CDS lines without listing them all
+    ascending = (p for start, end in sorted(cds) for p in range(start, end + 1))
+    descending = (p for start, end in sorted(cds, reverse=True) for p in range(end, start - 1, -1))
+    low, high = list(itertools.islice(ascending, 3)), list(itertools.islice(descending, 3))
+    # reading runs up the plus strand and down the minus strand, so the start codon is the low end on
+    # the plus strand and the high end on the minus strand
+    first, last = (low, high[::-1]) if is_plus else (high, low[::-1])
+    return tuple(p - 1 for p in first), tuple(p - 1 for p in last)
 
 
 def codon_after(cds: list[tuple[int, int]], exons: list[tuple[int, int]], is_plus: bool) -> tuple[int, int, int]:
@@ -122,16 +130,19 @@ def transcript_checks(cds: list[tuple[int, int]], exons: list[tuple[int, int]], 
     """
     checks = []
     if cds:
-        first, last = min(cds)[0] - 1, max(end for _, end in cds) - 3
-        low_whole, high_whole = end_codons_whole(cds)
+        start_codon, stop_codon = cds_end_codons(cds, is_plus)
         after = codon_after(cds, exons, is_plus)
-        if is_plus:
-            checks += [('start', first, True)] * low_whole + [(STOP_OR_NEXT, last, True, after)] * high_whole
-        else:
-            checks += [(STOP_OR_NEXT, first, False, after)] * low_whole + [('start', last, False)] * high_whole
+        # each sorted along the sequence by its lowest base
+        checks += [('start', min(start_codon), is_plus, start_codon),
+                   (STOP_OR_NEXT, min(stop_codon), is_plus, stop_codon + after)]
     pieces = sorted(exons or cds)
+    # the intron's low end is the donor site (GT) on the plus strand, the acceptor site (AG) on the
+    # minus strand, read there as the reverse complement
     left, right = ('donor', 'acceptor') if is_plus else ('acceptor', 'donor')
     for (_, end), (start, _) in zip(pieces, pieces[1:]):
+        # a gap of under 4 bases is no intron; the checks lie on its first 2 bases (0-based, the base
+        # after the piece's end) and on its last 2, right before the next piece, i.e. GTAG (both splice
+        # sites lumped together, technically too short, but good enough for this test)
         if start - end > 4:
             checks += [(left, end, is_plus), (right, start - 3, is_plus)]
     return checks
@@ -141,14 +152,15 @@ def stop_site(transcript_id: str, cds: list[tuple[int, int]], exons: list[tuple[
               is_plus: bool) -> StopSite:
     """Where a transcript's CDS ends, and whether its exons go on 3 bases or more past it, which GeenuFF
     needs to extend the CDS by a stop codon left out of it."""
-    after = codon_after(cds, exons, is_plus)
+    codon, after = cds_end_codons(cds, is_plus)[1], codon_after(cds, exons, is_plus)
+    # the exon bases lying past the 3' end of the CDS, summed over the exons
     if is_plus:
         cds_end = max(end for _, end in cds)
         beyond = sum(max(0, end - max(start - 1, cds_end)) for start, end in exons)
-        return StopSite(transcript_id, cds_end - 3, True, beyond >= 3, after)
-    cds_start = min(start for start, _ in cds)
-    beyond = sum(max(0, min(end + 1, cds_start) - start) for start, end in exons)
-    return StopSite(transcript_id, cds_start - 1, False, beyond >= 3, after)
+    else:
+        cds_start = min(start for start, _ in cds)
+        beyond = sum(max(0, min(end + 1, cds_start) - start) for start, end in exons)
+    return StopSite(transcript_id, codon, is_plus, beyond >= 3, after)
 
 
 def sequence_regions(gff_path: str) -> dict[str, int]:
@@ -186,8 +198,7 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
             continue
         is_plus = transcript['strands'] == {'+'}
         sequence.checks += transcript_checks(transcript['cds'], transcript['exons'], is_plus)
-        # a stop codon split by an intron cannot lie after the CDS, the CDS ending in it
-        if transcript['cds'] and end_codons_whole(transcript['cds'])[is_plus]:
+        if transcript['cds']:
             sequence.stops.append(stop_site(transcript_id, transcript['cds'], transcript['exons'], is_plus))
     for sequence in sequences.values():
         # MAX_CHECKS spread evenly along the sequence, so a change anywhere on it shows, between its first
@@ -195,6 +206,8 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
         checks = sorted(sequence.checks, key=lambda check: check[1])
         edge = MIN_DECISIVE_CHECKS
         if len(checks) > MAX_CHECKS:
+            # the two edge checks are kept whole, from the middle every len(middle) / n_spread-th one
+            # (i.e. sampled at even steps)
             middle, n_spread = checks[edge:-edge], MAX_CHECKS - 2 * edge
             checks = (checks[:edge] + [middle[i * len(middle) // n_spread] for i in range(n_spread)]
                       + checks[-edge:])
@@ -205,7 +218,7 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
     return sequences
 
 
-def codon_at(sequence: str, positions: tuple[int, int, int], is_plus: bool) -> str:
+def codon_at(sequence: str, positions: tuple[int, ...], is_plus: bool) -> str:
     """The bases at 0-based plus-strand positions in reading order, complemented on the minus strand,
     or '' where one lies outside the sequence."""
     if not all(0 <= p < len(sequence) for p in positions):
@@ -214,13 +227,18 @@ def codon_at(sequence: str, positions: tuple[int, int, int], is_plus: bool) -> s
     return bases if is_plus else bases.translate(COMPLEMENT)
 
 
-def passes(sequence: str, kind: str, position: int, is_plus: bool, after: tuple[int, int, int] | None = None) -> bool:
-    """Whether the bases at a check's position are the motif expected there; a STOP_OR_NEXT check also
-    passes where the codon after the CDS, at after (which it needs), is a stop codon."""
+def passes(sequence: str, kind: str, position: int, is_plus: bool, codons: tuple[int, ...] | None = None) -> bool:
+    """Whether the bases a check tests are the motif expected there (see Check): a codon check reads its
+    codon's positions, a STOP_OR_NEXT check passing where the stop codon or the codon after it is one."""
+    if kind == 'start':
+        return codon_at(sequence, codons, is_plus) in MOTIFS['start']
+    if kind == STOP_OR_NEXT:
+        # codons holds the stop codon's 3 positions, then those of the codon after the CDS
+        # (in case the stop codon lies after the CDS, i.e. GTF -> GFF3 conversion)
+        return any(codon_at(sequence, codons[i:i + 3], is_plus) in MOTIFS['stop'] for i in (0, 3))
     if position < 0:
         return False
-    if kind == STOP_OR_NEXT:
-        return passes(sequence, 'stop', position, is_plus) or codon_at(sequence, after, is_plus) in MOTIFS['stop']
+    # a splice site's 2 contiguous bases, read as the reverse complement on the minus strand
     motif = sequence[position:position + MOTIF_LENGTHS[kind]]
     if not is_plus:
         motif = motif.translate(COMPLEMENT)[::-1]
@@ -233,6 +251,8 @@ def n_passed(sequence: str, checks: list[Check]) -> int:
 
 def random_pass_log10(checks: list[Check], n: int) -> float:
     """log10 of an upper bound on the chance that a random sequence passes n of the checks."""
+    # (number of ways to pick the n passing checks) times (the chance of the n easiest to pass all
+    # passing), which bounds every pick from above
     log_chances = sorted(math.log10(RANDOM_PASS[kind]) for kind, *_ in checks)
     return math.log10(math.comb(len(checks), n)) + sum(log_chances[len(checks) - n:])
 
@@ -243,6 +263,7 @@ def failing_window(sequence: str, checks: list[Check]) -> str | None:
     first and the last MIN_DECISIVE_CHECKS checks, those of the first and last genes, are windows of
     their own, a change near an end of the sequence failing too few checks to sink a whole window."""
     edge = MIN_DECISIVE_CHECKS
+    # windows of nearly equal size, about WINDOW_CHECKS each, covering all checks, plus the two edges
     n_windows = max(1, len(checks) // WINDOW_CHECKS)
     bounds = [len(checks) * i // n_windows for i in range(n_windows + 1)]
     windows = [(0, edge)] + list(zip(bounds, bounds[1:])) + [(len(checks) - edge, len(checks))]
@@ -283,6 +304,7 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
     for gff_id, gff_sequence in gff_sequences.items():
         if gff_id in sequences:
             fasta_id, method = gff_id, 'id'
+        # one full name only holding it, of a FASTA sequence no other GFF3 ID pairs with by ID
         elif len(words.get(gff_id, ())) == 1 and words[gff_id][0] not in gff_sequences:
             fasta_id, method = words[gff_id][0], 'full_name'
         else:
@@ -297,6 +319,8 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
                                         f'in the FASTA file')
         elif window is not None:
             failed[gff_id] = fasta_id, window
+        # a FASTA sequence pairs with one GFF3 ID; a second is left to the search by sequence, which
+        # takes it for a duplicate
         elif fasta_id not in claimed:
             passed = n_passed(sequence, checks)
             pairs[gff_id] = Pair(fasta_id, method, passed, len(checks))
@@ -324,13 +348,16 @@ def pair_by_sequence(gff_sequences: dict[str, GffSequence], sequences: dict[str,
     hits = {}
     for gff_id, gff_sequence in gff_sequences.items():
         checks = gff_sequence.checks
+        # the FASTA sequences long enough to hold its genes, found by bisection in those sorted by length
         candidates = [fasta_id for _, fasta_id in by_length[bisect.bisect_left(lengths, gff_sequence.max_end):]]
         min_passed = math.ceil(MIN_SEARCHED_SCORE * len(checks))
         if not checks or not candidates:
             continue
         if random_pass_log10(checks, min_passed) + math.log10(len(candidates)) > math.log10(MAX_RANDOM_HITS):
             continue  # too few checks to tell its sequence from a random one among this many
-        quick = checks[:8]
+        # a candidate passing under half of 8 checks spread along the sequence, so from different genes
+        # and not sunk by one poor or partial gene, is skipped without testing the rest
+        quick = checks[::max(1, len(checks) // 8)][:8]
         found = []
         for fasta_id in candidates:
             sequence = sequences[fasta_id]
@@ -345,6 +372,8 @@ def pair_by_sequence(gff_sequences: dict[str, GffSequence], sequences: dict[str,
                 logger.warning(f'The genes of GFF3 sequence ID {gff_id} fit the FASTA sequences {", ".join(tied)} '
                                f'equally well; paired with the first')
             hits[gff_id] = best
+    # a hit on a FASTA sequence paired by ID or full name already is a duplicate; of several GFF3 IDs
+    # hitting one FASTA sequence, the best fitting pairs with it and the others are duplicates
     duplicates = {gff_id: pair.fasta_id for gff_id, pair in hits.items() if pair.fasta_id in claimed}
     by_fasta_id = defaultdict(list)
     for gff_id, pair in hits.items():
@@ -424,6 +453,8 @@ def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression_
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
+            # the sequence ID of a ##sequence-region or feature line renamed, the line dropped (None)
+            # where the ID is unpaired; other comment lines are kept as they are
             if line.startswith('##sequence-region'):
                 _, seqid, rest = line.split(maxsplit=2)
                 line = f'##sequence-region {pairs[seqid].fasta_id} {rest}' if seqid in pairs else None
@@ -503,8 +534,8 @@ def log_stop_codons(gff_sequences: dict[str, GffSequence], pairs: dict[str, Pair
     for gff_id, pair in pairs.items():
         sequence = sequences[pair.fasta_id]
         for stop in gff_sequences[gff_id].stops:
-            if (not passes(sequence, 'stop', stop.position, stop.is_plus)
-                    and passes(sequence, STOP_OR_NEXT, stop.position, stop.is_plus, stop.after)):
+            if (codon_at(sequence, stop.codon, stop.is_plus) not in MOTIFS['stop']
+                    and codon_at(sequence, stop.after, stop.is_plus) in MOTIFS['stop']):
                 outside += 1
                 if not stop.exon_beyond:
                     unextendable.append(stop.transcript_id)

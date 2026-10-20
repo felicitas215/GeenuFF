@@ -225,8 +225,9 @@ The summary ends with:
 - the total number of overlapping masked (overlaps only counted on the same strand +/-)
 - the bases masked as a share of both strands
 - the bases masked as a share of the bases of the exported genes (both strands combined, for
-  overlapping genes the union of their spans is used); missing UTRs have no known length and are
-  not counted
+  overlapping genes the union of their spans is used). Missing UTRs have no known length and are
+  not counted, so where most genes lack their UTRs this share can look very good however much
+  flank sequence is masked; the share of both strands above counts those flanks, but also all bases
 
 The complete lists of the GFF types skipped are logged with `--verbose`. Where no gene, or fewer
 than one in ten of the coding transcripts read, gives labels, a warning after the summary names

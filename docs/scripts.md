@@ -157,6 +157,10 @@ Renames the sequence IDs of a GFF3 file to those of its FASTA file. Take the FAS
 from the same source wherever possible; this script is for when it is not, e.g. a FASTA file
 uploaded to NCBI, which renames and may trim sequences, beside the GFF3 file made before.
 
+It also serves as a filter where the IDs match already: the lines of GFF3 sequence IDs that are in
+no FASTA sequence, e.g. sequences removed from the FASTA file after annotation, are left out, up
+to 15% of the coding transcripts lost (`--max-missing-percent`); above that, nothing is written.
+
 Each GFF3 sequence ID is paired with the first FASTA sequence found by:
 
 | by        | FASTA sequence                                                                                                         |
@@ -167,7 +171,9 @@ Each GFF3 sequence ID is paired with the first FASTA sequence found by:
 
 A check is one position where the GFF3 file places a start codon (ATG), a stop codon (TAA, TAG,
 TGA, also right after the CDS as in GFF3 converted from GTF) or an intron end (GT or GC, AG), so a
-transcript with n introns gives 2 + 2n. Up to 250 per sequence ID are used: those of its first and
+transcript with n introns gives 2 + 2n. Codons are read as GeenuFF's import reads them: along the
+CDS lines and, for a stop codon right after the CDS, along the exons, across an intron where one
+splits the codon. Up to 250 per sequence ID are used: those of its first and
 last genes (20 each) and the rest spread evenly between them. A right sequence passes nearly all,
 a wrong or shifted one about 9% by chance (a pair needs at least 50% in every window, 80% in all
 when found by sequence alone).
