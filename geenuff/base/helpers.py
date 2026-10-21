@@ -7,14 +7,15 @@ import enum
 import os
 import sys
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from types import GeneratorType
 from typing import TYPE_CHECKING, BinaryIO, TextIO
 
-import dustdas.fastahelper
-from dustdas.gffhelper import GFFObject
 from zlib_ng import gzip_ng_threaded
+
+from geenuff.parsing.fastahelper import FastaParser, detect_format, text_or_gzip_open
+from geenuff.parsing.gffhelper import GFFObject
 
 if TYPE_CHECKING:
     from geenuff.base.orm import Coordinate
@@ -103,11 +104,11 @@ def get_repr(class_name, params, addition=''):
 
 
 def insert_before_extension(path: str, text: str) -> str:
-    """The path with text inserted before its extension, a final .gz kept last, e.g.
+    """The path with text inserted before its extension, a final .gz or .zip kept last, e.g.
     genome.fna.gz and _length_filtered give genome_length_filtered.fna.gz."""
-    gz = '.gz' if path.endswith('.gz') else ''
-    stem, extension = os.path.splitext(path[:len(path) - len(gz)])
-    return f'{stem}{text}{extension}{gz}'
+    compressed = next((suffix for suffix in ('.gz', '.zip') if path.endswith(suffix)), '')
+    stem, extension = os.path.splitext(path[:len(path) - len(compressed)])
+    return f'{stem}{text}{extension}{compressed}'
 
 
 def setup_logging(log_file: str | None = None) -> None:
@@ -210,9 +211,10 @@ def add_output_compression_args(parser: argparse.ArgumentParser) -> None:
 
 def compression_for(input_path: str, gzipped: bool | None, compression_level: int,
                     threads: int = DEFAULT_THREADS) -> Compression | None:
-    """How an output file is gzipped, None for plain text: gzipped as given, else as its input file."""
+    """How an output file is gzipped, None for plain text: gzipped as given, else where its input file
+    is gzipped or zipped."""
     if gzipped is None:
-        gzipped = is_gzipped(input_path)
+        gzipped = detect_format(input_path) != 'text'
     return Compression(compression_level, threads) if gzipped else None
 
 
@@ -223,8 +225,9 @@ def output_compression(args: argparse.Namespace, input_path: str) -> Compression
 
 
 def output_path(path: str, compression: Compression | None) -> str:
-    """The path ending in .gz for gzipped output, without it for plain text."""
-    stem = path.removesuffix('.gz')
+    """The path ending in .gz for gzipped output, without it for plain text, a final .zip dropped
+    either way."""
+    stem = path.removesuffix('.gz').removesuffix('.zip')
     return stem if compression is None else f'{stem}.gz'
 
 
@@ -279,11 +282,11 @@ def require_fasta_and_gff(parser: argparse.ArgumentParser, fasta: str | None, gf
     if gff_named_fasta:
         parser.error(f'"{gff}", given as the GFF3 file, is named like a FASTA file')
     if fasta:
-        with open_binary(fasta) as f:
+        with text_or_gzip_open(fasta, 'rb') as f:
             if f.read(1) != b'>':
                 parser.error(f'"{fasta}" is no FASTA file: it does not start with ">"')
     if gff:
-        with open_binary(gff) as f:
+        with text_or_gzip_open(gff, 'rb') as f:
             line = next((line for line in f if line.strip() and not line.startswith(b'#')), b'')
         n_columns = len(line.rstrip(b'\r\n').split(b'\t'))
         if n_columns != 9:
@@ -300,84 +303,15 @@ def open_out(path: str, compression: Compression | None, binary: bool = False) -
                                  threads=compression.threads)
 
 
-# FASTA and GFF3 reading
-# ----------------------------------
-FASTA_CHUNK_SIZE = 1 << 20
-
-
-def is_gzipped(path: str) -> bool:
-    """Whether a file is gzipped, by its first two bytes rather than its name."""
-    with open(path, 'rb') as f:
-        return f.read(2) == b'\x1f\x8b'
-
-
-def open_binary(path: str) -> BinaryIO:
-    """Opens a file, gzipped or not, for reading bytes; a gzipped one is decompressed by zlib-ng in a
-    thread of its own."""
-    return gzip_ng_threaded.open(path, 'rb', threads=1) if is_gzipped(path) else open(path, 'rb')
-
-
-def fasta_pieces(path: str) -> Iterator[tuple[bool, bytes]]:
-    """Yields (whether it is a header line, piece) for a (gzipped) FASTA file, the pieces joined
-    giving the file byte for byte: each header line whole, with its '>' and line break, and the
-    sequence lines between them in pieces of up to FASTA_CHUNK_SIZE, line breaks included, so a
-    sequence is never held in memory whole."""
-    at_line_start, rest = True, b''
-    with open_binary(path) as f:
-        while chunk := f.read(FASTA_CHUNK_SIZE):
-            block, position, rest = rest + chunk, 0, b''
-            # past the block's start, each piece starts a line
-            while position < len(block):
-                is_header = (position > 0 or at_line_start) and block.startswith(b'>', position)
-                if is_header:
-                    end = block.find(b'\n', position) + 1
-                    if not end:  # a header line reaching into the next chunk waits for the rest of it
-                        rest = block[position:]
-                        break
-                else:
-                    end = block.find(b'\n>', position) + 1 or len(block)  # up to the next header line
-                yield is_header, block[position:end]
-                position = end
-            at_line_start = bool(rest) or block.endswith(b'\n')
-    if rest:
-        yield True, rest
-
-
-def fasta_header_id(header: str) -> str:
-    """The sequence ID of a FASTA header line without its '>': the text up to the first whitespace.
-
-    Raises:
-        ValueError: for a header holding no ID
-    """
-    words = header.split(maxsplit=1)
-    if not words:
-        raise ValueError(f'FASTA header without a sequence ID: ">{header.rstrip()}"')
-    return words[0]
-
-
-def fasta_ids(path: str) -> list[str]:
-    """The sequence IDs (the header up to the first whitespace) of a (gzipped) FASTA file, in file order."""
-    return [fasta_header_id(piece[1:].decode()) for is_header, piece in fasta_pieces(path) if is_header]
-
-
-def gff_feature_lines(gff_file: str) -> Iterator[str]:
-    """Yields the feature lines of a (gzipped) GFF3 file, skipping comments and blank lines, up to an
-    embedded FASTA section (a ##FASTA line or a line starting with '>')."""
-    with dustdas.fastahelper.text_or_gzip_open(gff_file) as f:
-        for line in f:
-            if line.startswith(('##FASTA', '>')):
-                return
-            if line.strip() and not line.startswith('#'):
-                yield line
-
-
-def gff_attributes(column: str) -> dict[str, str]:
-    """{tag: value} of a GFF3 attribute column, values left unsplit (e.g. 'a,b' for several parents)."""
-    return dict(pair.split('=', 1) for pair in column.strip().strip(';').split(';') if '=' in pair)
-
-
-def get_seqids_from_gff(gff_file: str) -> set[str]:
-    return {line.split('\t')[0] for line in gff_feature_lines(gff_file)}
+def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str], compression: Compression | None) -> None:
+    """Copies a FASTA file byte for byte, leaving out the sequences of the given IDs."""
+    keep = True
+    with open_out(out_path, compression, binary=True) as f_out:
+        for is_header, piece in FastaParser.pieces(fasta_path):
+            if is_header:
+                keep = FastaParser.header_id(piece[1:].decode()) not in left_out
+            if keep:
+                f_out.write(piece)
 
 
 # GFF start/end to GeenuFF

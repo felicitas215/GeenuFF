@@ -15,12 +15,11 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from dustdas.fastahelper import text_or_gzip_open
-
 from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, gff_attributes,
-                                  gff_feature_lines, insert_before_extension, open_out, output_compression, output_path,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, insert_before_extension,
+                                  open_out, output_compression, output_path, require_fasta_and_gff,
+                                  require_input_files, setup_logging)
+from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +84,9 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     sources, split_examples = defaultdict(int), []
     n_without_id = 0  # transcripts with neither Parent nor ID, which no line can name as Parent
     n_self_parent = 0
-    for line in gff_feature_lines(gff_path):
+    for line in GFFParser.feature_lines(gff_path):
         seqid, source, feature_type, start, end, _, strand, _, column = line.rstrip('\n').split('\t')[:9]
-        attributes = gff_attributes(column)
+        attributes = GFFObject.parse_attributes(column)
         line_id = attributes.get('ID')
         (gene_line_ids if feature_type in GENE_TYPES else other_ids).add(line_id)
         if feature_type in TRANSCRIPT_TYPES and 'Parent' not in attributes and not line_id:
@@ -150,21 +149,17 @@ def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene], com
     transcript's gene as its Parent, in place of the transcript's own ID where it names itself.
     Returns the number of gene lines written."""
     written = set()
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
-        for line in f_in:
-            if line.startswith(('##FASTA', '>')):
-                break
+    with open_out(out_path, compression) as f_out:
+        for line in GFFParser.lines(gff_path):
             columns = line.rstrip('\n').split('\t')
             if len(columns) >= 9 and columns[2] in TRANSCRIPT_TYPES:
-                attributes = gff_attributes(columns[8])
+                attributes = GFFObject.parse_attributes(columns[8])
                 gene = gene_of.get(attributes.get('ID'))
                 if gene is not None and is_orphan(attributes):
                     if not gene.has_line and gene.gene_id not in written:
                         f_out.write(gene.line())
                         written.add(gene.gene_id)
-                    pairs = [pair for pair in columns[8].strip().strip(';').split(';')
-                             if not pair.strip().startswith('Parent=')]
-                    columns[8] = ';'.join(pairs + [f'Parent={gene.gene_id}'])
+                    columns[8] = GFFObject.with_parents(columns[8], [gene.gene_id])
                     line = '\t'.join(columns) + '\n'
             f_out.write(line)
     return len(written)

@@ -6,5 +6,6 @@ intervaltree>=3.0.2
 SQLAlchemy>=1.3.22,<2.0
 numpy>=1.18.1
 pyyaml
-dustdas @ git+https://github.com/gglyptodon/dustdas@v0.2
+# gzip compression and decompression in threads for the scripts' FASTA and GFF3 files
+zlib-ng>=1.0.0
 pytest>=5.3.4

@@ -13,13 +13,11 @@ import logging
 import os
 from collections import defaultdict
 
-from dustdas.fastahelper import text_or_gzip_open
-
 from geenuff.applications.importer import CDS_OUTSIDE_EXONS_WARN_SHARE, PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (Compression, add_output_compression_args, cds_outside_exons, check_output_paths,
-                                  gff_attributes, gff_feature_lines, insert_before_extension, merge_gff_spans, open_out,
-                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
-                                  setup_logging)
+                                  insert_before_extension, merge_gff_spans, open_out, output_compression, output_path,
+                                  require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +30,13 @@ def rebuilt_exons(gff_path: str) -> tuple[dict[str, list[tuple[int, int]]], int]
     counts them for its warning."""
     transcript_ids = set()
     pieces = defaultdict(lambda: defaultdict(list))  # {transcript ID: {'exons'/'cds'/'utrs': [spans]}}
-    for line in gff_feature_lines(gff_path):
+    for line in GFFParser.feature_lines(gff_path):
         columns = line.rstrip('\n').split('\t')
-        feature_type, attributes = columns[2], gff_attributes(columns[8])
+        feature_type, attributes = columns[2], GFFObject.parse_attributes(columns[8])
         if feature_type in TRANSCRIPT_TYPES and 'ID' in attributes:
             transcript_ids.add(attributes['ID'])
         elif feature_type in PIECE_KEYS:
-            for parent in attributes.get('Parent', '').split(','):
+            for parent in GFFObject.parents(attributes):
                 pieces[parent][PIECE_KEYS[feature_type]].append((int(columns[3]), int(columns[4])))
 
     rebuilt, n_coding = {}, 0
@@ -56,22 +54,20 @@ def write_rebuilt(gff_path: str, out_path: str, rebuilt: dict[str, list[tuple[in
     """Writes the GFF3 file with the old exon lines of the rebuilt transcripts left out (an exon line
     shared with other transcripts keeps those as Parent) and their new exon lines after each
     transcript line."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
-        for line in f_in:
-            if line.startswith(('##FASTA', '>')):
-                break
+    with open_out(out_path, compression) as f_out:
+        for line in GFFParser.lines(gff_path):
             columns = line.rstrip('\n').split('\t')
             if len(columns) < 9 or line.startswith('#'):
                 f_out.write(line)
                 continue
-            attributes = gff_attributes(columns[8])
+            attributes = GFFObject.parse_attributes(columns[8])
             if PIECE_KEYS.get(columns[2]) == 'exons':
-                parents = attributes.get('Parent', '').split(',')
+                parents = GFFObject.parents(attributes)
                 kept = [parent for parent in parents if parent not in rebuilt]
-                if not kept:
+                if parents and not kept:
                     continue
                 if len(kept) < len(parents):
-                    columns[8] = columns[8].replace(f'Parent={attributes["Parent"]}', f'Parent={",".join(kept)}')
+                    columns[8] = GFFObject.with_parents(columns[8], kept)
                     line = '\t'.join(columns) + '\n'
             f_out.write(line)
             transcript_id = attributes.get('ID')

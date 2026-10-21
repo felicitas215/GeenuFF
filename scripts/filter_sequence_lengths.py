@@ -16,12 +16,11 @@ import math
 import os
 from collections import OrderedDict, defaultdict
 
-from dustdas.fastahelper import text_or_gzip_open
-
-from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, fasta_header_id,
-                                  fasta_pieces, gff_feature_lines, insert_before_extension, open_out,
-                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
-                                  setup_logging)
+from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, insert_before_extension,
+                                  open_out, output_compression, output_path, require_fasta_and_gff,
+                                  require_input_files, setup_logging, write_fasta_without)
+from geenuff.parsing.fastahelper import SEQUENCE_WHITESPACE, FastaParser
+from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
 
@@ -34,19 +33,18 @@ DEFAULT_MAX_CLUSTER_LENGTH_FRACTION = 0.05
 DEFAULT_MIN_SEQ_LEN = 1000
 # above this share of the bases or coding genes, sequences below the floor are still removed, with a warning
 FLOOR_WARN_SHARE = 0.05
-SEQUENCE_WHITESPACE = b' \t\r\n'
 MAX_LOGGED_IDS = 10
 OUT_SUFFIX = '_length_filtered'  # inserted before the extension of the input files' names by default
 
 
 def fasta_lengths(path: str) -> OrderedDict[str, int]:
     """{sequence ID (the header up to the first whitespace): length in bases}, in file order."""
-    lengths, seq_id = OrderedDict(), None
-    for is_header, piece in fasta_pieces(path):
+    lengths = OrderedDict()
+    for is_header, piece in FastaParser.pieces(path):
         if is_header:
-            seq_id = fasta_header_id(piece[1:].decode())
+            seq_id = FastaParser.header_id(piece[1:].decode())
             lengths[seq_id] = 0
-        elif seq_id is not None:
+        else:
             lengths[seq_id] += len(piece.translate(None, SEQUENCE_WHITESPACE))
     return lengths
 
@@ -80,23 +78,10 @@ def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) 
     return cluster
 
 
-def write_fasta_without(fasta_path: str, out_path: str, removed: set[str], compression: Compression | None) -> None:
-    """Copies the FASTA file byte for byte without the sequences of the removed IDs."""
-    keep = True
-    with open_out(out_path, compression, binary=True) as out:
-        for is_header, piece in fasta_pieces(fasta_path):
-            if is_header:
-                keep = fasta_header_id(piece[1:].decode()) not in removed
-            if keep:
-                out.write(piece)
-
-
 def write_gff_without(gff_path: str, out_path: str, removed: set[str], compression: Compression | None) -> None:
     """Copies the GFF3 file without the feature and ##sequence-region lines of the removed IDs."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
-        for line in f_in:
-            if line.startswith(('##FASTA', '>')):
-                break
+    with open_out(out_path, compression) as f_out:
+        for line in GFFParser.lines(gff_path):
             if line.startswith('##sequence-region'):
                 seqid = line.split()[1]
             elif line.strip() and not line.startswith('#'):
@@ -112,12 +97,12 @@ def coding_by_seqid(gff_path: str) -> dict[str, tuple[int, int]]:
     lines and its gene the top of its Parent chain, so a CDS line naming its gene directly counts the
     gene as its own transcript."""
     parent_of, cds_parents = {}, defaultdict(set)
-    for line in gff_feature_lines(gff_path):
+    for line in GFFParser.feature_lines(gff_path):
         columns = line.split('\t')
         if columns[2] == 'exon':  # never a parent
             continue
-        attributes = dict(a.split('=', 1) for a in columns[8].strip().split(';') if '=' in a)
-        parents = attributes['Parent'].split(',') if 'Parent' in attributes else []
+        attributes = GFFObject.parse_attributes(columns[8])
+        parents = GFFObject.parents(attributes)
         if columns[2] == 'CDS':
             cds_parents[columns[0]].update(parents)
         elif 'ID' in attributes and parents:

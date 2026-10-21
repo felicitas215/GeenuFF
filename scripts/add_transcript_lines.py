@@ -16,12 +16,11 @@ import logging
 import os
 from collections import defaultdict
 
-from dustdas.fastahelper import text_or_gzip_open
-
 from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, gff_attributes,
-                                  gff_feature_lines, insert_before_extension, open_out, output_compression, output_path,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, insert_before_extension,
+                                  open_out, output_compression, output_path, require_fasta_and_gff,
+                                  require_input_files, setup_logging)
+from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +44,11 @@ def transcripts_for_genes(gff_path: str) -> tuple[dict[str, str], set[str], set[
     gene_ids, all_ids = set(), set()
     transcripts_of = defaultdict(list)  # {gene ID: [its transcript IDs]}
     spans = defaultdict(lambda: defaultdict(list))  # {parent ID: {'exons', 'cds' or 'utrs': [(start, end)]}}
-    for line in gff_feature_lines(gff_path):
+    for line in GFFParser.feature_lines(gff_path):
         columns = line.rstrip('\n').split('\t')
-        feature_type, attributes = columns[2], gff_attributes(columns[8])
+        feature_type, attributes = columns[2], GFFObject.parse_attributes(columns[8])
         all_ids.add(attributes.get('ID'))
-        parents = attributes['Parent'].split(',') if 'Parent' in attributes else []
+        parents = GFFObject.parents(attributes)
         if feature_type in GENE_TYPES:
             gene_ids.add(attributes.get('ID'))
         elif feature_type in TRANSCRIPT_TYPES:
@@ -82,20 +81,17 @@ def write_with_transcripts(gff_path: str, out_path: str, target: dict[str, str],
     """Writes the GFF3 file with each gene's target transcript (see transcripts_for_genes) as Parent of
     its exon, CDS and UTR lines in place of the gene, and an mRNA line spanning the gene after each
     gene line of the new ones."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
-        for line in f_in:
-            if line.startswith(('##FASTA', '>')):
-                break
+    with open_out(out_path, compression) as f_out:
+        for line in GFFParser.lines(gff_path):
             columns = line.rstrip('\n').split('\t')
             if len(columns) < 9 or line.startswith('#'):
                 f_out.write(line)
                 continue
-            attributes = gff_attributes(columns[8])
-            if columns[2] in PIECE_KEYS and 'Parent' in attributes:
-                parents = attributes['Parent'].split(',')
+            attributes = GFFObject.parse_attributes(columns[8])
+            if columns[2] in PIECE_KEYS:
+                parents = GFFObject.parents(attributes)
                 if any(parent in target for parent in parents):
-                    renamed = ','.join(target.get(parent, parent) for parent in parents)
-                    columns[8] = columns[8].replace(f'Parent={attributes["Parent"]}', f'Parent={renamed}')
+                    columns[8] = GFFObject.with_parents(columns[8], [target.get(parent, parent) for parent in parents])
                     line = '\t'.join(columns) + '\n'
             f_out.write(line)
             gene_id = attributes.get('ID')

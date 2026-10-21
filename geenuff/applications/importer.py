@@ -14,10 +14,10 @@ from abc import ABC, abstractmethod
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from dustdas import gffhelper, fastahelper
 from geenuff.base import orm
 from geenuff.base import types
 from geenuff.base import helpers
+from geenuff.parsing import fastahelper, gffhelper
 from geenuff.base.helpers import (get_strand_direction, strand_or_none, get_geenuff_start_end,
                                   has_inframe_stop_codon, plural, spliced_cds_sequence, START_CODON,
                                   STOP_CODONS)
@@ -561,8 +561,8 @@ class OrganizedGeenuffImporterGroup(object):
         None without either. Only stored, never used to decide anything."""
         protein_ids = set()
         for cds_entry in cds_entry_list:
-            attributes = cds_entry.attrib_filter(tag='protein_id')
-            protein_ids.update(attributes[0].value if attributes else cds_entry.get_Parent() or [])
+            protein_id = cds_entry.attributes.get('protein_id')
+            protein_ids.update(protein_id.split(',') if protein_id else cds_entry.get_Parent() or [])
         return ','.join(sorted(protein_ids)) or None
 
 
@@ -683,12 +683,6 @@ class OrganizedGFFEntries(object):
                                         f'Parent={t.get_ID()}'))
         return exons
 
-    @staticmethod
-    def _id_of(entry):
-        """The line's ID, or None where it has none, for which gffhelper's get_ID raises an error."""
-        return next((attribute.value[0] for attribute in entry.attributes if attribute.tag == 'ID'),
-                    None)
-
     def _drop(self, entry, reason):
         self.stats.dropped_lines[reason][entry.type] += 1
         logger.debug(f'leaving out {entry.type} at {entry.seqid}:{entry.start}-{entry.end}: '
@@ -705,10 +699,10 @@ class OrganizedGFFEntries(object):
         """{ID: line} of the gene or transcript lines whose ID no other gene or transcript line
         uses. A line without an ID, which no line can name as its parent, or with an ID another
         line shares, which makes what a child names undecidable, is left out."""
-        counts = Counter(self._id_of(line) for line in lines + other_parent_lines)
+        counts = Counter(line.get_ID() for line in lines + other_parent_lines)
         by_id = {}
         for line in lines:
-            line_id = self._id_of(line)
+            line_id = line.get_ID()
             if line_id is None:
                 self._drop(line, 'no_id')
             elif counts[line_id] > 1:
@@ -801,7 +795,7 @@ class OrganizedGFFEntries(object):
             parents = piece.get_Parent() or []
             if not parents:
                 if key == 'cds':
-                    name = self._id_of(piece) or f'{piece.seqid}:{piece.start}-{piece.end}'
+                    name = piece.get_ID() or f'{piece.seqid}:{piece.start}-{piece.end}'
                     floating[('no_parent', name)].append(piece)
                 else:
                     self._drop(piece, 'no_parent')
@@ -883,7 +877,7 @@ class OrganizedGFFEntries(object):
                 yield entry
 
     def _gff_gen(self):
-        for line in helpers.gff_feature_lines(self.gff_file):
+        for line in gffhelper.GFFParser.feature_lines(self.gff_file):
             self.stats.gff_lines_read += 1
             entry = gffhelper.GFFObject(gffline=line)
             if entry.type not in KNOWN_TYPES:
@@ -1635,7 +1629,7 @@ class FastaImporter(object):
         """Maps each sequence ID of the GFF's feature lines to its FASTA sequence's Coordinate,
         raising helpers.NonMatchableIDs for IDs without exactly one (see helpers.match_seqids)."""
         coords_by_seqid = {c.seqid: c for c in self.genome.coordinates}
-        seqid_pairs = helpers.match_seqids(coords_by_seqid, helpers.get_seqids_from_gff(gff_file))
+        seqid_pairs = helpers.match_seqids(coords_by_seqid, gffhelper.GFFParser.seqids(gff_file))
         self.gffid_to_coords = {gff_id: coords_by_seqid[fa_id] for gff_id, fa_id in seqid_pairs.items()}
 
     def add_sequences(self, seq_file):
@@ -1653,7 +1647,7 @@ class FastaImporter(object):
         fp = fastahelper.FastaParser()
         for fasta_header, seq in fp.read_fasta(seq_file):
             seq = seq.upper()  # this may perform poorly
-            seqid = helpers.fasta_header_id(fasta_header)
+            seqid = fastahelper.FastaParser.header_id(fasta_header)
             yield seqid, seq
 
 

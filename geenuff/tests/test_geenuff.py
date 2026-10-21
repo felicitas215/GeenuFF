@@ -22,6 +22,7 @@ from geenuff.applications.importer import ImportController, MissingGeneLines, Or
 from geenuff.applications.import_summary import GENES_GIVING_LABELS, SUMMARY_STEPS
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
+from geenuff.parsing import gffhelper
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -1857,5 +1858,5 @@ def test_seqid_matching_raises_for_gff_ids_without_one_fasta_id():
 
 
 def test_gff_to_seqids():
-    x = helpers.get_seqids_from_gff('testdata/testerSl.gff3')
+    x = gffhelper.GFFParser.seqids('testdata/testerSl.gff3')
     assert x == {'NC_015438.2', 'NC_015439.2', 'NC_015440.2'}

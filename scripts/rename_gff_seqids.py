@@ -17,13 +17,13 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from dustdas.fastahelper import FastaParser, text_or_gzip_open
-
 from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, DEFAULT_THREADS, Compression, add_output_compression_args,
-                                  check_output_paths, codon_after_cds, compression_for, fasta_header_id, gff_attributes,
-                                  gff_feature_lines, insert_before_extension, open_out, output_compression, output_path,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+                                  check_output_paths, codon_after_cds, compression_for, insert_before_extension,
+                                  open_out, output_compression, output_path, require_fasta_and_gff,
+                                  require_input_files, setup_logging, write_fasta_without)
 from geenuff.base.types import PIECE_KEYS
+from geenuff.parsing.fastahelper import FastaParser, text_or_gzip_open
+from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
 
@@ -179,18 +179,17 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
     sequences = defaultdict(GffSequence)
     # by (seqid, Parent); the exon and CDS types GeenuFF imports, a line under each transcript it names
     pieces = defaultdict(lambda: {'cds': [], 'exons': [], 'strands': set()})
-    for line in gff_feature_lines(gff_path):
+    for line in GFFParser.feature_lines(gff_path):
         seqid, _, feature_type, start, end, _, strand, _, column = line.rstrip('\n').split('\t')[:9]
         sequences[seqid].max_end = max(sequences[seqid].max_end, int(end))
         sequences[seqid].n_lines += 1
         key = PIECE_KEYS.get(feature_type)
         if key not in ('cds', 'exons'):
             continue
-        for parent in gff_attributes(column).get('Parent', '').split(','):
-            if parent:
-                transcript = pieces[(seqid, parent)]
-                transcript[key].append((int(start), int(end)))
-                transcript['strands'].add(strand)
+        for parent in GFFObject.parents(GFFObject.parse_attributes(column)):
+            transcript = pieces[(seqid, parent)]
+            transcript[key].append((int(start), int(end)))
+            transcript['strands'].add(strand)
     for (seqid, transcript_id), transcript in pieces.items():
         sequence = sequences[seqid]
         sequence.coding_transcripts += bool(transcript['cds'])
@@ -449,10 +448,8 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
 
 def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression: Compression | None) -> None:
     """Writes the GFF3 file with its sequence IDs renamed, leaving out the lines of unpaired ones."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
-        for line in f_in:
-            if line.startswith(('##FASTA', '>')):
-                break
+    with open_out(out_path, compression) as f_out:
+        for line in GFFParser.lines(gff_path):
             # the sequence ID of a ##sequence-region or feature line renamed, the line dropped (None)
             # where the ID is unpaired; other comment lines are kept as they are
             if line.startswith('##sequence-region'):
@@ -462,17 +459,6 @@ def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression:
                 seqid, rest = line.split('\t', 1)
                 line = f'{pairs[seqid].fasta_id}\t{rest}' if seqid in pairs else None
             if line is not None:
-                f_out.write(line)
-
-
-def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str], compression: Compression | None) -> None:
-    """Copies the FASTA file, leaving out the sequences of the given IDs."""
-    keep = True
-    with text_or_gzip_open(fasta_path) as f_in, open_out(out_path, compression) as f_out:
-        for line in f_in:
-            if line.startswith('>'):
-                keep = fasta_header_id(line[1:]) not in left_out
-            if keep:
                 f_out.write(line)
 
 
@@ -589,7 +575,7 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
     logger.info(f'Reading "{fasta_path}"')
     sequences, full_names = {}, {}
     for full_name, sequence in FastaParser.read_fasta(fasta_path):
-        fasta_id = fasta_header_id(full_name)
+        fasta_id = FastaParser.header_id(full_name)
         sequences[fasta_id], full_names[fasta_id] = sequence.upper(), full_name
     logger.info(f'Reading "{gff_path}"')
     gff_sequences = read_gff(gff_path)

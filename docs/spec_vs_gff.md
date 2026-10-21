@@ -198,6 +198,10 @@ and the coding transcripts, i.e. potential training data, each reason cost.
   that touch forming one exon. Overlapping lines stay apart, so that the overlap is found as an
   error.
 - A line on another sequence than its parent is left out.
+- Attributes are read as `tag=value` pairs split at the first `=`, ignoring spaces around a pair
+  and a trailing `;`. A tag given twice on a line has its values joined, as if separated by commas
+  (`Parent=t1;Parent=t2` as `Parent=t1,t2`), and a `Parent` naming the same ID twice
+  (`Parent=tx1,tx1`) names it once.
 
 ##### import summary
 

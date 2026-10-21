@@ -9,8 +9,10 @@ import argparse
 import logging
 import os
 
-from geenuff.base.helpers import (NonMatchableIDs, fasta_ids, get_seqids_from_gff, match_seqids,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.base.helpers import (NonMatchableIDs, match_seqids, require_fasta_and_gff, require_input_files,
+                                  setup_logging)
+from geenuff.parsing.fastahelper import FastaParser
+from geenuff.parsing.gffhelper import GFFParser
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ def main(args: argparse.Namespace) -> None:
     setup_logging()
     logger.info(f'Checking the sequence IDs of "{os.path.basename(args.gff)}" against '
                 f'"{os.path.basename(args.fasta)}"')
-    fasta, gff = set(fasta_ids(args.fasta)), get_seqids_from_gff(args.gff)
+    fasta, gff = set(FastaParser.ids(args.fasta)), GFFParser.seqids(args.gff)
     missing = gff - fasta
     if not missing:
         logger.info(f'All {len(gff)} sequence IDs of the GFF3 file are FASTA IDs: the files match by ID '

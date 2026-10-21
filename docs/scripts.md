@@ -27,6 +27,8 @@ input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can
 this for all of them. Gzipped output is written at `--compression-level` 4 by default (1 fastest,
 9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster. It is
 compressed in `--threads` 4 threads by default (1 for a single one, -1 for all the system has).
+Zipped files holding a single file are read as well; the output of a zipped input file is gzipped
+and named `.gz`.
 
 Without an output path (`-o`, or `--fasta-out` and `--gff-out` for `filter_sequence_lengths.py`),
 each preparation script writes beside its input, the input's name with a suffix before the extension,
