@@ -183,8 +183,8 @@ and the coding transcripts, i.e. potential training data, each reason cost.
   transcripts is left out unmasked, whether or not it duplicates a line of that gene's transcripts:
   it could equally belong to an isoform without a transcript line (the summary counts such CDS
   lines per gene, and the genes left non-coding by them; where the gene's only transcript has no
-  lines of its own, `add_transcript_lines.py` puts them under it). An exon or UTR line naming no
-  transcript otherwise is left out as well.
+  exon, CDS or UTR lines yet, `add_transcript_lines.py` puts them under it). An exon or UTR line
+  naming no transcript otherwise is left out as well.
 - CDS lines naming no transcript otherwise are masked (`floating_cds`) rather than turned into gene
   models, whose CDS, exons and UTRs would have to be guessed from IDs every source writes
   differently; masked, their sequence is not taught as intergenic. They are grouped by a shared

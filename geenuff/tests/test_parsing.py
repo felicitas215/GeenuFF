@@ -43,11 +43,17 @@ def test_read_fasta_rejects_an_id_given_twice(tmp_path):
         list(FastaParser.read_fasta(path))
 
 
+def test_read_fasta_rejects_text_between_sequence_lines(tmp_path):
+    path = write_as(tmp_path / 'genome.fa', b'>s1\nACGT\n; a comment\nACGT\n', 'text')
+    with pytest.raises(ValueError, match='sequence "s1" holds ";", which is no base'):
+        list(FastaParser.read_fasta(path))
+
+
 @pytest.mark.parametrize('file_format', ['text', 'gzip', 'zip'])
 def test_gff_feature_lines_plain_gzipped_and_zipped(tmp_path, file_format):
     gff = b'##gff-version 3\nchr1\t.\tgene\t1\t9\t.\t+\t.\tID=g1\n\n##FASTA\n>chr1\nACGT\n'
     path = write_as(tmp_path / 'genes.gff3', gff, file_format)
-    assert list(GFFParser.feature_lines(path)) ==['chr1\t.\tgene\t1\t9\t.\t+\t.\tID=g1\n']
+    assert list(GFFParser.feature_lines(path)) == ['chr1\t.\tgene\t1\t9\t.\t+\t.\tID=g1\n']
 
 
 def test_fasta_pieces_rebuild_file_across_chunk_borders(tmp_path, monkeypatch):

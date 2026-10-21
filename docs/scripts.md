@@ -242,15 +242,17 @@ from them, and leaves out those of a gene with transcripts, which then count as 
 file gives little or no training data. Two cases are handled, the gene's lines getting the
 transcript as `Parent` in place of the gene:
 
-| case                                               | e.g.                                                   | transcript                                                    |
-|----------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------------|
-| the gene has no transcript line (some MAKER files) | `CDS ID=g1:CDS:1;Parent=g1`                            | a new `mRNA ID=g1_mRNA;Parent=g1` spanning the gene, after it |
-| the gene's only transcript has no lines of its own | `mRNA ID=g1.1;Parent=g1`, `CDS ID=g1.1.CDS1;Parent=g1` | that transcript, `g1.1`                                       |
+| case                                                         | e.g.                                                   | transcript                                                    |
+|--------------------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------------|
+| the gene has no transcript line (some MAKER files)           | `CDS ID=g1:CDS:1;Parent=g1`                            | a new `mRNA ID=g1_mRNA;Parent=g1` spanning the gene, after it |
+| the gene's only transcript has no exon, CDS or UTR lines yet | `mRNA ID=g1.1;Parent=g1`, `CDS ID=g1.1.CDS1;Parent=g1` | that transcript, `g1.1`                                       |
 
-Genes with several transcripts, or one with lines of its own, stay as they are; the import summary
-counts the non-coding genes with CDS lines naming them. The log warns where a gene has overlapping
-exon or CDS lines, a sign of several isoforms written as one gene, which GeenuFF masks. Where no
-line needs moving, no file is written.  
+Genes with several transcripts, or one that has exon, CDS or UTR lines already, stay as they are;
+the import summary counts the non-coding genes with CDS lines naming them. The log warns where a
+gene has overlapping exon or CDS lines, a sign of several isoforms written as one gene, which
+GeenuFF masks. It also counts the lines naming a `Parent` that matches no line at all, which stay
+as they are, there being neither a gene nor a transcript line to put them under. Where no line
+needs moving, no file is written.  
 This should in general only be used on files where each gene parented feature belongs to one isoform
 only, as multi-isoform features all parented to one gene can not be sorted into the correct isoform
 reliably (automatically); which is why genes with several transcripts are left as they are.

@@ -172,9 +172,9 @@ class OrganizedGeenuffImporterGroup(object):
         sl_i.n_dropped_transcripts += 1
         sl_i.n_dropped_coding_transcripts += coding
         self.controller.stats.unstorable_transcripts_dropped += 1
-        logger.warning(f"dropping transcript '{t_id}': its {what} runs from {gff_start} to "
-                       f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
-                       f"'{sl_i.given_name}' will not be exported")
+        logger.debug(f"dropping transcript '{t_id}': its {what} runs from {gff_start} to "
+                     f"{gff_end}, i.e. backwards, so it has no storable range; super locus "
+                     f"'{sl_i.given_name}' will not be exported")
 
     @staticmethod
     def _cds_extended_by_a_codon(t_entries, is_plus_strand, seq_length):

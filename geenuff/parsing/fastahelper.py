@@ -16,6 +16,8 @@ from zlib_ng import gzip_ng_threaded
 FASTA_CHUNK_SIZE = 1 << 18
 # whitespace in a FASTA sequence line, never part of the sequence
 SEQUENCE_WHITESPACE = b' \t\n\r\v\f'
+# the IUPAC bases a sequence may hold, in either case, as Helixer encodes them
+BASES = b'ACGTMRWSYKVHDBN'
 
 
 def detect_format(path: str) -> str:
@@ -123,12 +125,19 @@ class FastaParser:
         each sequence of a (gzipped) FASTA file.
 
         Raises:
-            ValueError: see pieces
+            ValueError: see pieces, or for a sequence holding a character other than BASES and
+                whitespace, e.g. from text between its lines
         """
         header, parts = None, []
         for is_header, piece in FastaParser.pieces(path):
             if not is_header:
-                parts.append(piece.translate(None, SEQUENCE_WHITESPACE))
+                sequence = piece.translate(None, SEQUENCE_WHITESPACE)
+                unknown = sequence.translate(None, BASES + BASES.lower())
+                if unknown:
+                    raise ValueError(f'"{path}": the sequence "{FastaParser.header_id(header)}" holds '
+                                     f'"{unknown[:1].decode(errors="replace")}", which is no base (one of '
+                                     f'{BASES.decode()}, in either upper- or lowercase)')
+                parts.append(sequence)
                 continue
             if header is not None:
                 yield header, FastaParser._joined(parts)
