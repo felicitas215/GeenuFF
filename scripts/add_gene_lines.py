@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (add_output_compression_args, check_output_paths, gff_attributes, gff_feature_lines,
-                                  insert_before_extension, open_out, output_compression, output_path,
+from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, gff_attributes,
+                                  gff_feature_lines, insert_before_extension, open_out, output_compression, output_path,
                                   require_fasta_and_gff, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
@@ -145,12 +145,12 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     return by_transcript
 
 
-def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene], compression_level: int | None) -> int:
+def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene], compression: Compression | None) -> int:
     """Writes the GFF3 file with each new gene line before its first transcript and each orphan
     transcript's gene as its Parent, in place of the transcript's own ID where it names itself.
     Returns the number of gene lines written."""
     written = set()
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break

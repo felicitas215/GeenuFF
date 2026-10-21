@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 
 from dustdas.fastahelper import FastaParser, text_or_gzip_open
 
-from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, add_output_compression_args, check_output_paths,
-                                  codon_after_cds, compression_for, fasta_header_id, gff_attributes, gff_feature_lines,
-                                  insert_before_extension, open_out, output_compression, output_path,
+from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, DEFAULT_THREADS, Compression, add_output_compression_args,
+                                  check_output_paths, codon_after_cds, compression_for, fasta_header_id, gff_attributes,
+                                  gff_feature_lines, insert_before_extension, open_out, output_compression, output_path,
                                   require_fasta_and_gff, require_input_files, setup_logging)
 from geenuff.base.types import PIECE_KEYS
 
@@ -447,9 +447,9 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
     return Pairing(pairs | searched_pairs, changed, duplicates)
 
 
-def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression_level: int | None) -> None:
+def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression: Compression | None) -> None:
     """Writes the GFF3 file with its sequence IDs renamed, leaving out the lines of unpaired ones."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break
@@ -465,10 +465,10 @@ def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression_
                 f_out.write(line)
 
 
-def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str], compression_level: int | None) -> None:
+def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str], compression: Compression | None) -> None:
     """Copies the FASTA file, leaving out the sequences of the given IDs."""
     keep = True
-    with text_or_gzip_open(fasta_path) as f_in, open_out(out_path, compression_level) as f_out:
+    with text_or_gzip_open(fasta_path) as f_in, open_out(out_path, compression) as f_out:
         for line in f_in:
             if line.startswith('>'):
                 keep = fasta_header_id(line[1:]) not in left_out
@@ -561,7 +561,8 @@ def write_pairs(path: str, pairs: dict[str, Pair], full_names: dict[str, str]) -
 
 def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | None = None,
            max_missing_share: float = MAX_MISSING_SHARE, gzipped: bool | None = None,
-           compression_level: int = DEFAULT_COMPRESSION_LEVEL) -> tuple[dict[str, GffSequence], Pairing, bool]:
+           compression_level: int = DEFAULT_COMPRESSION_LEVEL,
+           threads: int = DEFAULT_THREADS) -> tuple[dict[str, GffSequence], Pairing, bool]:
     """Pairs the sequence IDs of a GFF3 file with those of its FASTA file and writes the renamed GFF3
     file, with a FASTA copy where changed sequences are left out (see the module docstring).
 
@@ -573,6 +574,7 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
         max_missing_share: see pair_seqids
         gzipped: whether to gzip the renamed GFF3 file and the FASTA copy, None for each as its input
         compression_level: their gzip level
+        threads: the threads compressing them (see compression_for)
 
     Returns:
         the GFF3 sequences (see read_gff), their pairing, and whether a file was written, none being
@@ -601,12 +603,12 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
         return gff_sequences, pairing, False
     log_summary(gff_sequences, pairing, gff_name, fasta_name)
 
-    compression = compression_for(gff_path, gzipped, compression_level)
+    compression = compression_for(gff_path, gzipped, compression_level, threads)
     write_gff(gff_path, output_path(out_path, compression), pairs, compression)
     # a FASTA sequence paired with one GFF3 sequence ID stays, whichever other one it did not fit
     dropped = {fasta_id for fasta_id, _ in pairing.changed.values()} - {pair.fasta_id for pair in pairs.values()}
     if dropped:
-        compression = compression_for(fasta_path, gzipped, compression_level)
+        compression = compression_for(fasta_path, gzipped, compression_level, threads)
         fasta_out = output_path(fasta_out_path(fasta_path, out_path), compression)
         write_fasta_without(fasta_path, fasta_out, dropped, compression)
         logger.warning(f'Wrote the FASTA file without the {len(dropped)} changed sequences to "{fasta_out}"; '
@@ -620,7 +622,7 @@ def main(args: argparse.Namespace) -> None:
     setup_logging(args.log_file)
     try:
         rename(args.fasta, args.gff, args.out, args.pairs_out, args.max_missing_percent / 100, args.gzip,
-               args.compression_level)
+               args.compression_level, args.threads)
     except MismatchedFiles as e:
         logger.error(e)
         raise SystemExit(1)

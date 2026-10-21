@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools < 72.0"]
+# setuptools before 70.1 needs the wheel package to build a wheel
+requires = ["setuptools < 72.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,6 +21,8 @@ dependencies = [
     "numpy>=1.18.1",
     "pyyaml",
     "dustdas @ git+https://github.com/gglyptodon/dustdas@v0.2",
+    # gzip compression and decompression in threads for the scripts' FASTA and GFF3 files
+    "zlib-ng>=1.0.0",
     "pytest>=5.3.4"
 ]
 authors = [

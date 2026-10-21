@@ -19,8 +19,8 @@ from collections import defaultdict
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (add_output_compression_args, check_output_paths, gff_attributes, gff_feature_lines,
-                                  insert_before_extension, open_out, output_compression, output_path,
+from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, gff_attributes,
+                                  gff_feature_lines, insert_before_extension, open_out, output_compression, output_path,
                                   require_fasta_and_gff, require_input_files, setup_logging)
 
 logger = logging.getLogger(__name__)
@@ -78,11 +78,11 @@ def transcripts_for_genes(gff_path: str) -> tuple[dict[str, str], set[str], set[
 
 
 def write_with_transcripts(gff_path: str, out_path: str, target: dict[str, str], new: set[str],
-                           compression_level: int | None) -> None:
+                           compression: Compression | None) -> None:
     """Writes the GFF3 file with each gene's target transcript (see transcripts_for_genes) as Parent of
     its exon, CDS and UTR lines in place of the gene, and an mRNA line spanning the gene after each
     gene line of the new ones."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break

@@ -18,9 +18,10 @@ from collections import OrderedDict, defaultdict
 
 from dustdas.fastahelper import text_or_gzip_open
 
-from geenuff.base.helpers import (add_output_compression_args, check_output_paths, fasta_header_id, fasta_lines,
-                                  gff_feature_lines, insert_before_extension, open_out, output_compression,
-                                  output_path, require_fasta_and_gff, require_input_files, setup_logging)
+from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, fasta_header_id,
+                                  fasta_pieces, gff_feature_lines, insert_before_extension, open_out,
+                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
+                                  setup_logging)
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,8 @@ OUT_SUFFIX = '_length_filtered'  # inserted before the extension of the input fi
 def fasta_lengths(path: str) -> OrderedDict[str, int]:
     """{sequence ID (the header up to the first whitespace): length in bases}, in file order."""
     lengths, seq_id = OrderedDict(), None
-    for at_line_start, piece in fasta_lines(path):
-        if at_line_start and piece.startswith(b'>'):
+    for is_header, piece in fasta_pieces(path):
+        if is_header:
             seq_id = fasta_header_id(piece[1:].decode())
             lengths[seq_id] = 0
         elif seq_id is not None:
@@ -79,21 +80,20 @@ def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) 
     return cluster
 
 
-def write_fasta_without(fasta_path: str, out_path: str, removed: set[str], compression_level: int | None) -> None:
-    """Copies the FASTA file without the sequences of the removed IDs. A sequence line longer than
-    helpers.FASTA_CHUNK_SIZE comes out wrapped into lines of up to that length, which FASTA allows."""
+def write_fasta_without(fasta_path: str, out_path: str, removed: set[str], compression: Compression | None) -> None:
+    """Copies the FASTA file byte for byte without the sequences of the removed IDs."""
     keep = True
-    with open_out(out_path, compression_level, binary=True) as out:
-        for at_line_start, piece in fasta_lines(fasta_path):
-            if at_line_start and piece.startswith(b'>'):
+    with open_out(out_path, compression, binary=True) as out:
+        for is_header, piece in fasta_pieces(fasta_path):
+            if is_header:
                 keep = fasta_header_id(piece[1:].decode()) not in removed
             if keep:
-                out.write(piece + b'\n')
+                out.write(piece)
 
 
-def write_gff_without(gff_path: str, out_path: str, removed: set[str], compression_level: int | None) -> None:
+def write_gff_without(gff_path: str, out_path: str, removed: set[str], compression: Compression | None) -> None:
     """Copies the GFF3 file without the feature and ##sequence-region lines of the removed IDs."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break

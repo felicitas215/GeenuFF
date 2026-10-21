@@ -16,8 +16,8 @@ from collections import defaultdict
 from dustdas.fastahelper import text_or_gzip_open
 
 from geenuff.applications.importer import CDS_OUTSIDE_EXONS_WARN_SHARE, PIECE_KEYS, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (add_output_compression_args, cds_outside_exons, check_output_paths, gff_attributes,
-                                  gff_feature_lines, insert_before_extension, merge_gff_spans, open_out,
+from geenuff.base.helpers import (Compression, add_output_compression_args, cds_outside_exons, check_output_paths,
+                                  gff_attributes, gff_feature_lines, insert_before_extension, merge_gff_spans, open_out,
                                   output_compression, output_path, require_fasta_and_gff, require_input_files,
                                   setup_logging)
 
@@ -52,11 +52,11 @@ def rebuilt_exons(gff_path: str) -> tuple[dict[str, list[tuple[int, int]]], int]
 
 
 def write_rebuilt(gff_path: str, out_path: str, rebuilt: dict[str, list[tuple[int, int]]],
-                  compression_level: int | None) -> None:
+                  compression: Compression | None) -> None:
     """Writes the GFF3 file with the old exon lines of the rebuilt transcripts left out (an exon line
     shared with other transcripts keeps those as Parent) and their new exon lines after each
     transcript line."""
-    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression_level) as f_out:
+    with text_or_gzip_open(gff_path) as f_in, open_out(out_path, compression) as f_out:
         for line in f_in:
             if line.startswith(('##FASTA', '>')):
                 break

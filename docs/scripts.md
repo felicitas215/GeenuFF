@@ -25,7 +25,8 @@ feature line does not have 9 tab-separated columns (e.g. 10 from a sequence ID h
 The preparation scripts read gzipped or plain files alike. Each file they write is gzipped where its
 input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override
 this for all of them. Gzipped output is written at `--compression-level` 4 by default (1 fastest,
-9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster.
+9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster. It is
+compressed in `--threads` 4 threads by default (1 for a single one, -1 for all the system has).
 
 Without an output path (`-o`, or `--fasta-out` and `--gff-out` for `filter_sequence_lengths.py`),
 each preparation script writes beside its input, the input's name with a suffix before the extension,
