@@ -5,7 +5,7 @@ lines, as in some MAKER files, gets an mRNA line spanning it, written after the 
 gene ID and _mRNA as its ID. A gene whose only transcript has no exon, CDS or UTR lines yet gets
 them under that transcript. Either way the transcript becomes their Parent in place of the gene.
 Genes with several transcripts, or one that has exon, CDS or UTR lines already, are left as they
-are. The log warns where a gene
+are, as are genes with no CDS line naming them, e.g. pseudogenes. The log warns where a gene
 has overlapping exon or CDS lines, a sign of several isoforms written as one gene, which GeenuFF
 masks.
 This should in general only be used on files where each gene parented feature belongs to one isoform
@@ -36,8 +36,9 @@ def overlapping(spans: list[tuple[int, int]]) -> bool:
 
 def transcripts_for_genes(gff_path: str) -> tuple[dict[str, str], set[str], set[str]]:
     """{gene ID: the transcript its exon, CDS and UTR lines naming the gene go under} for the genes
-    without transcript lines and those whose only transcript has no exon, CDS or UTR lines yet; of
-    those, the genes getting a new transcript line, and the ones with overlapping exon or CDS lines.
+    with CDS lines naming them, without transcript lines or whose only transcript has no exon, CDS or
+    UTR lines yet; of those, the genes getting a new transcript line, and the ones with overlapping
+    exon or CDS lines.
 
     Raises:
         SystemExit: where the ID a new transcript line would get is the ID of a line already
@@ -60,6 +61,12 @@ def transcripts_for_genes(gff_path: str) -> tuple[dict[str, str], set[str], set[
                 spans[parent][PIECE_KEYS[feature_type]].append((int(columns[3]), int(columns[4])))
 
     gene_parented = spans.keys() & gene_ids
+    non_coding = {gene_id for gene_id in gene_parented if not spans[gene_id]['cds']}
+    if non_coding:
+        logger.info(f'{len(non_coding)} genes have exon or UTR lines naming the gene itself but no CDS line, e.g. '
+                    f'{", ".join(sorted(non_coding)[:3])}; non-coding, e.g. pseudogenes, they give no labels either '
+                    f'way and are left as they are')
+    gene_parented -= non_coding
     new = gene_parented - transcripts_of.keys()
     target = {gene_id: f'{gene_id}{TRANSCRIPT_SUFFIX}' for gene_id in new}
     target |= {gene_id: transcripts_of[gene_id][0] for gene_id in gene_parented - new
@@ -115,9 +122,8 @@ def main(args: argparse.Namespace) -> None:
                 f'"{os.path.basename(args.gff)}"')
     target, new, overlaps = transcripts_for_genes(args.gff)
     if not target:
-        logger.info('No exon, CDS or UTR line names a gene of the two cases handled, one without transcript lines '
-                    'or one whose only transcript has no exon, CDS or UTR lines yet: nothing to change, no file '
-                    'written')
+        logger.info('No CDS line names a gene of the two cases handled, one without transcript lines or one whose '
+                    'only transcript has no exon, CDS or UTR lines yet: nothing to change, no file written')
         return
     for genes, which in ((sorted(new), 'without transcript lines, each given an mRNA line'),
                          (sorted(target.keys() - new), 'whose only transcript has no exon, CDS or UTR lines yet')):

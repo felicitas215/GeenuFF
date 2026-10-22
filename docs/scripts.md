@@ -186,7 +186,8 @@ count once, so that one gene with many isoforms cannot decide a sequence alone.
 A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if:
 - the genes reach past its end by more than its length; by less, they are read as crossing the
   origin of a circular sequence, as GFF3 writes such features (their end plus the sequence's
-  length), and checked so, with a warning to check that the sequence is circular
+  length), and checked so, with a warning to check that the sequence is circular or was cut at its
+  end after annotation (e.g. trimmed on upload to NCBI), the import masking genes past the end
 - a `##sequence-region` length differs from its own by >= 2 bp
 - or, with 20 checks or more, fewer than half pass in any window (the first 20,
   the last 20, about 25 each in between)
@@ -222,8 +223,10 @@ Adds gene lines for transcripts without a `Parent`, as gene predictors such as A
 and Tiberius write them, which stop GeenuFF's import where they are coding (a transcript naming a
 `Parent` that matches no line gets a gene inferred instead). A transcript naming itself as
 `Parent`, e.g. `ID=g7-mRNA-1;Parent=g7-mRNA-1`, is treated as having none:
-GeenuFF leaves it out as naming a transcript as parent. Each such transcript's gene ID is taken
-from the first of these sources that gives one:
+GeenuFF leaves it out as naming a transcript as parent. Transcripts no CDS line names, e.g. the
+tRNAs and rRNAs of NCBI organelle annotations, are left as they are: GeenuFF leaves them out either
+way, as they give no training data. Each coding transcript's gene ID is taken from the first of
+these sources that gives one:
 
 | source                                                                                                                                | e.g. transcript line            | gene ID   |
 |---------------------------------------------------------------------------------------------------------------------------------------|---------------------------------|-----------|
@@ -242,8 +245,8 @@ the transcripts only get it as `Parent` and no second gene line is written; a tr
 itself as `Parent` gets that gene in place of itself. A gene ID on several sequences or strands, or
 already the ID of a line other than a gene line, gets the sequence and strand appended (e.g.
 `g2_CHR_minus`) with a warning. Transcripts falling back to a gene of their own are warned about
-too, unless `--one-gene-per-transcript` is set. Where every transcript names a `Parent` other than
-itself, nothing needs adding and no file is written.
+too, unless `--one-gene-per-transcript` is set. Where every coding transcript names a `Parent`
+other than itself, nothing needs adding and no file is written.
 
 ## add_transcript_lines.py
 
@@ -259,11 +262,12 @@ transcript as `Parent` in place of the gene:
 | the gene's only transcript has no exon, CDS or UTR lines yet | `mRNA ID=g1.1;Parent=g1`, `CDS ID=g1.1.CDS1;Parent=g1` | that transcript, `g1.1`                                       |
 
 Genes with several transcripts, or one that has exon, CDS or UTR lines already, stay as they are;
-the import summary counts the non-coding genes with CDS lines naming them. The log warns where a
-gene has overlapping exon or CDS lines, a sign of several isoforms written as one gene, which
-GeenuFF masks. It also counts the lines naming a `Parent` that matches no line at all, which stay
-as they are, there being neither a gene nor a transcript line to put them under. Where no line
-needs moving, no file is written.  
+so do genes with no CDS line naming them, e.g. NCBI pseudogenes with exon lines only, which are
+non-coding and give no labels either way; the import summary counts the non-coding genes with CDS
+lines naming them. The log warns where a gene has overlapping exon or CDS lines, a sign of several
+isoforms written as one gene, which GeenuFF masks. It also counts the lines naming a `Parent` that
+matches no line at all, which stay as they are, there being neither a gene nor a transcript line
+to put them under. Where no line needs moving, no file is written.  
 This should in general only be used on files where each gene parented feature belongs to one isoform
 only, as multi-isoform features all parented to one gene can not be sorted into the correct isoform
 reliably (automatically); which is why genes with several transcripts are left as they are.
@@ -282,10 +286,10 @@ gives the share rebuilt and warns at 5% or below. Without such transcripts, no f
 Removes short junk sequences, e.g. organelle genomes or small unplaced scaffolds, from a FASTA
 file and their lines from its GFF3 file before import:
 
-| removed                                                 | how                                                                                                                                                                                                                                                                                                                                                      |
-|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score from their median and median absolute deviation, at least `MIN_GAP_RANK` = 3); needs 5 sequences or more (`MIN_SEQUENCES_FOR_CLUSTERING`) and may hold at most 5% of the total length (`--max-cluster-length-fraction`) |
-| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                                                                                                                                                                                                         |
+| removed                                                 | how                                                                                                                                                                                                                                                                                                                                                                                                                     |
+|---------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| a cluster of small sequences (off with `--no-adaptive`) | below the largest gap between the sorted log10 lengths of all sequences, where it stands out from the other gaps (robust z-score from their median and median absolute deviation, at least `MIN_GAP_RANK` = 3) and is at least a 2.5-fold step in length (`MIN_CLUSTER_STEP`); needs 5 sequences or more (`MIN_SEQUENCES_FOR_CLUSTERING`) and may hold at most 5% of the total length (`--max-cluster-length-fraction`) |
+| sequences below the hard floor (`--min-seq-len`)        | always, by default below 1000 bp                                                                                                                                                                                                                                                                                                                                                                                        |
 
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
 Where the sequences below the floor hold over 5% of the bases or coding genes, they are still
@@ -293,10 +297,24 @@ removed, with a warning that a lower `--min-seq-len` keeps them.
 In a fragmented scaffold-level assembly, the gaps in the dense middle of the length distribution
 are tiny, so the largest gap, among the few longest scaffolds, stands out without separating junk
 from the rest; the length share keeps such a cluster (e.g. 9458 of 9463 scaffolds, 97.6% of the
-bp, in one moss assembly).  
-With a very unusual length distribution, e.g. nearly all sequences of one length, the cluster can
-be a sequence barely shorter than the rest; the log lists what was removed, and `--no-adaptive`, or
-not filtering at all, keeps it.
+bp, in one moss assembly, *Ulota hutchinsiae*, NCBI GCA_050002435.1).  
+In a chromosome-level assembly all gaps are small, so one barely larger stands out as well; the
+2.5-fold step keeps the smallest chromosome there (e.g. 12.0 Mb beside 14.2 Mb in *Physcomitrium
+patens* v7.1 from Phytozome, or 8.8 Mb beside 21.3 Mb in *Racopilum cuspidigerum*, NCBI
+GCA_050083975.1), while organelle genomes and junk scaffolds lie 2.68-fold or more below the
+shortest sequence kept. The log says where a gap stands out but is too small a step, and lists
+what was removed; `--no-adaptive`, or not filtering at all, keeps it.  
+Only the largest gap is cut at, so a short sequence among others of similar length stays, e.g. the
+16.4 kb mitochondrion of the blue whale (*Balaenoptera musculus*, NCBI RefSeq GCF_009873245.2)
+beside unplaced scaffolds of 18.5 kb and more. Sequences known by ID are easily removed with
+[seqkit](https://bioinf.shenwei.me/seqkit/); `rename_gff_seqids.py` then leaves out their GFF3
+lines, which the import would otherwise stop on:
+
+```bash
+# exclude.txt: the IDs of the sequences to remove, one per line
+seqkit grep -v -f exclude.txt genome.fa.gz -o genome_excluded.fa.gz
+rename_gff_seqids.py --fasta genome_excluded.fa.gz --gff genes.gff3.gz  # or use awk
+```
 
 | output                         | option          | default                                                                                            |
 |--------------------------------|-----------------|----------------------------------------------------------------------------------------------------|

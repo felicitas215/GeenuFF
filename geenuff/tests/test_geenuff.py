@@ -1617,6 +1617,21 @@ def test_add_gene_lines_takes_gene_ids_from_an_attribute_or_a_split_of_the_id(tm
                                                        'ID=G10-mRNA-1;Parent=G10']
 
 
+def test_add_gene_lines_leaves_non_coding_transcripts_as_they_are(tmp_path):
+    """Of two transcripts without a Parent, only the mRNA a CDS line names gets a gene; the tRNA,
+    which the import leaves out either way, keeps its line unchanged."""
+    gff = tmp_path / 'genes.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=g1.t1\n'
+                   'CHR\ttest\tCDS\t101\t400\t.\t+\t0\tParent=g1.t1\n'
+                   'CHR\ttest\ttRNA\t601\t672\t.\t+\t.\tID=rna-trnK.1\n'
+                   'CHR\ttest\texon\t601\t672\t.\t+\t.\tParent=rna-trnK.1\n')
+    run_script('add_gene_lines.py', '--gff', str(gff))
+    lines = feature_lines(tmp_path / 'genes_with_genes.gff3')
+    assert [c[8] for c in lines if c[2] == 'gene'] == ['ID=g1']
+    assert [c[8] for c in lines if c[2] in ('mRNA', 'tRNA')] == ['ID=g1.t1;Parent=g1', 'ID=rna-trnK.1']
+
+
 def test_add_gene_lines_reads_parents_as_the_import_does(tmp_path):
     """An empty Parent names no parent, and one naming the transcript twice names only itself, as the
     import reads them: both transcripts get a gene."""
@@ -1809,6 +1824,17 @@ def test_filter_sequence_lengths_removes_a_cluster_of_small_sequences_and_those_
     assert [c[0] for c in feature_lines(tmp_path / 'genes_length_filtered.gff3')] == [f'chr{i}' for i in range(6)]
 
 
+def test_filter_sequence_lengths_keeps_a_sequence_below_a_gap_of_too_small_a_step(tmp_path):
+    """Four sequences of 20-23 bp and one of 15 bp, as the smallest chromosome of a chromosome-level
+    assembly: the gap below the 20 bp one stands out from the others but is only a 1.33-fold step, under
+    2.5, so nothing is removed and nothing written."""
+    fasta = tmp_path / 'genome.fa'
+    lengths = {f'chr{i}': 20 + i for i in range(4)} | {'chr4': 15}
+    fasta.write_text(''.join(f'>{seq_id}\n' + 'A' * length + '\n' for seq_id, length in lengths.items()))
+    run_script('filter_sequence_lengths.py', '--fasta', str(fasta), '--min-seq-len', '10')
+    assert not (tmp_path / 'genome_length_filtered.fa').exists()
+
+
 def test_filter_sequence_lengths_leaves_out_lines_whose_parents_lie_on_removed_sequences(tmp_path):
     """The gene g2 and its mRNA t2 lie on the removed sequence tiny, but a CDS line naming t2 lies on
     long0: it is left out as well, as the import leaves out a line on another sequence than its
@@ -1856,6 +1882,18 @@ def test_add_transcript_lines_gives_genes_without_one_an_mrna(tmp_path):
     controller.add_genome(str(fasta), str(out), clean_gff=True)
     assert controller.stats.exported_outcomes['floating'] == 0
     assert controller.stats.labeled_genes() == 2
+
+
+def test_add_transcript_lines_leaves_genes_without_cds_lines_as_they_are(tmp_path):
+    """A pseudogene whose only lines naming it are exon lines, as in NCBI files, is non-coding and
+    gets no mRNA line, so nothing is to change and no file is written."""
+    gff, out = tmp_path / 'pseudogene.gff3', tmp_path / 'with_transcripts.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tpseudogene\t101\t400\t.\t+\t.\tID=g1\n'
+                   'CHR\ttest\texon\t101\t200\t.\t+\t.\tParent=g1\n'
+                   'CHR\ttest\texon\t301\t400\t.\t+\t.\tParent=g1\n')
+    run_script('add_transcript_lines.py', '--gff', str(gff), '-o', str(out))
+    assert not out.exists()
 
 
 def test_coding_transcripts_past_a_sequence_edge_are_clipped_and_masked_whole():

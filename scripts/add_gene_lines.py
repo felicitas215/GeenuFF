@@ -1,7 +1,8 @@
 #! /usr/bin/env python3
 """Adds a gene line for the transcripts of a GFF3 file that have no Parent. GeenuFF does not import a
 transcript without a gene. A transcript naming itself as Parent (e.g. ID=g7-mRNA-1;Parent=g7-mRNA-1)
-is treated as having none. A transcript's gene ID is taken from the first of the given attributes it
+is treated as having none. Transcripts no CDS line names, e.g. tRNAs, are left as they are, as
+GeenuFF leaves them out either way. A transcript's gene ID is taken from the first of the given attributes it
 has (by default geneID, gene_id, gene), else from its ID up to the last occurrence of the split text (by
 default ".", so g653.t1 gives g653), else it gets a gene of its own, named after it with _gene
 appended, as every transcript does with --one-gene-per-transcript.
@@ -15,7 +16,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from geenuff.applications.importer import GENE_TYPES, TRANSCRIPT_TYPES
+from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, insert_before_extension,
                                   open_out, output_compression, output_path, require_fasta_and_gff,
                                   require_input_files, setup_logging)
@@ -73,30 +74,42 @@ def is_orphan(transcript: GFFObject) -> bool:
 
 
 def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) -> dict[str, Gene]:
-    """{transcript ID: its gene} for the transcripts without a Parent or naming themselves as Parent,
-    their genes named as in the module docstring. A gene ID naming a line of another type, or
+    """{transcript ID: its gene} for the transcripts without a Parent or naming themselves as Parent
+    that a CDS line names, their genes named as in the module docstring. A gene ID naming a line of another type, or
     transcripts on several sequences or strands, gets the transcripts' sequence and strand appended
     to stay unique."""
     gene_line_ids, other_ids = set(), set()
-    orphans = []  # (transcript ID, gene ID, seqid, source, strand, start, end)
-    sources, split_examples = defaultdict(int), []
+    candidates = []  # (transcript ID, seqid, source, strand, start, end, attributes, names itself as Parent)
+    cds_parents = set()  # the IDs CDS lines name as Parent, read as the import reads them
     n_without_id = 0  # transcripts with neither Parent nor ID, which no line can name as Parent
-    n_self_parent = 0
     for line in GFFParser.feature_lines(gff_path):
         entry = GFFObject(line)
         line_id = entry.get_ID()
         (gene_line_ids if entry.type in GENE_TYPES else other_ids).add(line_id)
+        if PIECE_KEYS.get(entry.type) == 'cds':
+            cds_parents.update(entry.get_Parent() or [])
         if entry.type not in TRANSCRIPT_TYPES or not is_orphan(entry):
             continue
         if not line_id:
             n_without_id += 1
             continue
-        n_self_parent += entry.get_Parent() is not None
-        gene_id, how = gene_id_of(entry.attributes, gene_attributes, split_at)
+        candidates.append((line_id, entry.seqid, entry.source, entry.strand, int(entry.start), int(entry.end),
+                           entry.attributes, entry.get_Parent() is not None))
+
+    # the import leaves out a transcript without a gene that no CDS line names, so it needs none
+    non_coding = sorted(c[0] for c in candidates if c[0] not in cds_parents)
+    orphans = []  # (transcript ID, gene ID, seqid, source, strand, start, end)
+    sources, split_examples = defaultdict(int), []
+    n_self_parent = 0
+    for line_id, seqid, source, strand, start, end, attributes, self_parent in candidates:
+        if line_id not in cds_parents:
+            continue
+        n_self_parent += self_parent
+        gene_id, how = gene_id_of(attributes, gene_attributes, split_at)
         sources[how] += 1
         if how == 'split ID' and len(split_examples) < 3:
             split_examples.append(f'{line_id} -> {gene_id}')
-        orphans.append((line_id, gene_id, entry.seqid, entry.source, entry.strand, int(entry.start), int(entry.end)))
+        orphans.append((line_id, gene_id, seqid, source, strand, start, end))
 
     places = defaultdict(set)
     for _, gene_id, seqid, _, strand, _, _ in orphans:
@@ -114,6 +127,10 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     if n_without_id:
         logger.warning(f'{n_without_id} transcripts have neither a Parent nor an ID and are left as they are; no '
                        f'exon or CDS line can name them as Parent')
+    if non_coding:
+        logger.info(f'{len(non_coding)} transcripts without a Parent have no CDS line naming them, e.g. '
+                    f'{", ".join(non_coding[:3])}; non-coding, e.g. tRNAs or rRNAs, they are left as they are, and '
+                    f'GeenuFF leaves them out, as they give no labels either way')
     if n_self_parent:
         logger.info(f'{n_self_parent} transcripts name themselves as Parent and are treated as having none')
     if orphans:
@@ -174,7 +191,8 @@ def main(args: argparse.Namespace) -> None:
         split_at = args.split_at
     gene_of = genes_for_orphans(args.gff, gene_attributes, split_at)
     if not gene_of:
-        logger.info('Every transcript with an ID has a Parent other than itself: nothing to add, no file written')
+        logger.info('Every coding transcript with an ID has a Parent other than itself: nothing to add, no file '
+                    'written')
         return
     n_genes = write_with_genes(args.gff, args.out, gene_of, output_compression(args, args.gff))
     n_existing = sum(gene.has_line for gene in gene_of.values())

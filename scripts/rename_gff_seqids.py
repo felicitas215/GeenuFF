@@ -364,7 +364,8 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
         logger.warning(f'{len(circular)} GFF3 sequences have genes ending past their FASTA sequence by less than its '
                        f'length, e.g. {examples}; they are read as crossing the origin of a circular sequence, as '
                        f'GFF3 writes such features, and checked so; check that these sequences are circular, e.g. '
-                       f'organelle genomes or plasmids')
+                       f'organelle genomes or plasmids, or were cut at their end after annotation (e.g. trimmed on '
+                       f'upload to NCBI); the import masks genes past the end')
     return pairs, failed, n_tried
 
 

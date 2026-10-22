@@ -26,6 +26,11 @@ from geenuff.parsing.gffhelper import GFFObject, GFFParser
 logger = logging.getLogger(__name__)
 
 MIN_GAP_RANK = 3.0  # how far the largest gap must stand out from the others, as a robust z-score
+# how many times shorter the longest sequence of the cluster must be than the shortest one kept. In a
+# chromosome-level assembly all gaps are small, so one barely larger stands out and would cut off the
+# smallest chromosome; the cuts at real chromosomes seen were 1.19- to 2.42-fold steps, those at
+# organelles and junk scaffolds 2.68-fold and more
+MIN_CLUSTER_STEP = 2.5
 # below this many sequences, the gap statistics (median, MAD) are unreliable or degenerate
 MIN_SEQUENCES_FOR_CLUSTERING = 5
 # junk sequences hold a small share of an assembly's length; a larger cluster means the gap lies within one
@@ -52,8 +57,8 @@ def fasta_lengths(path: str) -> OrderedDict[str, int]:
 
 def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) -> set[str]:
     """The IDs of the sequences below the largest gap between the sorted log10 lengths, where that gap
-    stands out from the others; empty with too few sequences, no such gap or a cluster holding more than
-    max_length_fraction of the total length."""
+    stands out from the others and is a step of at least MIN_CLUSTER_STEP in length; empty with too few
+    sequences, no such gap or a cluster holding more than max_length_fraction of the total length."""
     if len(lengths) < MIN_SEQUENCES_FOR_CLUSTERING:
         return set()
     logs = {seq_id: math.log10(max(length, 1)) for seq_id, length in lengths.items()}
@@ -66,6 +71,12 @@ def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) 
     # where nearly all lengths are identical (very, very unrealistic for a real assembly), the other
     # gaps spread by 0 and any gap, however small, stands out
     if (gaps[max_i] - median) / max(mad, 1e-9) < MIN_GAP_RANK:
+        return set()
+    step = 10 ** gaps[max_i]
+    if step < MIN_CLUSTER_STEP:
+        logger.info(f'The largest gap between the sequence lengths, at {round(10 ** sorted_logs[max_i])} bp, stands '
+                    f'out but is only a {step:.2f}-fold step, under the {MIN_CLUSTER_STEP:g}-fold one separating '
+                    f'junk from real sequences, e.g. the smallest chromosome, so no cluster is removed')
         return set()
     threshold = (sorted_logs[max_i] + sorted_logs[max_i + 1]) / 2
     cluster = {seq_id for seq_id, log_length in logs.items() if log_length <= threshold}
