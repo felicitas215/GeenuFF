@@ -38,8 +38,11 @@ OVERLAPPING_EXONS_WARN_SHARE = 0.05
 # above this share of the genes with CDS lines left non-coding by CDS lines naming the gene, the
 # import warns; lower than the shares above, as these genes are not masked but labeled intergenic
 GENE_PARENTED_CDS_WARN_SHARE = 0.025
-# the bases of FASTA sequences added before they are committed, which releases them from memory
-SEQUENCE_COMMIT_BASES = 1_000_000_000
+# the bases of FASTA sequences added before they are committed, which releases them from memory.
+# Sequence phase on 85,640 contigs (391 Mb): 165 s committing after every sequence, 20-21 s from
+# 10 Mb to 1 Gb, peaking at 0.3 GB with 10 Mb and 1.2 GB with 1 Gb; on 4.9 Gb of chromosomes the
+# time is the same either way, the peak 0.7 GB with 10 Mb and 1.6 GB with 1 Gb (one test machine)
+SEQUENCE_COMMIT_BASES = 10_000_000
 # the number of sequences whose progress lines are logged at INFO level, the rest at DEBUG
 # (--verbose), so a fragmented assembly does not flood the log
 MAX_LOGGED_SEQUENCES = 30

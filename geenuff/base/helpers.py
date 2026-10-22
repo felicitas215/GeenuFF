@@ -193,7 +193,9 @@ def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, 
 # gzip level of the scripts' output files; 4 compresses a genome nearly as well as gzip's default 6,
 # several times faster
 DEFAULT_COMPRESSION_LEVEL = 4
-# threads compressing the scripts' gzipped output files, each about as fast as plain gzip
+# threads compressing the scripts' gzipped output files; 489 MB took 6.9 s with 1 thread, 1.9 s with
+# 4, 1.0 s with 8 and 0.5 s with 32 (one test machine), so more threads help nearly in proportion,
+# and 4 is a default that leaves the rest of a shared machine free
 DEFAULT_THREADS = 4
 
 
