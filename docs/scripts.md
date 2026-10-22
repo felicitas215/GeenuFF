@@ -298,5 +298,13 @@ them, genes being the better measure of the training data lost as GeenuFF export
 per gene. The FASTA file is read in fixed-size chunks, so a sequence written on one line is never
 held in memory whole.
 
+Lines on a kept sequence whose parents all lie on removed ones, through any number of Parent steps,
+are left out as well and counted in the log; a line naming only some of them keeps the others as
+`Parent`. Such genes, spread over two sequences, are likely wrong, and a mask for their lines on
+the kept sequence would sit where the file places part of a gene GeenuFF no longer sees. Leaving
+them out matches the import, which leaves out a line on another sequence than its parent unmasked,
+so a kept sequence imports the same with or without filtering. Left in, the CDS lines among them
+would name a parent matching no line and be masked as `floating_cds`.
+
 Without `--gff` only the FASTA file is filtered, e.g. before predicting with Helixer, which saves
 compute otherwise spent on junk fragments.

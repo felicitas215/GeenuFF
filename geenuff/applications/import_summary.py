@@ -340,6 +340,10 @@ class ImportStatistics(object):
             text += f', from {gene_ids}' if under_genes == lost else f', {under_genes} of them from {gene_ids}'
         return sum(counts.values()), text
 
+    def genes_with_transcripts(self) -> int:
+        """The imported genes with a transcript under them, coding or not."""
+        return self.total_super_loci - self.empty_super_loci - sum(self.genes_left_out_on_import.values())
+
     def labeled_genes(self) -> int:
         """The exported genes giving labels, i.e. not masked in full."""
         return self.longest_transcripts - sum(self.exported_outcomes[outcome] for outcome in MASKED_IN_FULL_OUTCOMES)
@@ -422,8 +426,7 @@ class ImportStatistics(object):
                 ('+', self.floating_cds_genes, 'created to mask CDS lines without a transcript line', 0),
             ], []))
 
-        n_with_transcripts = (self.total_super_loci - self.empty_super_loci
-                              - sum(self.genes_left_out_on_import.values()))
+        n_with_transcripts = self.genes_with_transcripts()
         n_exported = self.longest_transcripts
         n_transcripts_left_out = self.total_transcripts - self.imported_transcripts
         steps.append((GENES_IMPORTED, self.total_super_loci, '', [
@@ -437,7 +440,7 @@ class ImportStatistics(object):
         non_coding_text = 'non-coding, no CDS line(s)'
         if self.non_coding_genes_with_gene_parented_cds:
             non_coding_text += (f', {self.non_coding_genes_with_gene_parented_cds} of them with CDS lines naming the '
-                                f'gene instead (use add_transcript_lines.py to fix)')
+                                f'gene instead (use add_transcript_lines.py to fix if possible)')
         steps.append((GENES_WITH_TRANSCRIPTS, n_with_transcripts, transcripts_detail,
                       [('-', self.non_coding_genes, non_coding_text, 0)], []))
 

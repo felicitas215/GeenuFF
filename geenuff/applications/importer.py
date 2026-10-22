@@ -35,6 +35,9 @@ GENE_TYPES, TRANSCRIPT_TYPES, PIECE_KEYS = types.GENE_TYPES, types.TRANSCRIPT_TY
 # overlapping exon lines, the import warns
 CDS_OUTSIDE_EXONS_WARN_SHARE = 0.05
 OVERLAPPING_EXONS_WARN_SHARE = 0.05
+# above this share of the genes with CDS lines left non-coding by CDS lines naming the gene, the
+# import warns; lower than the shares above, as these genes are not masked but labeled intergenic
+GENE_PARENTED_CDS_WARN_SHARE = 0.025
 # the number of sequences whose progress lines are logged at INFO level, the rest at DEBUG
 # (--verbose), so a fragmented assembly does not flood the log
 MAX_LOGGED_SEQUENCES = 30
@@ -42,8 +45,8 @@ MAX_LOGGED_SEQUENCES = 30
 
 # how much of a locus its own errors take away, lower being better (see
 # GFFErrorHandling._locus_severity); used to rank candidates when an overlap is resolved
-NOT_MASKED = 0       # nothing wrong with it
-FLANK_MASKED = 1     # an edge is unknown, e.g. a missing UTR, but the coding sequence is correct
+NOT_MASKED = 0  # nothing wrong with it
+FLANK_MASKED = 1  # an edge is unknown, e.g. a missing UTR, but the coding sequence is correct
 MASKED_OUTRIGHT = 2  # the coding sequence itself is masked, so keeping the locus recovers nothing
 
 
@@ -1451,6 +1454,16 @@ class ImportController(object):
                            f'({share:.1%}) have overlapping exon lines and are masked in full (overlapping_exons). '
                            f'The exon lines may be written wrongly, e.g. nested; where the CDS lines are intact, '
                            f'drop the exon lines: GeenuFF then builds the exons from the CDS and UTR lines.')
+        n_gene_parented = self.stats.non_coding_genes_with_gene_parented_cds
+        # the coding genes and those that would be coding but for CDS lines naming the gene
+        n_with_cds = self.stats.genes_with_transcripts() - self.stats.non_coding_genes + n_gene_parented
+        if n_gene_parented > GENE_PARENTED_CDS_WARN_SHARE * n_with_cds:
+            logger.warning(f'{n_gene_parented} of {n_with_cds} genes with CDS lines '
+                           f'({n_gene_parented / n_with_cds:.1%}) import as non-coding, their CDS lines naming the '
+                           f'gene instead of its transcript (gene_parented_cds). Non-coding genes give no labels and '
+                           f'are not masked, so their bases are labeled intergenic. Where such a gene\'s only '
+                           f'transcript has no exon, CDS or UTR lines yet, add_transcript_lines.py puts them under '
+                           f'it; otherwise leave this genome out of training.')
         n_labeled = self.stats.labeled_genes()
         n_coding = n_total + sum(self.stats.coding_transcripts_dropped.values())
         # this then also shows if the file has 0 coding transcripts (i.e. no CDS lines at all)

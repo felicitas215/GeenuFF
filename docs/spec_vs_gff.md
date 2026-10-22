@@ -184,7 +184,12 @@ and the coding transcripts, i.e. potential training data, each reason cost.
   it could equally belong to an isoform without a transcript line (the summary counts such CDS
   lines per gene, and the genes left non-coding by them; where the gene's only transcript has no
   exon, CDS or UTR lines yet, `add_transcript_lines.py` puts them under it). An exon or UTR line
-  naming no transcript otherwise is left out as well.
+  naming no transcript otherwise is left out as well. Non-coding genes give no labels and are not
+  masked, so their bases are labeled intergenic; genes with CDS lines directly parented to them
+  BUT with an mRNA line with non-CDS features (rare) would be judged as non-coding since their
+  only legitimate transcript appears to be. Where over 2.5 % of the genes are this way the import
+  warns to leave the genome out of training, as it is difficult for a general script to tell whether
+  those CDS lines belong to one isoform.
 - CDS lines naming no transcript otherwise are masked (`floating_cds`) rather than turned into gene
   models, whose CDS, exons and UTRs would have to be guessed from IDs every source writes
   differently; masked, their sequence is not taught as intergenic. They are grouped by a shared

@@ -1648,6 +1648,26 @@ def test_filter_sequence_lengths_removes_a_cluster_of_small_sequences_and_those_
     assert [c[0] for c in feature_lines(tmp_path / 'genes_length_filtered.gff3')] == [f'chr{i}' for i in range(6)]
 
 
+def test_filter_sequence_lengths_leaves_out_lines_whose_parents_lie_on_removed_sequences(tmp_path):
+    """The gene g2 and its mRNA t2 lie on the removed sequence tiny, but a CDS line naming t2 lies on
+    long0: it is left out as well, as the import leaves out a line on another sequence than its
+    parent. An exon naming both t1 on long0 and t2 stays, with t1 alone as its Parent."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text(''.join(f'>long{i}\n' + 'A' * 20 + '\n' for i in range(3)) + '>tiny\n' + 'A' * 5 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'long0\ttest\tgene\t1\t9\t.\t+\t.\tID=g1\n'
+                   'long0\ttest\tmRNA\t1\t9\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'long0\ttest\texon\t1\t9\t.\t+\t.\tParent=t1,t2\n'
+                   'long0\ttest\tCDS\t10\t15\t.\t+\t0\tParent=t2\n'
+                   'tiny\ttest\tgene\t1\t5\t.\t+\t.\tID=g2\n'
+                   'tiny\ttest\tmRNA\t1\t5\t.\t+\t.\tID=t2;Parent=g2\n')
+    run_script('filter_sequence_lengths.py', '--fasta', str(fasta), '--gff', str(gff), '--no-adaptive',
+               '--min-seq-len', '10')
+    lines = feature_lines(tmp_path / 'genes_length_filtered.gff3')
+    assert [(c[0], c[2], c[8]) for c in lines] == [('long0', 'gene', 'ID=g1'), ('long0', 'mRNA', 'ID=t1;Parent=g1'),
+                                                    ('long0', 'exon', 'Parent=t1')]
+
+
 def test_add_transcript_lines_gives_genes_without_one_an_mrna(tmp_path):
     """add_transcript_lines.py gives g1, whose exon and CDS lines name the gene itself, an mRNA line
     spanning it as their Parent, which then imports as a gene giving labels instead of masked
