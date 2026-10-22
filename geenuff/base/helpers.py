@@ -44,8 +44,17 @@ def make_enum(name, *args):
 
 # General
 # ----------------------------------
-def sequence_hash(sequence):
-    sha1 = hashlib.sha1(sequence.encode())
+# bases encoded and hashed at a time by sequence_hash; slices up to 64 KiB hashed 500 Mb in 0.30 s,
+# from 256 KiB on in 0.66-0.79 s, as larger slices no longer stay in the CPU cache between encoding
+# and hashing; 64 KiB is the largest of the fast sizes, keeping the loop short (one machine)
+HASH_SLICE = 1 << 16
+
+
+def sequence_hash(sequence: str) -> str:
+    """The SHA-1 hex digest of a sequence, hashed in slices so no encoded copy of it all is held."""
+    sha1 = hashlib.sha1()
+    for start in range(0, len(sequence), HASH_SLICE):
+        sha1.update(sequence[start:start + HASH_SLICE].encode())
     return sha1.hexdigest()
 
 

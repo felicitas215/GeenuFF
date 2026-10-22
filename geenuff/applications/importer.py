@@ -38,6 +38,8 @@ OVERLAPPING_EXONS_WARN_SHARE = 0.05
 # above this share of the genes with CDS lines left non-coding by CDS lines naming the gene, the
 # import warns; lower than the shares above, as these genes are not masked but labeled intergenic
 GENE_PARENTED_CDS_WARN_SHARE = 0.025
+# the bases of FASTA sequences added before they are committed, which releases them from memory
+SEQUENCE_COMMIT_BASES = 1_000_000_000
 # the number of sequences whose progress lines are logged at INFO level, the rest at DEBUG
 # (--verbose), so a fragmented assembly does not flood the log
 MAX_LOGGED_SEQUENCES = 30
@@ -1480,8 +1482,7 @@ class ImportController(object):
             self.make_genome(genome_args)
 
         logger.info('Starting to add sequences from the FASTA file')
-        self.latest_fasta_importer.add_sequences(seq_path)
-        self.session.commit()
+        self.latest_fasta_importer.add_sequences(seq_path, self.session)
         n_sequences = len(self.latest_fasta_importer.genome.coordinates)
         # cut down on these messages for highly fragmented genomes (i.e. a lot of sequenced to add)
         # if the logging level is not info (i.e. with --verbose it's debug) the old overprinting way is used
@@ -1646,18 +1647,27 @@ class FastaImporter(object):
         seqid_pairs = helpers.match_seqids(coords_by_seqid, gffhelper.GFFParser.seqids(gff_file))
         self.gffid_to_coords = {gff_id: coords_by_seqid[fa_id] for gff_id, fa_id in seqid_pairs.items()}
 
-    def add_sequences(self, seq_file):
+    def add_sequences(self, seq_file, session):
+        """Adds a Coordinate per FASTA sequence, committing every SEQUENCE_COMMIT_BASES bases, so the
+        sequences written are released from memory rather than the whole genome held until the end."""
         # todo, parallelize sequence & annotation format, then import directly from ~Slice
+        uncommitted = 0
         for i, (seqid, seq) in enumerate(self.parse_fasta(seq_file)):
-            coord = orm.Coordinate(sequence=seq,
-                                   length=len(seq),
-                                   seqid=seqid,
-                                   sha1=helpers.sequence_hash(seq),
-                                   genome=self.genome)
+            orm.Coordinate(sequence=seq,
+                           length=len(seq),
+                           seqid=seqid,
+                           sha1=helpers.sequence_hash(seq),
+                           genome=self.genome)
             logger.log(logging.INFO if i < MAX_LOGGED_SEQUENCES else logging.DEBUG,
                        f'Added coordinate object for FASTA sequence with seqid {seqid} to the queue')
+            uncommitted += len(seq)
+            if uncommitted >= SEQUENCE_COMMIT_BASES:
+                session.commit()
+                uncommitted = 0
+        session.commit()
 
-    def parse_fasta(self, seq_file):
+    @staticmethod
+    def parse_fasta(seq_file):
         fp = fastahelper.FastaParser()
         for fasta_header, seq in fp.read_fasta(seq_file):
             seq = seq.upper()  # this may perform poorly
