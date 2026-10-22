@@ -788,7 +788,8 @@ def test_case_8():
                       is_plus_strand=False,
                       phase=0,
                       coordinate=coords[1])
-    assert orm_object_in_list(feature, sl_objects), '{} not found in \n{}'.format(feature, '\n'.join([str(o) for o in sl_objects if isinstance(o, Feature)]))
+    assert orm_object_in_list(feature, sl_objects), (
+        '{} not found in \n{}'.format(feature, '\n'.join([str(o) for o in sl_objects if isinstance(o, Feature)])))
     feature = Feature(given_name=None,
                       type=types.GeenuffFeature.geenuff_intron,
                       start=1718,
@@ -1597,6 +1598,22 @@ def test_add_gene_lines_gives_parentless_transcripts_their_gene(tmp_path):
                                                        'ID=x.t1;Parent=x'}
 
 
+def test_add_gene_lines_reads_parents_as_the_import_does(tmp_path):
+    """An empty Parent names no parent, and one naming the transcript twice names only itself, as the
+    import reads them: both transcripts get a gene."""
+    gff = tmp_path / 'genes.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=a.t1;Parent=\n'
+                   'CHR\ttest\tCDS\t101\t400\t.\t+\t0\tParent=a.t1\n'
+                   'CHR\ttest\tmRNA\t701\t900\t.\t+\t.\tID=b.t1;Parent=b.t1,b.t1\n'
+                   'CHR\ttest\tCDS\t701\t900\t.\t+\t0\tParent=b.t1\n')
+    run_script('add_gene_lines.py', '--gff', str(gff))
+    lines = feature_lines(tmp_path / 'genes_with_genes.gff3')
+    # gene a & b created by the default split at "." from the mRNA name
+    assert [c[8] for c in lines if c[2] == 'gene'] == ['ID=a', 'ID=b']
+    assert {c[8] for c in lines if c[2] == 'mRNA'} == {'ID=a.t1;Parent=a', 'ID=b.t1;Parent=b'}
+
+
 def test_rename_gff_seqids_renames_to_fasta_ids_and_leaves_out_unmatched_sequences(tmp_path):
     """The GFF3 sequence ID scaffold_7 is a word of the FASTA header 'Chr1 scaffold_7', so its lines
     are renamed to Chr1; lost matches no FASTA sequence and its lines are left out."""
@@ -1612,6 +1629,25 @@ def test_rename_gff_seqids_renames_to_fasta_ids_and_leaves_out_unmatched_sequenc
     run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--max-missing-percent', '50')
     lines = feature_lines(tmp_path / 'genes_renamed.gff3')
     assert [(c[0], c[2]) for c in lines] == [('Chr1', 'gene'), ('Chr1', 'mRNA'), ('Chr1', 'CDS')]
+
+
+def test_rename_gff_seqids_leaves_out_lines_whose_parents_lie_on_unpaired_sequences(tmp_path):
+    """The gene g2 and its mRNA t2 lie on lost, which matches no FASTA sequence, but a CDS line naming
+    t2 lies on scaffold_7: it is left out with them, as the import leaves out a line on another
+    sequence than its parent."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text('>Chr1 scaffold_7\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'scaffold_7\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
+                   'scaffold_7\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'scaffold_7\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t1\n'
+                   'scaffold_7\ttest\tCDS\t601\t900\t.\t+\t0\tParent=t2\n'
+                   'lost\ttest\tgene\t1\t300\t.\t+\t.\tID=g2\n'
+                   'lost\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t2;Parent=g2\n')
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--max-missing-percent', '50')
+    lines = feature_lines(tmp_path / 'genes_renamed.gff3')
+    assert [(c[0], c[2], c[8]) for c in lines] == [('Chr1', 'gene', 'ID=g1'), ('Chr1', 'mRNA', 'ID=t1;Parent=g1'),
+                                                   ('Chr1', 'CDS', 'Parent=t1')]
 
 
 def test_filter_sequence_lengths_removes_a_short_sequence_and_its_lines(tmp_path):
@@ -1665,7 +1701,7 @@ def test_filter_sequence_lengths_leaves_out_lines_whose_parents_lie_on_removed_s
                '--min-seq-len', '10')
     lines = feature_lines(tmp_path / 'genes_length_filtered.gff3')
     assert [(c[0], c[2], c[8]) for c in lines] == [('long0', 'gene', 'ID=g1'), ('long0', 'mRNA', 'ID=t1;Parent=g1'),
-                                                    ('long0', 'exon', 'Parent=t1')]
+                                                   ('long0', 'exon', 'Parent=t1')]
 
 
 def test_add_transcript_lines_gives_genes_without_one_an_mrna(tmp_path):

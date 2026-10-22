@@ -48,11 +48,11 @@ class ExportArgParser(object):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument('--db-path-in', type=str, required=True,
                                  help='Path to the Geenuff SQLite input database.')
-        self.parser.add_argument('-l', '--longest', action="store_true",
-                                 help="ignore all but the longest coding transcript per gene, the one selected "
-                                      "for export")
+        self.parser.add_argument('-l', '--longest', action='store_true',
+                                 help='ignore all but the longest coding transcript per gene, the one selected '
+                                      'for export')
         self.parser.add_argument('-o', '--out', type=str, required=True,
-                                 help="output file path")
+                                 help='output file path')
 
         self.args = None
 
@@ -66,9 +66,9 @@ class RangeArgParser(ExportArgParser):
     def __init__(self):
         super().__init__()
         self.parser.add_argument('-m', '--mode', type=str, required=True,
-                                 help="which type of sequence to export, one of {}".format(list(MODES.keys())))
+                                 help=f'which type of sequence to export, one of {list(MODES.keys())}')
         self.parser.add_argument('--coding', action='store_true',
-                                 help=f"only transcripts with a CDS, whatever their GFF3 types, every isoform "
+                                 help=f'only transcripts with a CDS, whatever their GFF3 types, every isoform '
                                       f"unless --longest; the modes {', '.join(CODING_MODES)} need it or --longest")
 
     def parse_args(self):
@@ -93,7 +93,7 @@ class GeenuffExportController(object):
         if file_out is None:
             handle_out = sys.stdout
         else:
-            handle_out = open(file_out, "w")
+            handle_out = open(file_out, 'w')
         return handle_out
 
     def _mk_session(self):
@@ -122,7 +122,7 @@ class GeenuffExportController(object):
         seen = set()
         out = []
         for grp, t_id, has_cds in self._aggregate_by_transcript(rows):
-            assert t_id not in seen, f"This should be sorted by transcript id, but {t_id} found in > 1 sort location?!?"
+            assert t_id not in seen, f'This should be sorted by transcript id, but {t_id} found in > 1 sort location?!?'
             seen.add(t_id)
             # keep only transcripts that have >= 1 CDS feature
             if has_cds:
@@ -262,7 +262,7 @@ class GeenuffExportController(object):
                 export_groups = range_function(range_maker)
                 for group in export_groups:
                     if group.seqid is None:
-                        group.seqid = 'unnamed_{0:08d}'.format(self.id_counter())
+                        group.seqid = f'unnamed_{self.id_counter():08d}'
                     yield group
 
     @staticmethod
@@ -355,10 +355,8 @@ class TranscriptCoordinate(object):
         return self.piece_position, self._sort_pos(self.start)
 
     def __repr__(self):
-        return "coordinate: {}, piece position {}, is_plus {}: {}".format(self.coordinate_id,
-                                                                          self.piece_position,
-                                                                          self.is_plus_strand,
-                                                                          self.start)
+        return (f'coordinate: {self.coordinate_id}, piece position {self.piece_position}, '
+                f'is_plus {self.is_plus_strand}: {self.start}')
 
     def __eq__(self, other):
         if isinstance(other, TranscriptCoordinate):
@@ -383,11 +381,8 @@ class Range(TranscriptCoordinate):
         return self.piece_position, self._sort_pos(self.start), self._sort_pos(self.end)
 
     def __repr__(self):
-        return "coordinate: {}, piece position {}, is_plus {}: {}-{}".format(self.coordinate_id,
-                                                                             self.piece_position,
-                                                                             self.is_plus_strand,
-                                                                             self.start,
-                                                                             self.end)
+        return (f'coordinate: {self.coordinate_id}, piece position {self.piece_position}, '
+                f'is_plus {self.is_plus_strand}: {self.start}-{self.end}')
 
 
 class ExportGroup(object):
@@ -400,7 +395,7 @@ class ExportGroup(object):
         self.seqid = seqid
 
     def __repr__(self):
-        return 'ExportGroup with id={} and ranges {}'.format(self.seqid, self.ranges)
+        return f'ExportGroup with id={self.seqid} and ranges {self.ranges}'
 
 
 class RangeMaker(TranscriptHandlerBase):
@@ -570,7 +565,7 @@ class RangeMaker(TranscriptHandlerBase):
         i = 0
         for pre_utr in pre_utrs:
             utr = self._subtract_ranges(subtract_from=[pre_utr], to_subtract=introns)
-            out.append(ExportGroup(seqid='{}_UTR{:02d}'.format(self.data.given_name, i), ranges=utr))
+            out.append(ExportGroup(seqid=f'{self.data.given_name}_UTR{i:02d}', ranges=utr))
             i += 1
         return out
 
@@ -603,18 +598,18 @@ class RangeMaker(TranscriptHandlerBase):
         return self._sum_range_lengths(ranges)
 
 
-IG_OVERRIDE = "intergenic_override"
+IG_OVERRIDE = 'intergenic_override'
 
-MODES = {"mRNA": RangeMaker.mature_RNA,
-         "pre-mRNA": RangeMaker.transcribed_ranges,
-         "CDS": RangeMaker.mature_CDS,
-         "exons": RangeMaker.exonic_ranges,
-         "introns": RangeMaker.intronic_ranges,
-         "UTR": RangeMaker.mature_UTR,
-         "pre-UTR": RangeMaker.pre_UTR,
-         "intergenic": IG_OVERRIDE}
+MODES = {'mRNA': RangeMaker.mature_RNA,
+         'pre-mRNA': RangeMaker.transcribed_ranges,
+         'CDS': RangeMaker.mature_CDS,
+         'exons': RangeMaker.exonic_ranges,
+         'introns': RangeMaker.intronic_ranges,
+         'UTR': RangeMaker.mature_UTR,
+         'pre-UTR': RangeMaker.pre_UTR,
+         'intergenic': IG_OVERRIDE}
 # modes defined only for transcripts with a CDS
-CODING_MODES = ("CDS", "UTR", "pre-UTR")
+CODING_MODES = ('CDS', 'UTR', 'pre-UTR')
 
 
 class SuperLocusRanger(SuperLocusHandlerBase):

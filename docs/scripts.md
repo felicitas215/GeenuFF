@@ -31,8 +31,9 @@ Zipped files holding a single file are read as well; the output of a zipped inpu
 and named `.gz`.
 
 Without an output path (`-o`, or `--fasta-out` and `--gff-out` for `filter_sequence_lengths.py`),
-each preparation script writes beside its input, the input's name with a suffix before the extension,
-so a chain of them names every step, e.g. `genes_renamed_length_filtered_with_genes.gff3`:
+each preparation script writes beside its input, the input's name with a suffix before the
+extension, so a chain of them names every step, e.g.
+`genes_renamed_length_filtered_with_genes.gff3`:
 
 | script                       | suffix              |
 |------------------------------|---------------------|
@@ -199,7 +200,9 @@ annotation passes only 70% fails in about 2%.
 | stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                                                                      |
 
 Each warning about left-out lines gives the share of coding transcripts lost. `--pairs-out` writes
-every pair with its method, checks passed and FASTA full name.
+every pair with its method, checks passed and FASTA full name. Lines on a kept sequence whose
+parents all lie on a left-out one go with them and are counted in the log, as in
+`filter_sequence_lengths.py` (see there for why).
 
 A possible extension: where most pairs by ID or full name fail, search a sample of them by sequence
 first, to pair all by sequence where the names were merely reassigned (e.g. scaffolds renumbered
@@ -304,7 +307,8 @@ are left out as well and counted in the log; a line naming only some of them kee
 the kept sequence would sit where the file places part of a gene GeenuFF no longer sees. Leaving
 them out matches the import, which leaves out a line on another sequence than its parent unmasked,
 so a kept sequence imports the same with or without filtering. Left in, the CDS lines among them
-would name a parent matching no line and be masked as `floating_cds`.
+would name a parent matching no line and be masked as `floating_cds`. `rename_gff_seqids.py` does
+the same for the sequences it leaves out.
 
 Without `--gff` only the FASTA file is filtered, e.g. before predicting with Helixer, which saves
 compute otherwise spent on junk fragments.

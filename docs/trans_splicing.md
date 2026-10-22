@@ -39,7 +39,7 @@ The schema could represent these genes: strand lives on `Feature`, not on `Super
 `docs/index.md` describes `TranscriptPiece` for exactly this case:
 
 > In cases where the Transcript (final mRNA) is split for either biological or technical reasons,
-> each involved locus should have its own transcript_piece. […] The 5' to 3' ordering of
+> each involved locus should have its own transcript_piece. [...] The 5' to 3' ordering of
 > transcript_pieces within a transcript can be accomplished using the `position` attribute.
 
 The importer does not use it: one piece per transcript, every feature on the transcript's strand

@@ -81,8 +81,9 @@ either error, the import warns: for a CDS outside the exons, the file may list e
 UTRs only (see `rebuild_exons.py`); for overlapping exon lines, these may be written wrongly
 throughout, e.g. nested, and where the CDS lines are intact, dropping the exon lines lets the
 import build the exons from the CDS and UTR lines.  
-A wrong starting phase changes no label, the importer setting every phase itself, so it masks nothing; the
-phases of later CDS pieces are not checked, a CDS leaving its frame being caught as truncated_cds.
+A wrong starting phase changes no label, the importer setting every phase itself, so it masks
+nothing; the phases of later CDS pieces are not checked, a CDS leaving its frame being caught as
+truncated_cds.
 
 ###### super_loci_overlap_error is positioned differently:
 It marks sequence two exported coding genes both claim, every shared base carrying two

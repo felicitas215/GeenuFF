@@ -16,9 +16,10 @@ import math
 import os
 from collections import OrderedDict, defaultdict
 
-from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, insert_before_extension,
-                                  open_out, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging, write_fasta_without)
+from geenuff.base.helpers import (add_output_compression_args, check_output_paths, insert_before_extension,
+                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
+                                  setup_logging, write_fasta_without, write_gff_without)
+from geenuff.base.types import PIECE_KEYS
 from geenuff.parsing.fastahelper import SEQUENCE_WHITESPACE, FastaParser
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
@@ -78,74 +79,20 @@ def gap_cluster_ids(lengths: OrderedDict[str, int], max_length_fraction: float) 
     return cluster
 
 
-def ids_on_removed(gff_path: str, removed: set[str]) -> set[str]:
-    """The IDs of the GFF3 lines on the removed sequences, an ID also given on a kept sequence
-    excepted, and, following Parent, those of the lines on kept sequences all of whose parents are
-    among them, i.e. of genes spread over a removed and a kept sequence."""
-    on_removed, on_kept, parents_of = set(), set(), {}
-    for line in GFFParser.feature_lines(gff_path):
-        columns = line.split('\t')
-        attributes = GFFObject.parse_attributes(columns[8])
-        line_id = attributes.get('ID')
-        if line_id is None:
-            continue
-        if columns[0] in removed:
-            on_removed.add(line_id)
-        else:
-            on_kept.add(line_id)
-            if parents := GFFObject.parents(attributes):
-                parents_of[line_id] = parents
-    dropped = on_removed - on_kept
-    # one round per level of the Parent chain, e.g. mRNA lines below a gene, then exons below them
-    while below := {line_id for line_id, parents in parents_of.items()
-                    if line_id not in dropped and all(parent in dropped for parent in parents)}:
-        dropped |= below
-    return dropped
-
-
-def write_gff_without(gff_path: str, out_path: str, removed: set[str], dropped_ids: set[str],
-                      compression: Compression | None) -> int:
-    """Copies the GFF3 file without the feature and ##sequence-region lines of the removed sequences,
-    and without the lines on kept sequences all of whose parents are among dropped_ids (see
-    ids_on_removed); a line naming only some of them as Parent keeps the others. Returns the number of
-    lines left out on kept sequences."""
-    n_below = 0
-    with open_out(out_path, compression) as f_out:
-        for line in GFFParser.lines(gff_path):
-            if line.startswith('##sequence-region'):
-                if line.split()[1] in removed:
-                    continue
-            elif line.strip() and not line.startswith('#'):
-                columns = line.rstrip('\n').split('\t')
-                if columns[0] in removed:
-                    continue
-                parents = GFFObject.parents(GFFObject.parse_attributes(columns[8]))
-                kept = [parent for parent in parents if parent not in dropped_ids]
-                if parents and not kept:
-                    n_below += 1
-                    continue
-                if len(kept) < len(parents):
-                    columns[8] = GFFObject.with_parents(columns[8], kept)
-                    line = '\t'.join(columns) + '\n'
-            f_out.write(line)
-    return n_below
-
-
 def coding_by_seqid(gff_path: str) -> dict[str, tuple[int, int]]:
     """{sequence ID: (coding genes, coding transcripts) on it}. A coding transcript is a Parent of CDS
     lines and its gene the top of its Parent chain, so a CDS line naming its gene directly counts the
     gene as its own transcript."""
     parent_of, cds_parents = {}, defaultdict(set)
     for line in GFFParser.feature_lines(gff_path):
-        columns = line.split('\t')
-        if columns[2] == 'exon':  # never a parent
-            continue
-        attributes = GFFObject.parse_attributes(columns[8])
-        parents = GFFObject.parents(attributes)
-        if columns[2] == 'CDS':
-            cds_parents[columns[0]].update(parents)
-        elif 'ID' in attributes and parents:
-            parent_of[attributes['ID']] = parents[0]
+        entry = GFFObject(line)
+        parents = entry.get_Parent() or []
+        piece = PIECE_KEYS.get(entry.type)
+        if piece == 'cds':
+            cds_parents[entry.seqid].update(parents)
+        # exon and UTR lines are never a parent, so only gene and transcript lines make the chain
+        elif piece is None and entry.get_ID() is not None and parents:
+            parent_of[entry.get_ID()] = parents[0]
 
     def gene_of(feature_id: str) -> str:
         seen = set()
@@ -215,13 +162,7 @@ def main(args: argparse.Namespace) -> None:
     write_fasta_without(args.fasta, args.fasta_out, set(removed), output_compression(args, args.fasta))
     if args.gff:
         out_paths.append(args.gff_out)
-        dropped_ids = ids_on_removed(args.gff, set(removed))
-        n_below = write_gff_without(args.gff, args.gff_out, set(removed), dropped_ids,
-                                    output_compression(args, args.gff))
-        if n_below:
-            logger.info(f'Left out {n_below} lines on kept sequences whose parents all lie on removed ones, i.e. of '
-                        f'genes spread over several sequences, which the import leaves out unmasked as well '
-                        f'(i.e. the GeenuFF reason "on another sequence than their parent")')
+        write_gff_without(args.gff, args.gff_out, set(removed), output_compression(args, args.gff))
     if args.removed_out:
         with open(args.removed_out, 'w') as f:
             f.writelines(f'{seq_id}\t{lengths[seq_id]}\n' for seq_id in removed)

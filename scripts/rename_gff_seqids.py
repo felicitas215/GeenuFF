@@ -17,10 +17,10 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, DEFAULT_THREADS, Compression, add_output_compression_args,
+from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, DEFAULT_THREADS, add_output_compression_args,
                                   check_output_paths, codon_after_cds, compression_for, insert_before_extension,
-                                  open_out, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging, write_fasta_without)
+                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
+                                  setup_logging, write_fasta_without, write_gff_without)
 from geenuff.base.types import PIECE_KEYS
 from geenuff.parsing.fastahelper import FastaParser, text_or_gzip_open
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
@@ -446,22 +446,6 @@ def pair_seqids(gff_sequences: dict[str, GffSequence], sequences: dict[str, str]
     return Pairing(pairs | searched_pairs, changed, duplicates)
 
 
-def write_gff(gff_path: str, out_path: str, pairs: dict[str, Pair], compression: Compression | None) -> None:
-    """Writes the GFF3 file with its sequence IDs renamed, leaving out the lines of unpaired ones."""
-    with open_out(out_path, compression) as f_out:
-        for line in GFFParser.lines(gff_path):
-            # the sequence ID of a ##sequence-region or feature line renamed, the line dropped (None)
-            # where the ID is unpaired; other comment lines are kept as they are
-            if line.startswith('##sequence-region'):
-                _, seqid, rest = line.split(maxsplit=2)
-                line = f'##sequence-region {pairs[seqid].fasta_id} {rest}' if seqid in pairs else None
-            elif line.strip() and not line.startswith('#'):
-                seqid, rest = line.split('\t', 1)
-                line = f'{pairs[seqid].fasta_id}\t{rest}' if seqid in pairs else None
-            if line is not None:
-                f_out.write(line)
-
-
 def fasta_out_path(fasta_path: str, gff_out_path: str) -> str:
     """The FASTA copy's path beside the output GFF3 file: the FASTA file's name with
     _sequences_dropped before its extension, e.g. genome_sequences_dropped.fna.gz."""
@@ -590,7 +574,10 @@ def rename(fasta_path: str, gff_path: str, out_path: str, pairs_out_path: str | 
     log_summary(gff_sequences, pairing, gff_name, fasta_name)
 
     compression = compression_for(gff_path, gzipped, compression_level, threads)
-    write_gff(gff_path, output_path(out_path, compression), pairs, compression)
+    # the unpaired sequence IDs of feature lines and of ##sequence-region lines alone are left out
+    unpaired = (gff_sequences.keys() | sequence_regions(gff_path).keys()) - pairs.keys()
+    write_gff_without(gff_path, output_path(out_path, compression), unpaired, compression,
+                      {gff_id: pair.fasta_id for gff_id, pair in pairs.items()})
     # a FASTA sequence paired with one GFF3 sequence ID stays, whichever other one it did not fit
     dropped = {fasta_id for fasta_id, _ in pairing.changed.values()} - {pair.fasta_id for pair in pairs.values()}
     if dropped:

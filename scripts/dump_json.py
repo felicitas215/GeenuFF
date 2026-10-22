@@ -10,21 +10,21 @@ class JsonArgParser(ExportArgParser):
     def __init__(self):
         super().__init__()
         self.parser.add_argument('--species', required=True,
-                                 help="name of target species in database")
+                                 help='name of target species in database')
         self.parser.add_argument('--seqid', required=True,
-                                 help="name of target sequence (chromosome / scaffold) in database")
+                                 help='name of target sequence (chromosome / scaffold) in database')
         self.parser.add_argument('--strand', required=True,
                                  help="'+' or '-' for strand to query")
         self.parser.add_argument('--start', default=0, type=int,
                                  help='start coordinate of query range (pythonic)')
         self.parser.add_argument('--end', default=None, type=int,
-                                 help="end coordinate of query range (pythonic)")
-        self.parser.add_argument('--pretty', action="store_true",
-                                 help="set for multi-line indented json output")
-        self.parser.add_argument('--show-all', action="store_true",
-                                 help="genes and transcripts of every GFF3 type, e.g. tRNA or lncRNA genes, for "
+                                 help='end coordinate of query range (pythonic)')
+        self.parser.add_argument('--pretty', action='store_true',
+                                 help='set for multi-line indented json output')
+        self.parser.add_argument('--show-all', action='store_true',
+                                 help='genes and transcripts of every GFF3 type, e.g. tRNA or lncRNA genes, for '
                                       "curiosity; Helixer's training data only uses coding transcripts, which "
-                                      "--longest shows")
+                                      '--longest shows')
 
 
 def main(args):
@@ -40,7 +40,7 @@ def main(args):
                                pretty=args.pretty)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = JsonArgParser()
     parser.parse_args()
     main(parser.args)

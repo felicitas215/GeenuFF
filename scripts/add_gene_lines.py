@@ -65,13 +65,11 @@ def gene_id_of(attributes: dict[str, str], gene_attributes: list[str], split_at:
     return f'{transcript_id}_gene', 'own ID'
 
 
-def names_itself_as_parent(attributes: dict[str, str]) -> bool:
-    return 'ID' in attributes and attributes.get('Parent') == attributes['ID']
-
-
-def is_orphan(attributes: dict[str, str]) -> bool:
-    """Whether a transcript line has no Parent, or names itself as Parent."""
-    return 'Parent' not in attributes or names_itself_as_parent(attributes)
+def is_orphan(transcript: GFFObject) -> bool:
+    """Whether a transcript line names no Parent, or only itself, its parents read as the import
+    reads them (see GFFObject.get_Parent)."""
+    parents = transcript.get_Parent()
+    return parents is None or parents == [transcript.get_ID()]
 
 
 def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) -> dict[str, Gene]:
@@ -85,19 +83,20 @@ def genes_for_orphans(gff_path: str, gene_attributes: list[str], split_at: str) 
     n_without_id = 0  # transcripts with neither Parent nor ID, which no line can name as Parent
     n_self_parent = 0
     for line in GFFParser.feature_lines(gff_path):
-        seqid, source, feature_type, start, end, _, strand, _, column = line.rstrip('\n').split('\t')[:9]
-        attributes = GFFObject.parse_attributes(column)
-        line_id = attributes.get('ID')
-        (gene_line_ids if feature_type in GENE_TYPES else other_ids).add(line_id)
-        if feature_type in TRANSCRIPT_TYPES and 'Parent' not in attributes and not line_id:
+        entry = GFFObject(line)
+        line_id = entry.get_ID()
+        (gene_line_ids if entry.type in GENE_TYPES else other_ids).add(line_id)
+        if entry.type not in TRANSCRIPT_TYPES or not is_orphan(entry):
+            continue
+        if not line_id:
             n_without_id += 1
-        elif feature_type in TRANSCRIPT_TYPES and is_orphan(attributes):
-            n_self_parent += 'Parent' in attributes
-            gene_id, how = gene_id_of(attributes, gene_attributes, split_at)
-            sources[how] += 1
-            if how == 'split ID' and len(split_examples) < 3:
-                split_examples.append(f'{line_id} -> {gene_id}')
-            orphans.append((line_id, gene_id, seqid, source, strand, int(start), int(end)))
+            continue
+        n_self_parent += entry.get_Parent() is not None
+        gene_id, how = gene_id_of(entry.attributes, gene_attributes, split_at)
+        sources[how] += 1
+        if how == 'split ID' and len(split_examples) < 3:
+            split_examples.append(f'{line_id} -> {gene_id}')
+        orphans.append((line_id, gene_id, entry.seqid, entry.source, entry.strand, int(entry.start), int(entry.end)))
 
     places = defaultdict(set)
     for _, gene_id, seqid, _, strand, _, _ in orphans:
@@ -153,9 +152,9 @@ def write_with_genes(gff_path: str, out_path: str, gene_of: dict[str, Gene], com
         for line in GFFParser.lines(gff_path):
             columns = line.rstrip('\n').split('\t')
             if len(columns) >= 9 and columns[2] in TRANSCRIPT_TYPES:
-                attributes = GFFObject.parse_attributes(columns[8])
-                gene = gene_of.get(attributes.get('ID'))
-                if gene is not None and is_orphan(attributes):
+                transcript = GFFObject(line)
+                gene = gene_of.get(transcript.get_ID())
+                if gene is not None and is_orphan(transcript):
                     if not gene.has_line and gene.gene_id not in written:
                         f_out.write(gene.line())
                         written.add(gene.gene_id)

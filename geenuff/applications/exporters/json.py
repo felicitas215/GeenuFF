@@ -18,7 +18,7 @@ class ToJsonable(object):
     sequence, whichever the strand."""
 
     def __init__(self):
-        self.jsonable_keys = ["id", "given_name"]
+        self.jsonable_keys = ['id', 'given_name']
 
     @abstractmethod
     def is_fully_contained(self, coordinate, start, end, is_plus_strand):
@@ -44,11 +44,11 @@ class FeatureJsonable(FeatureHandlerBase, ToJsonable):
     def __init__(self, data=None):
         FeatureHandlerBase.__init__(self, data)
         ToJsonable.__init__(self)
-        self.jsonable_keys += ["start", "start_is_biological_start", "end", "end_is_biological_end",
-                               "is_plus_strand", "score", "source", "phase"]
+        self.jsonable_keys += ['start', 'start_is_biological_start', 'end', 'end_is_biological_end',
+                               'is_plus_strand', 'score', 'source', 'phase']
 
     def to_jsonable(self, data, coordinate, start, end, is_plus_strand, transcript=None):
-        assert transcript is not None, "needed to get the protein id"
+        assert transcript is not None, 'needed to get the protein id'
         out = self.pre_to_jsonable(self.data)
         out['type'] = data.type.value
         out['is_fully_contained'] = self.is_fully_contained(coordinate, start, end, is_plus_strand)
@@ -68,7 +68,7 @@ class FeatureJsonable(FeatureHandlerBase, ToJsonable):
             return p_ids[0]
         else:
             # todo, actually, I don't think this should be able to happen, but double check
-            raise NotImplementedError("what to do with {} proteins?".format(len(p_ids)))
+            raise NotImplementedError(f'what to do with {len(p_ids)} proteins?')
 
     def _ascending_span(self):
         """The bases the feature covers, as an ascending half-open range; on the minus strand a
@@ -128,22 +128,22 @@ class TranscriptJsonable(TranscriptHandlerBase, ToJsonable):
         errors = {e.type.value for e in self.data.errors}
 
         out = self.pre_to_jsonable(self.data)
-        out["type"] = self.data.type.value
-        out["is_fully_contained"] = self.is_fully_contained(coordinate, start, end, is_plus_strand)
-        out["overlaps"] = self.overlaps(coordinate, start, end, is_plus_strand)
+        out['type'] = self.data.type.value
+        out['is_fully_contained'] = self.is_fully_contained(coordinate, start, end, is_plus_strand)
+        out['overlaps'] = self.overlaps(coordinate, start, end, is_plus_strand)
         # the one transcript per gene an export selects, and whether its gene reaches the export
-        out["selected_for_export"] = bool(self.data.longest)
-        out["exported"] = out["selected_for_export"] and self.data.super_locus.excluded_from_export is None
+        out['selected_for_export'] = bool(self.data.longest)
+        out['exported'] = out['selected_for_export'] and self.data.super_locus.excluded_from_export is None
         # only a coding transcript of a gene that could be placed is checked for errors, as in
         # list_transcripts.py
         checked = (any(f.type.value == types.GEENUFF_CDS for f in features)
                    and self.data.super_locus.excluded_from_export not in types.unrepresentable_reasons)
-        out["errors"] = sorted(errors) if checked else "not checked"
-        out["error_severity"] = error_severity(errors) if checked else None
+        out['errors'] = sorted(errors) if checked else 'not checked'
+        out['error_severity'] = error_severity(errors) if checked else None
         # what the errors mask, merged into its geenuff_mask features, also listed among the features
-        out["masks"] = [[m.start, m.end] for m in masks]
-        out["masked_in_full"] = tx_feature is not None and is_masked_whole(tx_feature, masks)
-        out["features"] = [fh.to_jsonable(fh.data, coordinate, start, end, is_plus_strand, self.data)
+        out['masks'] = [[m.start, m.end] for m in masks]
+        out['masked_in_full'] = tx_feature is not None and is_masked_whole(tx_feature, masks)
+        out['features'] = [fh.to_jsonable(fh.data, coordinate, start, end, is_plus_strand, self.data)
                            for fh in self.feature_handlers]
         return out
 

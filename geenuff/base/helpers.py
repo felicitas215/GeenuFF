@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, BinaryIO, TextIO
 from zlib_ng import gzip_ng_threaded
 
 from geenuff.parsing.fastahelper import FastaParser, detect_format, text_or_gzip_open
-from geenuff.parsing.gffhelper import GFFObject
+from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 if TYPE_CHECKING:
     from geenuff.base.orm import Coordinate
@@ -82,7 +82,7 @@ def db_attr_as_dict(orm_obj):
     """removes known, shared non-db entry attributes from a copy of orm_obj.__dict__
     can be used, e.g. to set up new db entry matching the here-by filtered one
     """
-    exclude = ["_sa_instance_state", "handler"]
+    exclude = ['_sa_instance_state', 'handler']
     out = copy.copy(orm_obj.__dict__)
     for item in exclude:
         if item in out:
@@ -96,7 +96,7 @@ def chunk_str(string, length):
 
 
 def get_repr(class_name, params, addition=''):
-    param_str = ', '.join('{}:{}'.format(k, v) for k, v in params.items())
+    param_str = ', '.join(f'{k}:{v}' for k, v in params.items())
     if addition:
         return class_name + '[' + param_str + ', ' + addition + ']'
     else:
@@ -314,6 +314,71 @@ def write_fasta_without(fasta_path: str, out_path: str, left_out: set[str], comp
                 f_out.write(piece)
 
 
+def _ids_on_removed(gff_path: str, removed: set[str]) -> set[str]:
+    """Returns the IDs of the GFF3 lines on the removed sequences, and those whose lines are on kept
+    sequences but their parents all lie on removed ones, i.e. of genes spread over a removed and a
+    kept sequence."""
+    on_removed, on_kept, parents_of = set(), set(), {}
+    for line in GFFParser.feature_lines(gff_path):
+        columns = line.split('\t')
+        attributes = GFFObject.parse_attributes(columns[8])
+        line_id = attributes.get('ID')
+        if line_id is None:
+            continue  # parent line without ID, children can have no ID and still be removed
+        if columns[0] in removed:
+            on_removed.add(line_id)
+        else:
+            on_kept.add(line_id)
+            if parents := GFFObject.parents(attributes):
+                parents_of[line_id] = parents
+    dropped = on_removed - on_kept
+    # one round per level of the Parent chain, e.g. mRNA lines below a gene, then exons below them
+    while below := {line_id for line_id, parents in parents_of.items()
+                    if line_id not in dropped and all(parent in dropped for parent in parents)}:
+        dropped |= below
+    return dropped
+
+
+def write_gff_without(gff_path: str, out_path: str, removed: set[str], compression: Compression | None,
+                      renamed: dict[str, str] | None = None) -> int:
+    """Copies a GFF3 file without the feature and ##sequence-region lines of the removed sequences,
+    and without the lines on kept sequences all of whose parents lie on removed ones, through any
+    number of Parent steps, which the import would leave out as on another sequence than their parent
+    (see _ids_on_removed); a line naming only some of those as Parent keeps the others. The kept
+    sequence IDs in renamed get its new names. Logs and returns the number of lines left out on kept
+    sequences."""
+    renamed = renamed or {}
+    dropped_ids = _ids_on_removed(gff_path, removed)
+    n_below = 0
+    with open_out(out_path, compression) as f_out:
+        for line in GFFParser.lines(gff_path):
+            if line.startswith('##sequence-region'):
+                _, seqid, rest = line.split(maxsplit=2)
+                if seqid in removed:
+                    continue
+                if seqid in renamed:
+                    line = f'##sequence-region {renamed[seqid]} {rest}'
+            elif line.strip() and not line.startswith('#'):
+                columns = line.rstrip('\n').split('\t')
+                if columns[0] in removed:
+                    continue
+                parents = GFFObject.parents(GFFObject.parse_attributes(columns[8]))
+                kept = [parent for parent in parents if parent not in dropped_ids]
+                if parents and not kept:
+                    n_below += 1
+                    continue
+                if len(kept) < len(parents):
+                    columns[8] = GFFObject.with_parents(columns[8], kept)
+                columns[0] = renamed.get(columns[0], columns[0])
+                line = '\t'.join(columns) + '\n'
+            f_out.write(line)
+    if n_below:
+        logger.info(f'Left out {n_below} lines on kept sequences whose parents all lie on removed ones, i.e. of '
+                    f'genes spread over several sequences, which the import leaves out unmasked as well '
+                    f'(i.e. the GeenuFF reason "on another sequence than their parent")')
+    return n_below
+
+
 # GFF start/end to GeenuFF
 # ----------------------------------
 def strand_as_bool(strand):
@@ -323,7 +388,7 @@ def strand_as_bool(strand):
     elif strand == '-':
         return False
     else:
-        raise ValueError('cannot interpret strand "{}"'.format(strand))
+        raise ValueError(f'cannot interpret strand "{strand}"')
 
 
 def get_strand_direction(gffentry):
@@ -390,8 +455,8 @@ GFF_PHASE_FROM_NORMAL: dict[int, int] = {0: 0, 1: 2, 2: 1}
 # ----------------------------------
 
 def mk_rc_key():
-    fw = "ACGTMRWSYKVHDBN"
-    rv = "TGCAKYWSRMBDHVN"
+    fw = 'ACGTMRWSYKVHDBN'
+    rv = 'TGCAKYWSRMBDHVN'
     key = {}
     for f, r in zip(fw, rv):
         key[f] = r
@@ -409,7 +474,7 @@ def reverse_complement(seq):
         try:
             rc_seq.append(key[base])
         except KeyError as e:
-            raise KeyError('{} caused by non DNA character {}'.format(e, base))
+            raise KeyError(f'{e} caused by non DNA character {base}')
     return rc_seq
 
 

@@ -1,7 +1,8 @@
 import bisect
 
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Table, Column, Integer, ForeignKey, String, Enum, CheckConstraint, UniqueConstraint, Boolean, Float
+from sqlalchemy import (Table, Column, Integer, ForeignKey, String, Enum, CheckConstraint, UniqueConstraint, Boolean,
+                        Float)
 from sqlalchemy.orm import relationship
 
 from geenuff.base import types
@@ -26,14 +27,14 @@ class Genome(Base):
     gff_path = Column(String)
     geenuff_version = Column(String)
     imported = Column(String)
-    coordinates = relationship("Coordinate", back_populates="genome")
+    coordinates = relationship('Coordinate', back_populates='genome')
 
     __table_args__ = (
         UniqueConstraint('species', 'version', name='unique_genome_species_and_version'),
     )
 
     def __repr__(self):
-        return '<Genome {}, species: {}>'.format(self.id, self.species)
+        return f'<Genome {self.id}, species: {self.species}>'
 
 
 class Coordinate(Base):
@@ -82,9 +83,8 @@ class Coordinate(Base):
         return ''.join(pieces)
 
     def __repr__(self):
-        return '<Coordinate {}, seqid: {}, len: {}, genome_id: {}, genome: {}>'.format(self.id, self.seqid, self.length,
-                                                                                       self.genome_id,
-                                                                                       self.genome.species)
+        return (f'<Coordinate {self.id}, seqid: {self.seqid}, len: {self.length}, genome_id: {self.genome_id}, '
+                f'genome: {self.genome.species}>')
 
 
 class SequenceChunk(Base):
@@ -127,17 +127,18 @@ class SuperLocus(Base):
     proteins = relationship('Protein', back_populates='super_locus')
 
     def __repr__(self):
-        return '<SuperLocus {}, given_name: \'{}\', type: {}>'.format(self.id, self.given_name,
-                                                                      self.type.value)
+        return f'<SuperLocus {self.id}, given_name: \'{self.given_name}\', type: {self.type.value}>'
 
 
-association_transcript_piece_to_feature = Table('association_transcript_piece_to_feature', Base.metadata,
+association_transcript_piece_to_feature = Table(
+    'association_transcript_piece_to_feature', Base.metadata,
     Column('transcript_piece_id', Integer, ForeignKey('transcript_piece.id'), nullable=False, index=True),
     Column('feature_id', Integer, ForeignKey('feature.id'), nullable=False, index=True)
 )
 
 
-association_protein_to_feature = Table('association_protein_to_feature', Base.metadata,
+association_protein_to_feature = Table(
+    'association_protein_to_feature', Base.metadata,
     Column('protein_id', Integer, ForeignKey('protein.id'), nullable=False, index=True),
     Column('feature_id', Integer, ForeignKey('feature.id'), nullable=False, index=True)
 )
@@ -153,7 +154,8 @@ association_protein_to_feature = Table('association_protein_to_feature', Base.me
 # docs/overlap_masking.md), so consumers that mask from geenuff_mask features never see this table.
 # Both ids are listed, so all overlaps of one locus are
 # `WHERE super_locus_id = X OR partner_id = X`.
-super_locus_overlap = Table('super_locus_overlap', Base.metadata,
+super_locus_overlap = Table(
+    'super_locus_overlap', Base.metadata,
     Column('super_locus_id', Integer, ForeignKey('super_locus.id'), nullable=False, index=True),
     Column('partner_id', Integer, ForeignKey('super_locus.id'), nullable=False, index=True),
     Column('start', Integer, nullable=False),
@@ -162,7 +164,8 @@ super_locus_overlap = Table('super_locus_overlap', Base.metadata,
     Column('coordinate_id', Integer, ForeignKey('coordinate.id'), nullable=False, index=True)
 )
 
-association_transcript_to_protein = Table('association_transcript_to_protein', Base.metadata,
+association_transcript_to_protein = Table(
+    'association_transcript_to_protein', Base.metadata,
     Column('transcript_id', Integer, ForeignKey('transcript.id'), nullable=False, index=True),
     Column('protein_id', Integer, ForeignKey('protein.id'), nullable=False, index=True)
 )
@@ -188,10 +191,8 @@ class Transcript(Base):
     errors = relationship('TranscriptError', back_populates='transcript')
 
     def __repr__(self):
-        return '<Transcript, {}, "{}" of type {}, with {} pieces>'.format(self.id,
-                                                                          self.given_name,
-                                                                          self.type,
-                                                                          len(self.transcript_pieces))
+        return (f'<Transcript, {self.id}, "{self.given_name}" of type {self.type}, '
+                f'with {len(self.transcript_pieces)} pieces>')
 
 
 class TranscriptError(Base):
@@ -231,8 +232,8 @@ class TranscriptPiece(Base):
     )
 
     def __repr__(self):
-        return ('<TranscriptPiece, {}: for transcript {} '
-                'in position {}>').format(self.id, self.transcript_id, self.position)
+        return (f'<TranscriptPiece, {self.id}: for transcript {self.transcript_id} '
+                f'in position {self.position}>')
 
 
 class Protein(Base):
@@ -251,9 +252,7 @@ class Protein(Base):
                                back_populates='proteins')
 
     def __repr__(self):
-        return '<Protein {}, given_name: \'{}\', super_locus_id: {}>'.format(self.id,
-                                                                             self.given_name,
-                                                                             self.super_locus_id)
+        return f'<Protein {self.id}, given_name: \'{self.given_name}\', super_locus_id: {self.super_locus_id}>'
 
 
 class Feature(Base):
@@ -279,12 +278,12 @@ class Feature(Base):
 
     # relations
     transcript_pieces = relationship('TranscriptPiece',
-                                      secondary=association_transcript_piece_to_feature,
-                                      back_populates='features')
+                                     secondary=association_transcript_piece_to_feature,
+                                     back_populates='features')
 
     proteins = relationship('Protein',
-                               secondary=association_protein_to_feature,
-                               back_populates='features')
+                            secondary=association_protein_to_feature,
+                            back_populates='features')
 
     __table_args__ = (
         UniqueConstraint('coordinate_id', 'type', 'start', 'end', 'is_plus_strand', 'given_name',
@@ -309,11 +308,7 @@ class Feature(Base):
             end_caveat = '?'
         elif self.end_is_biological_end is False:
             end_caveat = '*'
-        s = ('<Feature, id: {pk}, given_name: \'{givenid}\', type: {type}, '
-             '{start}{start_caveat}--{end}{end_caveat}, on {coor}, '
-             'is_plus: {plus}, phase: {phase}>').format(
-                pk=self.id, start_caveat=start_caveat, end_caveat=end_caveat,
-                type=self.type.value, start=self.start, end=self.end, coor=self.coordinate,
-                plus=self.is_plus_strand, phase=self.phase, givenid=self.given_name
-            )
+        s = (f'<Feature, id: {self.id}, given_name: \'{self.given_name}\', type: {self.type.value}, '
+             f'{self.start}{start_caveat}--{self.end}{end_caveat}, on {self.coordinate}, '
+             f'is_plus: {self.is_plus_strand}, phase: {self.phase}>')
         return s

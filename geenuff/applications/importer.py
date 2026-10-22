@@ -1314,8 +1314,8 @@ class GFFErrorHandling(object):
 
             # the case of no transcript for a super locus
             if not group['transcripts']:
-                logger.debug('{} is a gene without any transcripts; it has no features and will '
-                             'never be exported or masked'.format(group['super_locus'].given_name))
+                logger.debug(f'{group["super_locus"].given_name} is a gene without any transcripts; it has no '
+                             f'features and will never be exported or masked')
             # the selected transcript with the flank on both sides, which every mask reaches to
             buffered = self._buffered_span(i) if i in self._extents else None
             for transcript in group['transcripts']:
@@ -1586,7 +1586,8 @@ class ImportController(object):
             insert_importer_groups(self, plus)
             insert_importer_groups(self, minus)
             insert_importer_groups(self, unstranded)
-            if is_final_coord or self.insertion_queues.total_size() > 10000:  # todo: change to 1000, RAM issue fix maybe
+            # todo: change to 1000, RAM issue fix maybe
+            if is_final_coord or self.insertion_queues.total_size() > 10000:
                 self.insertion_queues.execute_so_far()
 
         assert self.latest_fasta_importer is not None, 'No recent genome found'

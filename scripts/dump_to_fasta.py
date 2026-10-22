@@ -11,13 +11,12 @@ def main(args):
     if args.mode in MODES:
         controller.prep_ranges(MODES[args.mode])
     else:
-        raise NotImplementedError("Requested mode ({}) not in implemented types {}".format(args.mode,
-                                                                                           list(MODES.keys())))
+        raise NotImplementedError(f'Requested mode ({args.mode}) not in implemented types {list(MODES.keys())}')
 
     controller.write_fa(args.out)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = RangeArgParser()
     parser.parse_args()
     main(parser.args)

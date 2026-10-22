@@ -23,8 +23,8 @@ class PathFinder(object):
         self.db_out = db_path
         self.basedir = basedir
         self.species = species
-        self.input = '{}/{}/'.format(self.basedir, PathFinder.INPUT)
-        self.output = '{}/{}/'.format(self.basedir, PathFinder.OUTPUT)
+        self.input = f'{self.basedir}/{PathFinder.INPUT}/'
+        self.output = f'{self.basedir}/{PathFinder.OUTPUT}/'
         # basedir and, unless both input files are given, basedir/input exist (checked before)
         if self.basedir is not None:
             os.makedirs(self.output, exist_ok=True)
@@ -32,7 +32,7 @@ class PathFinder(object):
         self.fasta_in = self._get_fa(fasta)
         self.gff_in = self._get_gff(gff)
         if not self.db_out:
-            self.db_out = '{}{}.sqlite3'.format(self.output, species)
+            self.db_out = f'{self.output}{species}.sqlite3'
         # beside the database, named after it, e.g. genome.sqlite3 -> genome_geenuff_import.log
         db_stem = self.db_out.removeprefix('sqlite:///').removesuffix('.sqlite3')
         self.problems_out = logfile or f'{db_stem}_geenuff_import.log'
@@ -53,8 +53,7 @@ class PathFinder(object):
 
     @staticmethod
     def _confirm_exactly_one(possibilities, info):
-        assert len(possibilities) == 1, 'no(n) unique {} file found as input. Found: {}'.format(
-                                            info, possibilities)
+        assert len(possibilities) == 1, f'no(n) unique {info} file found as input. Found: {possibilities}'
 
 
 def main(args, paths):
