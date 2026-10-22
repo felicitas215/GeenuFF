@@ -1,3 +1,4 @@
+import argparse
 import os
 import logging
 import subprocess
@@ -1598,6 +1599,24 @@ def test_add_gene_lines_gives_parentless_transcripts_their_gene(tmp_path):
                                                        'ID=x.t1;Parent=x'}
 
 
+def test_add_gene_lines_takes_gene_ids_from_an_attribute_or_a_split_of_the_id(tmp_path):
+    """a.t1, without a Parent, gives its gene ID in its geneID attribute and gets a new gene line
+    geneA; G10-mRNA-1, naming itself as Parent, is split at '-mRNA-' into G10, the ID of a gene line
+    already in the file, which becomes its Parent, no second one being written."""
+    gff = tmp_path / 'genes.gff3'
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tmRNA\t1\t9\t.\t+\t.\tID=a.t1;geneID=geneA\n'
+                   'CHR\ttest\tCDS\t1\t9\t.\t+\t0\tParent=a.t1\n'
+                   'CHR\ttest\tgene\t11\t19\t.\t+\t.\tID=G10\n'
+                   'CHR\ttest\tmRNA\t11\t19\t.\t+\t.\tID=G10-mRNA-1;Parent=G10-mRNA-1\n'
+                   'CHR\ttest\tCDS\t11\t19\t.\t+\t0\tParent=G10-mRNA-1\n')
+    run_script('add_gene_lines.py', '--gff', str(gff), '--split-at=-mRNA-')
+    lines = feature_lines(tmp_path / 'genes_with_genes.gff3')
+    assert [(c[3], c[4], c[8]) for c in lines if c[2] == 'gene'] == [('1', '9', 'ID=geneA'), ('11', '19', 'ID=G10')]
+    assert [c[8] for c in lines if c[2] == 'mRNA'] == ['ID=a.t1;geneID=geneA;Parent=geneA',
+                                                       'ID=G10-mRNA-1;Parent=G10']
+
+
 def test_add_gene_lines_reads_parents_as_the_import_does(tmp_path):
     """An empty Parent names no parent, and one naming the transcript twice names only itself, as the
     import reads them: both transcripts get a gene."""
@@ -1618,17 +1637,123 @@ def test_rename_gff_seqids_renames_to_fasta_ids_and_leaves_out_unmatched_sequenc
     """The GFF3 sequence ID scaffold_7 is a word of the FASTA header 'Chr1 scaffold_7', so its lines
     are renamed to Chr1; lost matches no FASTA sequence and its lines are left out."""
     fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
-    fasta.write_text('>Chr1 scaffold_7\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
+    fasta.write_text('>Chr1 scaffold_7\nATGCCCTAACCCCCCCCCCC\n')
     gff.write_text('##gff-version 3\n'
-                   'scaffold_7\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
-                   'scaffold_7\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t1;Parent=g1\n'
-                   'scaffold_7\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t1\n'
-                   'lost\ttest\tgene\t1\t300\t.\t+\t.\tID=g2\n'
-                   'lost\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t2;Parent=g2\n'
-                   'lost\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t2\n')
+                   'scaffold_7\ttest\tgene\t1\t9\t.\t+\t.\tID=g1\n'
+                   'scaffold_7\ttest\tmRNA\t1\t9\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'scaffold_7\ttest\tCDS\t1\t9\t.\t+\t0\tParent=t1\n'
+                   'lost\ttest\tgene\t1\t9\t.\t+\t.\tID=g2\n'
+                   'lost\ttest\tmRNA\t1\t9\t.\t+\t.\tID=t2;Parent=g2\n'
+                   'lost\ttest\tCDS\t1\t9\t.\t+\t0\tParent=t2\n')
     run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--max-missing-percent', '50')
     lines = feature_lines(tmp_path / 'genes_renamed.gff3')
     assert [(c[0], c[2]) for c in lines] == [('Chr1', 'gene'), ('Chr1', 'mRNA'), ('Chr1', 'CDS')]
+
+
+# a 30 bp sequence holding a spliced gene, its CDS at 1-6 and 17-22: start codon ATG at 1-3, the
+# intron's GT at 7-8 and AG at 15-16, stop codon TAA at 20-22, i.e. 4 checks for rename_gff_seqids.py
+SPLICED = 'ATGCCC' + 'GT' + 'CCCCCC' + 'AG' + 'CCCTAA' + 'CCCCCCCC'
+
+
+def spliced_gene(seqid: str, gene_id: str, offset: int = 0) -> str:
+    """The GFF3 lines of the gene of SPLICED on the sequence seqid, offset bases into it."""
+    return (f'{seqid}\ttest\tgene\t{1 + offset}\t{22 + offset}\t.\t+\t.\tID={gene_id}\n'
+            f'{seqid}\ttest\tmRNA\t{1 + offset}\t{22 + offset}\t.\t+\t.\tID={gene_id}.t1;Parent={gene_id}\n'
+            f'{seqid}\ttest\tCDS\t{1 + offset}\t{6 + offset}\t.\t+\t0\tParent={gene_id}.t1\n'
+            f'{seqid}\ttest\tCDS\t{17 + offset}\t{22 + offset}\t.\t+\t0\tParent={gene_id}.t1\n')
+
+
+def test_rename_gff_seqids_pairs_by_sequence_where_no_id_or_header_word_matches(tmp_path):
+    """scaffoldA is neither a FASTA ID nor a word of a FASTA header; its gene's 4 checks all pass on
+    Chr2 and fail on Chr1, so it is paired with Chr2 by sequence and renamed to it."""
+    fasta, gff, pairs = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'pairs.tsv'
+    fasta.write_text('>Chr1 first\n' + 'C' * 30 + '\n>Chr2 second\n' + SPLICED + '\n')
+    gff.write_text('##gff-version 3\n' + spliced_gene('scaffoldA', 'g1'))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--pairs-out', str(pairs))
+    assert {c[0] for c in feature_lines(tmp_path / 'genes_renamed.gff3')} == {'Chr2'}
+    assert [line.split('\t')[:3] for line in pairs.read_text().splitlines()[1:]] == [['scaffoldA', 'Chr2', 'sequence']]
+
+
+def test_rename_gff_seqids_leaves_out_a_duplicate_of_a_paired_sequence(tmp_path):
+    """Chr2 pairs by ID; old_Chr2 holds the same gene, which fits only Chr2, paired already: it is
+    taken for a duplicate sequence removed from the FASTA file, and its lines are left out."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text('>Chr1\n' + 'C' * 30 + '\n>Chr2\n' + SPLICED + '\n')
+    gff.write_text('##gff-version 3\n' + spliced_gene('Chr2', 'g1') + spliced_gene('old_Chr2', 'g2'))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff))
+    lines = feature_lines(tmp_path / 'genes_renamed.gff3')
+    assert {(c[0], c[8].split(';')[0]) for c in lines if c[2] == 'gene'} == {('Chr2', 'ID=g1')}
+
+
+def test_rename_gff_seqids_stops_where_changed_sequences_hold_too_many_genes(tmp_path):
+    """The genes of Chr1 end at 70, more than its own 30 bp past the end of the FASTA sequence, so it
+    changed after annotation; it holds half the coding transcripts, over the 5% that may be left out,
+    so the script stops with an error and writes nothing."""
+    fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
+    fasta.write_text('>Chr1\n' + 'C' * 30 + '\n>Chr2\n' + SPLICED + '\n')
+    gff.write_text('##gff-version 3\n' + spliced_gene('Chr2', 'g1')
+                   + 'Chr1\ttest\tgene\t41\t70\t.\t+\t.\tID=g2\n'
+                   + 'Chr1\ttest\tmRNA\t41\t70\t.\t+\t.\tID=g2.t1;Parent=g2\n'
+                   + 'Chr1\ttest\tCDS\t41\t70\t.\t+\t0\tParent=g2.t1\n')
+    result = subprocess.run([sys.executable, str(Path(__file__).parents[2] / 'scripts' / 'rename_gff_seqids.py'),
+                             '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log)])
+    assert result.returncode == 1
+    assert not (tmp_path / 'genes_renamed.gff3').exists()
+    assert 'too many to leave out' in log.read_text()
+
+
+def test_rename_gff_seqids_pairs_by_a_word_of_a_tab_separated_header(tmp_path):
+    """The FASTA header 'GWHAAAA00000001<TAB>OriSeqID=TD01<TAB>Len=30', as GWH writes it, holds the GFF3
+    sequence ID TD01 as a word, split at the tab and the '=', so TD01 is renamed to its FASTA ID."""
+    fasta, gff, pairs = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'pairs.tsv'
+    fasta.write_text('>GWHAAAA00000001\tOriSeqID=TD01\tLen=30\n' + SPLICED + '\n')
+    gff.write_text('##gff-version 3\n' + spliced_gene('TD01', 'g1'))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--pairs-out', str(pairs))
+    assert {c[0] for c in feature_lines(tmp_path / 'genes_renamed.gff3')} == {'GWHAAAA00000001'}
+    assert pairs.read_text().splitlines()[1].split('\t')[:3] == ['TD01', 'GWHAAAA00000001', 'full_name']
+
+
+def test_rename_gff_seqids_counts_identical_checks_of_isoforms_once(tmp_path):
+    """21 isoforms of one gene share their CDS, whose start and stop codons are not in the sequence:
+    counted once, they are 2 checks, too few to judge the pair by ID, which stands, so nothing is
+    written."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text('>Chr1\n' + 'C' * 20 + '\n')
+    gff.write_text('##gff-version 3\nChr1\ttest\tgene\t5\t13\t.\t+\t.\tID=g1\n'
+                   + ''.join(f'Chr1\ttest\tmRNA\t5\t13\t.\t+\t.\tID=t{i};Parent=g1\n'
+                             f'Chr1\ttest\tCDS\t5\t13\t.\t+\t0\tParent=t{i}\n' for i in range(21)))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff))
+    assert not (tmp_path / 'genes_renamed.gff3').exists()
+
+
+def test_rename_gff_seqids_reads_genes_crossing_the_origin_of_a_circular_sequence(tmp_path):
+    """A CDS from 16 to 24 on a 20 bp sequence crosses its origin, as GFF3 writes it: read across the
+    origin, its start codon at 16-18 and stop codon at 2-4 are in place, so the pair by ID stands and
+    nothing is written, with a warning to check that the sequence is circular."""
+    fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
+    fasta.write_text('>Plastid\nCTAACCCCCCCCCCCATGCC\n')
+    gff.write_text('##gff-version 3\n'
+                   'Plastid\ttest\tgene\t16\t24\t.\t+\t.\tID=g1\n'
+                   'Plastid\ttest\tmRNA\t16\t24\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'Plastid\ttest\tCDS\t16\t24\t.\t+\t0\tParent=t1\n')
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log))
+    assert not (tmp_path / 'genes_renamed.gff3').exists()
+    assert 'read as crossing the origin of a circular sequence' in log.read_text()
+
+
+def test_rename_gff_seqids_warns_of_a_sequence_region_one_bp_off(tmp_path):
+    """A ##sequence-region written 0-based, 0 to 150 for a 150 bp sequence, is 1 bp off, so it does not
+    judge the pair; the 5 genes give 20 checks, enough to judge the pair by them, and all pass, so the
+    pair by ID stands and nothing is to be renamed, and a warning asks to check the file."""
+    fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
+    fasta.write_text('>Chr1\n' + SPLICED * 5 + '\n')
+    gff.write_text('##gff-version 3\n##sequence-region Chr1 0 150\n'
+                   + ''.join(spliced_gene('Chr1', f'g{i}', 30 * i) for i in range(5)))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log))
+    assert not (tmp_path / 'genes_renamed.gff3').exists()
+    text = log.read_text()
+    assert '1 GFF3 sequences have a ##sequence-region 1 bp off' in text
+    assert 'their genes fit their FASTA sequences: nothing to rename' in text
 
 
 def test_rename_gff_seqids_leaves_out_lines_whose_parents_lie_on_unpaired_sequences(tmp_path):
@@ -1636,14 +1761,14 @@ def test_rename_gff_seqids_leaves_out_lines_whose_parents_lie_on_unpaired_sequen
     t2 lies on scaffold_7: it is left out with them, as the import leaves out a line on another
     sequence than its parent."""
     fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
-    fasta.write_text('>Chr1 scaffold_7\n' + 'ATG' + 'C' * 294 + 'TAA' + 'C' * 700 + '\n')
+    fasta.write_text('>Chr1 scaffold_7\nATGCCCTAACCCCCCCCCCC\n')
     gff.write_text('##gff-version 3\n'
-                   'scaffold_7\ttest\tgene\t1\t300\t.\t+\t.\tID=g1\n'
-                   'scaffold_7\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t1;Parent=g1\n'
-                   'scaffold_7\ttest\tCDS\t1\t300\t.\t+\t0\tParent=t1\n'
-                   'scaffold_7\ttest\tCDS\t601\t900\t.\t+\t0\tParent=t2\n'
-                   'lost\ttest\tgene\t1\t300\t.\t+\t.\tID=g2\n'
-                   'lost\ttest\tmRNA\t1\t300\t.\t+\t.\tID=t2;Parent=g2\n')
+                   'scaffold_7\ttest\tgene\t1\t9\t.\t+\t.\tID=g1\n'
+                   'scaffold_7\ttest\tmRNA\t1\t9\t.\t+\t.\tID=t1;Parent=g1\n'
+                   'scaffold_7\ttest\tCDS\t1\t9\t.\t+\t0\tParent=t1\n'
+                   'scaffold_7\ttest\tCDS\t12\t20\t.\t+\t0\tParent=t2\n'
+                   'lost\ttest\tgene\t1\t9\t.\t+\t.\tID=g2\n'
+                   'lost\ttest\tmRNA\t1\t9\t.\t+\t.\tID=t2;Parent=g2\n')
     run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--max-missing-percent', '50')
     lines = feature_lines(tmp_path / 'genes_renamed.gff3')
     assert [(c[0], c[2], c[8]) for c in lines] == [('Chr1', 'gene', 'ID=g1'), ('Chr1', 'mRNA', 'ID=t1;Parent=g1'),
@@ -1911,6 +2036,25 @@ def test_seqid_matching_raises_for_gff_ids_without_one_fasta_id():
     # two GFF IDs contained in the same FASTA ID
     with pytest.raises(helpers.NonMatchableIDs, match=r'containing several GFF sequence IDs \(1\): ab \(a, b\)'):
         helpers.match_seqids({'ab'}, {'a', 'b'})
+
+
+@pytest.mark.parametrize('names, fasta_text, gff_text, message', [
+    # each file named like the other kind
+    (('genes.gff3', 'genome.fa'), '>Chr1\nACGT\n', 'Chr1\tt\tgene\t1\t4\t.\t+\t.\tID=g1\n',
+     'look swapped by their names'),
+    # a FASTA file not starting with '>'
+    (('genome.fa', 'genes.gff3'), 'ACGT\n', 'Chr1\tt\tgene\t1\t4\t.\t+\t.\tID=g1\n', 'does not start with ">"'),
+    # a sequence ID holding a tab, giving the first feature line 10 columns
+    (('genome.fa', 'genes.gff3'), '>Chr1\nACGT\n', '##gff-version 3\nChr\t1\tt\tgene\t1\t4\t.\t+\t.\tID=g1\n',
+     'has 10 tab-separated columns instead of 9'),
+])
+def test_require_fasta_and_gff_stops_on_files_not_of_their_kind(tmp_path, capsys, names, fasta_text, gff_text, message):
+    fasta, gff = tmp_path / names[0], tmp_path / names[1]
+    fasta.write_text(fasta_text)
+    gff.write_text(gff_text)
+    with pytest.raises(SystemExit):
+        helpers.require_fasta_and_gff(argparse.ArgumentParser(), str(fasta), str(gff))
+    assert message in capsys.readouterr().err
 
 
 def test_gff_to_seqids():

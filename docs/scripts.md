@@ -180,14 +180,22 @@ CDS lines and, for a stop codon right after the CDS, along the exons, across an 
 splits the codon. Up to 250 per sequence ID are used: those of its first and
 last genes (20 each) and the rest spread evenly between them. A right sequence passes nearly all,
 a wrong or shifted one about 9% by chance (a pair needs at least 50% in every window, 80% in all
-when found by sequence alone).
+when found by sequence alone). Identical checks, as from isoforms sharing a CDS start or an intron,
+count once, so that one gene with many isoforms cannot decide a sequence alone.
 
-A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if the genes
-reach past its end, a `##sequence-region` length differs from its own, or, with 20 checks or more,
-fewer than half pass in any window (the first 20, the last 20, about 25 each in between). A cut or
-insertion shifts every check after it, so a window shows it wherever it lies before the last gene.
-With 20 checks a wrong sequence passes half in about 3 of a million cases; a right one whose
-annotation passes only 70% fails in about 2%.
+A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if:
+- the genes reach past its end by more than its length; by less, they are read as crossing the
+  origin of a circular sequence, as GFF3 writes such features (their end plus the sequence's
+  length), and checked so, with a warning to check that the sequence is circular
+- a `##sequence-region` length differs from its own by >= 2 bp
+- or, with 20 checks or more, fewer than half pass in any window (the first 20,
+  the last 20, about 25 each in between)
+
+A cut or insertion shifts every check after it, so a window shows it wherever it lies
+before the last gene. With 20 checks a wrong sequence passes half in about 3 of a million cases; a
+right one whose annotation passes only 70% fails in about 2%. A `##sequence-region` 1 bp off, as
+when the regions are written 0-based (starting at 0), is not used to judge the pair; a warning
+asks to check the GFF3 file's coordinates.
 
 | case                                                                                                | result                                                                                                                                                                                              |
 |-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

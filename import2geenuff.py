@@ -141,4 +141,10 @@ if __name__ == '__main__':
     require_input_files(parser, [paths.fasta_in, paths.gff_in])
     require_fasta_and_gff(parser, paths.fasta_in, paths.gff_in)
     check_output_paths(parser, [paths.db_out, paths.problems_out], [paths.fasta_in, paths.gff_in])
-    main(args, paths)
+    try:
+        main(args, paths)
+    except Exception as e:
+        # the traceback, for tracking the error down, then the error itself last
+        logger.exception('Traceback of the error the import stopped on:')
+        logger.error(f'Import stopped: {type(e).__name__}: {e}')
+        sys.exit(1)

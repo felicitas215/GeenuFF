@@ -44,6 +44,12 @@ Check = tuple[str, int, bool] | tuple[str, int, bool, tuple[int, ...]]
 # from others
 MAX_CHECKS = 250
 MIN_NAMED_SCORE = 0.5  # pairs by ID or full name; a random sequence passes about a tenth of the checks
+# the share of its checks a pair found by search must pass. A GFF3 sequence is only searched where a
+# wrong sequence reaching this share by chance stays below MAX_RANDOM_HITS, so a higher share needs
+# fewer checks (a chance 80% is rarer than a chance 50%) and lets smaller scaffolds be searched, while
+# rejecting more right pairs of poorer annotations. On a 26,720-sequence assembly, 0.8 needed 9 checks
+# and rejected no right pair, 0.7 needed 13, and 0.9 needed 7 but rejected 174 of 7,125; right pairs
+# with 20 checks or more passed at least 0.90 in every file tested
 MIN_SEARCHED_SCORE = 0.8
 MAX_RANDOM_HITS = 1e-3  # expected random sequences passing the checks of a pair found by search
 # the number of checks (not a share) a pair by ID or full name, or a window of its checks, needs to be
@@ -200,9 +206,11 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
         if transcript['cds']:
             sequence.stops.append(stop_site(transcript_id, transcript['cds'], transcript['exons'], is_plus))
     for sequence in sequences.values():
+        # identical checks, as from isoforms sharing a CDS start or an intron, count once, so that one
+        # gene with many isoforms cannot decide a sequence alone
+        checks = sorted(set(sequence.checks), key=lambda check: (check[1], check))
         # MAX_CHECKS spread evenly along the sequence, so a change anywhere on it shows, between its first
         # and last MIN_DECISIVE_CHECKS checks, those of its first and last genes (see failing_window)
-        checks = sorted(sequence.checks, key=lambda check: check[1])
         edge = MIN_DECISIVE_CHECKS
         if len(checks) > MAX_CHECKS:
             # the two edge checks are kept whole, from the middle every len(middle) / n_spread-th one
@@ -215,6 +223,15 @@ def read_gff(gff_path: str) -> dict[str, GffSequence]:
         if seqid in sequences:
             sequences[seqid].region_length = length
     return sequences
+
+
+def as_read(sequence: str, max_end: int) -> str:
+    """The sequence as its GFF3 genes read it: where they end past it by less than its own length, its
+    start appended, as GFF3 writes a feature crossing the origin of a circular sequence, its end given
+    as the position past the origin plus the sequence's length."""
+    if len(sequence) < max_end <= 2 * len(sequence):
+        return sequence + sequence[:max_end - len(sequence)]
+    return sequence
 
 
 def codon_at(sequence: str, positions: tuple[int, ...], is_plus: bool) -> str:
@@ -288,10 +305,12 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
                             full_names: dict[str, str]) -> tuple[dict[str, Pair], dict[str, tuple[str, str]], int]:
     """Pairs each GFF3 sequence ID with the FASTA sequence of the same ID, else the only one whose
     full name holds it as a word and whose ID is no GFF3 sequence ID, which would pair with it by
-    ID. A pair fails where the GFF3 genes reach past the FASTA sequence,
-    its ##sequence-region length differs from the FASTA sequence's, or, where the GFF3 sequence has
-    at least MIN_DECISIVE_CHECKS checks (a count), fewer than MIN_NAMED_SCORE of them (a share) pass
-    in any window of them (see failing_window).
+    ID. A pair fails where the GFF3 genes reach past the FASTA sequence by more than its length,
+    its ##sequence-region length differs from the FASTA sequence's by >= 2 bp, or, where the
+    GFF3 sequence has at least MIN_DECISIVE_CHECKS checks (a count), fewer than MIN_NAMED_SCORE of them
+    (a share) pass in any window of them (see failing_window). Genes reaching past it by less are read
+    as crossing the origin of a circular sequence (see as_read), and a region 1 bp off, as from one
+    written 0-based, does not judge the pair; both are warned about.
 
     Returns:
         the pairs, {GFF3 sequence ID: (FASTA ID, why it failed)} for the failed ones, and how many
@@ -299,6 +318,8 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
     """
     words = full_name_words(full_names)
     pairs, claimed, failed = {}, set(), {}
+    one_off = []  # (GFF3 sequence ID, region length, FASTA sequence length)
+    circular = []  # (GFF3 sequence ID, end of its genes, FASTA sequence length, FASTA full name)
     n_tried = 0
     for gff_id, gff_sequence in gff_sequences.items():
         if gff_id in sequences:
@@ -308,14 +329,19 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
             fasta_id, method = words[gff_id][0], 'full_name'
         else:
             continue
-        sequence, checks = sequences[fasta_id], gff_sequence.checks
+        length, checks = len(sequences[fasta_id]), gff_sequence.checks
+        sequence = as_read(sequences[fasta_id], gff_sequence.max_end)
         n_tried += 1
         window = failing_window(sequence, checks) if len(checks) >= MIN_DECISIVE_CHECKS else None
+        region = gff_sequence.region_length
+        if region is not None and abs(region - length) == 1:
+            one_off.append((gff_id, region, length))
+        if len(sequence) > length:
+            circular.append((gff_id, gff_sequence.max_end, length, full_names[fasta_id]))
         if gff_sequence.max_end > len(sequence):
-            failed[gff_id] = fasta_id, f'genes end at {gff_sequence.max_end}, past its {len(sequence)} bp'
-        elif gff_sequence.region_length not in (None, len(sequence)):
-            failed[gff_id] = fasta_id, (f'{gff_sequence.region_length} bp by ##sequence-region, {len(sequence)} bp '
-                                        f'in the FASTA file')
+            failed[gff_id] = fasta_id, f'genes end at {gff_sequence.max_end}, past its {length} bp'
+        elif region is not None and abs(region - length) > 1:
+            failed[gff_id] = fasta_id, f'{region} bp by ##sequence-region, {length} bp in the FASTA file'
         elif window is not None:
             failed[gff_id] = fasta_id, window
         # a FASTA sequence pairs with one GFF3 ID; a second is left to the search by sequence, which
@@ -324,6 +350,21 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
             passed = n_passed(sequence, checks)
             pairs[gff_id] = Pair(fasta_id, method, passed, len(checks))
             claimed.add(fasta_id)
+    if one_off:
+        examples = ', '.join(f'{gff_id} ({region} bp by ##sequence-region, {length} bp in the FASTA file)'
+                             for gff_id, region, length in one_off[:3])
+        logger.warning(f'{len(one_off)} GFF3 sequences have a ##sequence-region 1 bp off the length of their FASTA '
+                       f'sequence, e.g. {examples}, as when the regions are written 0-based (starting at 0) '
+                       f'instead of 1-based; the regions are not used to judge these pairs, but check that the '
+                       f'GFF3 file\'s coordinates are 1-based and fit the FASTA file')
+    if circular:
+        # the FASTA full name often says what the sequence is, e.g. a chloroplast genome
+        examples = ', '.join(f'{gff_id} (genes end at {end}, its FASTA sequence {length} bp: "{name[:80]}")'
+                             for gff_id, end, length, name in circular[:3])
+        logger.warning(f'{len(circular)} GFF3 sequences have genes ending past their FASTA sequence by less than its '
+                       f'length, e.g. {examples}; they are read as crossing the origin of a circular sequence, as '
+                       f'GFF3 writes such features, and checked so; check that these sequences are circular, e.g. '
+                       f'organelle genomes or plasmids')
     return pairs, failed, n_tried
 
 
@@ -482,8 +523,9 @@ def log_summary(gff_sequences: dict[str, GffSequence], pairing: Pairing, gff_nam
 
     changed_ids = sorted(changed)
     n_lost = log_left_out(changed_ids, 'found in the FASTA file by ID or full name whose FASTA sequence does not fit '
-                                       'their genes, likely changed after annotation (e.g. trimmed on upload to '
-                                       'NCBI); their FASTA sequences are left out as well, unless paired with '
+                                       'their genes: the FASTA sequence was likely changed after annotation (e.g. '
+                                       'trimmed on upload to NCBI), or the genes need RNA editing, as in organelle '
+                                       'genomes; their FASTA sequences are left out as well, unless paired with '
                                        'another GFF3 sequence ID',
                           'each: ' + '; '.join(f'{gff_id} ({changed[gff_id][0]}): {changed[gff_id][1]}'
                                                for gff_id in changed_ids))
@@ -502,7 +544,7 @@ def log_stop_codons(gff_sequences: dict[str, GffSequence], pairs: dict[str, Pair
     """Logs the paired transcripts whose stop codon lies right after their CDS instead of in it."""
     outside, unextendable = 0, []
     for gff_id, pair in pairs.items():
-        sequence = sequences[pair.fasta_id]
+        sequence = as_read(sequences[pair.fasta_id], gff_sequences[gff_id].max_end)
         for stop in gff_sequences[gff_id].stops:
             if (codon_at(sequence, stop.codon, stop.is_plus) not in MOTIFS['stop']
                     and codon_at(sequence, stop.after, stop.is_plus) in MOTIFS['stop']):

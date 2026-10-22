@@ -79,7 +79,7 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
     # {gene id: (exclusion reason, [(coding transcript id, longest)])}
     genes = {}
     for sl_id, reason, t_id, longest in con.execute(
-            f"""SELECT sl.id, sl.excluded_from_export, t.id, t.longest FROM transcript t
+            """SELECT sl.id, sl.excluded_from_export, t.id, t.longest FROM transcript t
                 JOIN super_locus sl ON sl.id = t.super_locus_id
                 WHERE t.id IN (SELECT DISTINCT tp.transcript_id FROM transcript_piece tp
                                JOIN association_transcript_piece_to_feature a ON a.transcript_piece_id = tp.id
@@ -113,6 +113,11 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
     logger.info(f'Re-running the overlap sweep over the longest transcripts of {len(selected)} genes')
     partners = overlap_partners({sl_id: transcript_features[t_id][0] for sl_id, t_id in selected.items()})
 
+    def isolated(sl_id: int) -> bool:
+        """Whether a gene and its partner overlap no other gene, so that an overlap left unresolved
+        is nested rather than a chain, as at import."""
+        return all(len(partners[k]) <= 1 for k in (sl_id, *partners[sl_id]))
+
     for sl_id, (reason, coding) in genes.items():
         if reason is not None:
             if reason == types.OVERLAP_DROPPED:
@@ -121,7 +126,7 @@ def statistics(con: sqlite3.Connection) -> ImportStatistics:
         t_id = selected[sl_id]
         stats.unselected_coding_transcripts += len(coding) - 1
         tf = transcript_features[t_id][0]
-        stats.add_exported(errors[t_id], exported_outcome(errors[t_id], tf, masks[t_id], len(partners[sl_id]) <= 1),
+        stats.add_exported(errors[t_id], exported_outcome(errors[t_id], tf, masks[t_id], isolated(sl_id)),
                            (tf.coordinate_id, bool(tf.is_plus_strand)),
                            ascending_range(tf.start, tf.end, tf.is_plus_strand),
                            [ascending_range(m.start, m.end, m.is_plus_strand) for m in masks[t_id]])
