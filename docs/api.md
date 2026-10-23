@@ -1,7 +1,4 @@
 # Command line tools
-
-__Warning! little about this is stable or tested yet__
-
 ## import a species into the database
 
 Imports a eukaryotic genome and annotation into a GeenuFF database, logging the import; `<>` marks
@@ -22,7 +19,7 @@ FASTA file, a progress line per 10 % of the sequences while the features are imp
 the 30 sequences with the most genes. `--verbose` logs every sequence, along with every individual
 error.
 
-Or with some of the testdata filled in:
+Example with some of the testdata filled in:
 ```
 geenuff_path=<PATH/TO/GeenuFF/>
 
@@ -49,7 +46,8 @@ import2geenuff.py --basedir <BASEDIR> --species <SPECIES_NAME>
 `<BASEDIR>/input` must exist and hold one FASTA file (`.fa`, `.fasta`, `.fna` or `.fas`) and one
 GFF3 file (`.gff` or `.gff3`), each possibly gzipped or zipped (`.gz`, `.zip`); `<BASEDIR>/output`
 is created. Explicit paths override those from `--basedir`. Import one species into one database
-once; to redo it, delete the database or pass `--replace-db`.
+once; to redo it, delete the database, give it a different name via `--db-path`,
+or pass `--replace-db`.
 
 ## extract fasta sequences from a database
 
@@ -73,7 +71,8 @@ As above with `dump_lengthinfo.py`, or `--stats-only` for summary statistics.
 
 # GeenuFF API
 
-For more flexibility, use the python module directly. Nothing about it is stable yet.
+For more flexibility, use the python module directly. Nothing about it is stable yet,
+the scripts are tested and the intended way to use GeenuFF for most users.
 
 ## import
 To change how and where a genome is imported (as the tests do), call the importer directly, e.g.
@@ -111,8 +110,8 @@ For other breakdowns, see `RangeMaker` in `geenuff.applications.exporter`.
 
 ## gff3 output
 `FilteredGff3ExportController` in `geenuff.applications.exporters.gff3` writes a plain GFF3 file
-of the longest coding transcript per gene not masked whole, the set the h5 export gives labels
-from; genes without a coding transcript are skipped (see `scripts.md` for the options):
+of the longest coding transcript per gene not masked whole, the set the Helixer h5 export gives
+labels from; genes without a coding transcript are skipped (see `scripts.md` for the options):
 
 ```
 dump_filtered_gff3.py --db-path-in <GENUFF_DB> -o filtered.gff3

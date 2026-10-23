@@ -15,20 +15,23 @@ Installing GeenuFF, directly or as a dependency of Helixer, puts all of them ont
 
 `dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
 `rebuild_exons.py` and `filter_sequence_lengths.py` log what they leave out or change; `--log-file`
-writes that log to a file as well as the terminal, to keep it beside the output. No script writes
-over its input files or database: an output path naming one stops it before anything is written,
-as do an input file or database that does not exist and an output path in a directory that does
-not exist. The scripts reading a FASTA or GFF3 file, like `import2geenuff.py`, also stop where the
-two look swapped by their names, the FASTA file does not start with `>`, or the GFF3 file's first
-feature line does not have 9 tab-separated columns (e.g. 10 from a sequence ID holding a tab).
+writes that log to a file as well as the terminal, to keep it beside the output.
 
-The preparation scripts read gzipped or plain files alike. Each file they write is gzipped where its
-input file is, its name given `.gz` or not to match; `--gzip` or `--no-gzip` can be used to override
-this for all of them. Gzipped output is written at `--compression-level` 4 by default (1 fastest,
-9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster. It is
-compressed in `--threads` 4 threads by default (1 for a single one, -1 for all the system has).
-Zipped files holding a single file are read as well; the output of a zipped input file is gzipped
-and named `.gz`.
+No script writes over its input files or database. Each stops before anything is written where:
+- an output path names an input file or database
+- an input file or database, or the directory of an output path, does not exist
+- (scripts reading a FASTA or GFF3 file, like `import2geenuff.py`) the two look swapped by their
+  names, the FASTA file does not start with `>`, or the GFF3 file's first feature line does not
+  have 9 tab-separated columns (e.g. 10 from a sequence ID holding a tab)
+
+The preparation scripts read plain, gzipped and zipped files (a zip holding a single file). Each
+file they write is compressed as follows:
+
+| option                 | default                                                                                                  |
+|------------------------|----------------------------------------------------------------------------------------------------------|
+| `--gzip` / `--no-gzip` | gzipped where its input file is (also a zipped one), its name given `.gz` or not to match                |
+| `--compression-level`  | 4 (1 fastest, 9 smallest), compressing a genome nearly as well as gzip's default 6, several times faster |
+| `--threads`            | 4 (1 for a single one, -1 for all the system has)                                                        |
 
 Without an output path (`-o`, or `--fasta-out` and `--gff-out` for `filter_sequence_lengths.py`),
 each preparation script writes beside its input, the input's name with a suffix before the
@@ -173,51 +176,56 @@ Each GFF3 sequence ID is paired with the first FASTA sequence found by:
 | full name | whose whole header line holds the GFF3 ID as a word, e.g. `scaffold_12`                                                |
 | sequence  | the one the genes fit best, where they have enough checks to rule out chance; a tie is logged and goes to the first    |
 
-A check is one position where the GFF3 file places a start codon (ATG), a stop codon (TAA, TAG,
-TGA, also right after the CDS as in GFF3 converted from GTF) or an intron, both of whose ends are
-checked at once for GT-AG or GC-AG, so a transcript with n introns gives 2 + n. These two hold
-99.5-99.8% of the introns (in *Arabidopsis thaliana* Araport11 from Phytozome 98.7% and 1.1%, in
-*Glycine max* v4.0, NCBI GCF_000004515.6, 98.0% and 1.5%); the rarer kinds, such as AT-AC (0.1% in
-both), fail their check, too few to matter. Codons are read as GeenuFF's import reads them: along
-the CDS lines and, for a stop codon right after the CDS, along the exons, across an intron where
-one splits the codon. A right sequence passes nearly all, a wrong or shifted one about 3% by
-chance. A pair found by sequence alone must pass 80% of up to 250 checks per sequence ID, spread
-evenly along it. Identical checks, as from isoforms sharing a CDS start or an intron, count once,
-so that one gene with many isoforms cannot decide a sequence alone.
-Introns come from the exon lines or, for a transcript without exon lines, from the gaps between
-its CDS lines alone. The import builds such a transcript's exons from its CDS and UTR lines, but
-the introns between UTR lines fail their splice sites often in poorer UTR models (13% in
-*Selaginella moellendorffii* v1.0 from Phytozome, against under 1% in most annotations), enough
-to fail right pairs. Whether a stop codon right after the CDS lies past the exons
-is decided on the exons the import builds.
+A check is one position where the GFF3 file places:
+- a start codon (ATG)
+- a stop codon (TAA, TAG, TGA), also right after the CDS as in GFF3 converted from GTF
+- an intron, both of whose ends are checked at once for GT-AG or GC-AG
+
+so a transcript with n introns gives 2 + n. GT-AG and GC-AG hold 99.5-99.8% of the introns (98.7%
+and 1.1% in *Arabidopsis thaliana* Araport11 from Phytozome, 98.0% and 1.5% in *Glycine max* v4.0,
+NCBI GCF_000004515.6); the rarer kinds, such as AT-AC (0.1% in both), fail, too few to matter. A
+right sequence passes nearly all checks, a wrong or shifted one about 3% by chance. A pair found by
+sequence alone must pass 80% of up to 250 checks per sequence ID, spread evenly along it. Identical
+checks, as from isoforms sharing a CDS start or an intron, count once, so that one gene with many
+isoforms cannot decide a sequence alone.
+
+Codons are read as GeenuFF's import reads them: along the CDS lines and, for a stop codon right
+after the CDS, along the exons, across an intron where one splits the codon; whether such a stop
+codon lies past the exons is decided on the exons the import builds. Introns come from the exon
+lines or, for a transcript without exon lines, from the gaps between its CDS lines alone: the
+import builds such a transcript's exons from its CDS and UTR lines, but the introns between UTR
+lines fail their splice sites often in poorer UTR models (13% in *Selaginella moellendorffii* v1.0
+from Phytozome, against under 1% in most annotations), enough to fail right pairs.
 
 A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if:
-- the genes reach past its end by more than its length; by less, they are read as crossing the
-  origin of a circular sequence, as GFF3 writes such features (their end plus the sequence's
-  length), and checked so, with a warning to check that the sequence is circular or was cut at its
-  end after annotation (e.g. trimmed on upload to NCBI), the import masking genes past the end
+- the genes reach past its end by more than its length
 - a `##sequence-region` length differs from its own by >= 2 bp
 - or, with 8 genes with checks or more, fewer than half of the genes pass in any window, a gene
-  passing where at least half of its checks do (the first 8 genes, the last 8, about 10 each in
-  between; at most 100 genes per sequence, the first and last 8 and the rest spread evenly)
+  passing where at least half of its checks do
 - or, with fewer genes but 20 checks or more, under 25% of the checks pass: a changed sequence
   passes about 3%, the right one with a poor annotation of partial genes 35-45% (wheat survey
   contigs, Phytozome *Triticum aestivum* v2.2), so half of the checks would leave out right pairs
+
+Genes reaching past the end by less than the sequence's length are read as crossing the origin of
+a circular sequence, as GFF3 writes such features (their end plus the sequence's length), and
+checked so, with a warning to check that the sequence is circular or was cut at its end after
+annotation (e.g. trimmed on upload to NCBI), the import masking genes past the end. A
+`##sequence-region` 1 bp off, as when the regions are written 0-based (starting at 0), is not used
+to judge the pair; a warning asks to check the GFF3 file's coordinates.
+
+The windows are the first 8 genes, the last 8 and about 10 each in between, at most 100 genes per
+sequence (the first and last 8 and the rest spread evenly). A cut or insertion shifts every gene
+after it, so a window shows it wherever it lies before the last genes. On a wrong sequence a gene
+passes in about 4% of cases (*Catagonium nitens*, NCBI GCA_050002935.1), so 4 of 8 pass by chance
+in about 1 of 10,000 cases; of the genes of a poor annotation passing in 80% of cases, 4 of 8 fail
+in about 1%. Judged by genes rather than checks, one gene with many failing checks, such as introns
+annotated a few bases off, cannot sink a window alone.
 
 A pair with fewer than 8 genes and fewer than 20 checks cannot be judged by them and stands on ID
 or full name and length alone; the log counts these pairs, with the coding transcripts they hold.
 In very fragmented assemblies most sequences are this small, so most pairs can only be checked by
 ID or full name (e.g. 8,094 of 10,335 sequences, with 53% of the coding transcripts, in *Catagonium
 nitens*, NCBI GCA_050002935.1).
-
-A cut or insertion shifts every gene after it, so a window shows it wherever it lies before the
-last genes. On a wrong sequence a gene passes in about 4% of cases (*Catagonium nitens*, NCBI
-GCA_050002935.1), so 4 of 8 pass by chance in about 1 of 10,000 cases; of the genes of a poor
-annotation passing in 80% of cases, 4 of 8 fail in about 1%. Judged by genes rather than checks,
-one gene with many failing checks, such as introns annotated a few bases off, cannot sink a window
-alone. A `##sequence-region` 1 bp off, as
-when the regions are written 0-based (starting at 0), is not used to judge the pair; a warning
-asks to check the GFF3 file's coordinates.
 
 | case                                                                                                | result                                                                                                                                                                                              |
 |-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -230,10 +238,10 @@ asks to check the GFF3 file's coordinates.
 | stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                                                                      |
 
 Each warning about left-out lines gives the share of coding transcripts lost and a few examples.
-`--pairs-out` writes every pair with its method, checks passed and FASTA full name, and every
-GFF3 sequence ID left out, with why (`left_out_because`: changed, with the checks that failed; a
-duplicate of another; or matching no FASTA sequence). Lines on a kept sequence whose
-parents all lie on a left-out one go with them and are counted in the log, as in
+`--pairs-out` writes every pair with its method, checks passed and FASTA full name (tabs written
+as spaces), and every GFF3 sequence ID left out, with why (`left_out_because`: changed, with the
+checks that failed; a duplicate of another; or matching no FASTA sequence). Lines on a kept
+sequence whose parents all lie on a left-out one go with them and are counted in the log, as in
 `filter_sequence_lengths.py` (see there for why).
 
 A possible extension: where most pairs by ID or full name fail, search a sample of them by sequence
@@ -263,13 +271,16 @@ a few example splits and warns where transcripts put into one gene do not overla
 isoforms do, a sign of the wrong split text or attribute.
 
 Transcripts of one gene ID get it as `Parent` and share a gene line spanning them, written before
-the first of them. Where the file has a gene line of that ID already, whichever source gave the ID,
-the transcripts only get it as `Parent` and no second gene line is written; a transcript naming
-itself as `Parent` gets that gene in place of itself. A gene ID on several sequences or strands, or
-already the ID of a line other than a gene line, gets the sequence and strand appended (e.g.
-`g2_CHR_minus`) with a warning. Transcripts falling back to a gene of their own are warned about
-too, unless `--one-gene-per-transcript` is set. Where every coding transcript names a `Parent`
-other than itself, nothing needs adding and no file is written.
+the first of them, except:
+- where the file has a gene line of that ID already, whichever source gave the ID, the transcripts
+  only get it as `Parent` and no second gene line is written; a transcript naming itself as
+  `Parent` gets that gene in place of itself
+- a gene ID on several sequences or strands, or already the ID of a line other than a gene line,
+  gets the sequence and strand appended (e.g. `g2_CHR_minus`), with a warning
+
+Transcripts falling back to a gene of their own are warned about too, unless
+`--one-gene-per-transcript` is set. Where every coding transcript names a `Parent` other than
+itself, nothing needs adding and no file is written.
 
 ## add_transcript_lines.py
 
@@ -284,13 +295,16 @@ transcript as `Parent` in place of the gene:
 | the gene has no transcript line (some MAKER files)           | `CDS ID=g1:CDS:1;Parent=g1`                            | a new `mRNA ID=g1_mRNA;Parent=g1` spanning the gene, after it |
 | the gene's only transcript has no exon, CDS or UTR lines yet | `mRNA ID=g1.1;Parent=g1`, `CDS ID=g1.1.CDS1;Parent=g1` | that transcript, `g1.1`                                       |
 
-Genes with several transcripts, or one that has exon, CDS or UTR lines already, stay as they are;
-so do genes with no CDS line naming them, e.g. NCBI pseudogenes with exon lines only, which are
-non-coding and give no labels either way; the import summary counts the non-coding genes with CDS
-lines naming them. The log warns where a gene has overlapping exon or CDS lines, a sign of several
-isoforms written as one gene, which GeenuFF masks. It also counts the lines naming a `Parent` that
-matches no line at all, which stay as they are, there being neither a gene nor a transcript line
-to put them under. Where no line needs moving, no file is written.  
+Left as they are:
+- genes with several transcripts, or one that has exon, CDS or UTR lines already
+- genes with no CDS line naming them, e.g. NCBI pseudogenes with exon lines only, which are
+  non-coding and give no labels either way; the import summary counts the non-coding genes with
+  CDS lines naming them
+- lines naming a `Parent` that matches no line at all, there being neither a gene nor a transcript
+  line to put them under; the log counts them
+
+The log warns where a gene has overlapping exon or CDS lines, a sign of several isoforms written as
+one gene, which GeenuFF masks. Where no line needs moving, no file is written.  
 This should in general only be used on files where each gene parented feature belongs to one isoform
 only, as multi-isoform features all parented to one gene can not be sorted into the correct isoform
 reliably (automatically); which is why genes with several transcripts are left as they are.
@@ -316,22 +330,24 @@ file and their lines from its GFF3 file before import:
 
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
 Where the sequences below the floor hold over 5% of the bases or coding genes, they are still
-removed, with a warning that a lower `--min-seq-len` keeps them.
-In a fragmented scaffold-level assembly, the gaps in the dense middle of the length distribution
-are tiny, so the largest gap, among the few longest scaffolds, stands out without separating junk
-from the rest; the length share keeps such a cluster (e.g. 9458 of 9463 scaffolds, 97.6% of the
-bp, in one moss assembly, *Ulota hutchinsiae*, NCBI GCA_050002435.1).  
-In a chromosome-level assembly all gaps are small, so one barely larger stands out as well; the
-2.5-fold step keeps the smallest chromosome there (e.g. 12.0 Mb beside 14.2 Mb in *Physcomitrium
-patens* v7.1 from Phytozome, or 8.8 Mb beside 21.3 Mb in *Racopilum cuspidigerum*, NCBI
-GCA_050083975.1), while organelle genomes and junk scaffolds lie 2.68-fold or more below the
-shortest sequence kept. The log says where a gap stands out but is too small a step, and lists
-what was removed; `--no-adaptive`, or not filtering at all, keeps it.  
-Only the largest gap is cut at, so a short sequence among others of similar length stays, e.g. the
-16.4 kb mitochondrion of the blue whale (*Balaenoptera musculus*, NCBI RefSeq GCF_009873245.2)
-beside unplaced scaffolds of 18.5 kb and more. Sequences known by ID are easily removed with
-[seqkit](https://bioinf.shenwei.me/seqkit/); `rename_gff_seqids.py` then leaves out their GFF3
-lines, which the import would otherwise stop on:
+removed, with a warning that a lower `--min-seq-len` keeps them. How the cluster rule plays out:
+- In a fragmented scaffold-level assembly, the gaps in the dense middle of the length distribution
+  are tiny, so the largest gap, among the few longest scaffolds, stands out without separating
+  junk from the rest; the length share keeps such a cluster (e.g. 9458 of 9463 scaffolds, 97.6% of
+  the bp, in one moss assembly, *Ulota hutchinsiae*, NCBI GCA_050002435.1).
+- In a chromosome-level assembly all gaps are small, so one barely larger stands out as well; the
+  2.5-fold step keeps the smallest chromosome there (e.g. 12.0 Mb beside 14.2 Mb in
+  *Physcomitrium patens* v7.1 from Phytozome, or 8.8 Mb beside 21.3 Mb in *Racopilum
+  cuspidigerum*, NCBI GCA_050083975.1), while organelle genomes and junk scaffolds lie 2.68-fold
+  or more below the shortest sequence kept. The log says where a gap stands out but is too small a
+  step.
+- Only the largest gap is cut at, so a short sequence among others of similar length stays, e.g.
+  the 16.4 kb mitochondrion of the blue whale (*Balaenoptera musculus*, NCBI RefSeq
+  GCF_009873245.2) beside unplaced scaffolds of 18.5 kb and more.
+
+The log lists what was removed; `--no-adaptive`, or not filtering at all, keeps it. Sequences
+known by ID are easily removed with [seqkit](https://bioinf.shenwei.me/seqkit/);
+`rename_gff_seqids.py` then leaves out their GFF3 lines, which the import would otherwise stop on:
 
 ```bash
 # exclude.txt: the IDs of the sequences to remove, one per line
@@ -352,12 +368,15 @@ held in memory whole.
 
 Lines on a kept sequence whose parents all lie on removed ones, through any number of Parent steps,
 are left out as well and counted in the log; a line naming only some of them keeps the others as
-`Parent`. Such genes, spread over two sequences, are likely wrong, and a mask for their lines on
-the kept sequence would sit where the file places part of a gene GeenuFF no longer sees. Leaving
-them out matches the import, which leaves out a line on another sequence than its parent unmasked,
-so a kept sequence imports the same with or without filtering. Left in, the CDS lines among them
-would name a parent matching no line and be masked as `floating_cds`. `rename_gff_seqids.py` does
-the same for the sequences it leaves out.
+`Parent`. `rename_gff_seqids.py` does the same for the sequences it leaves out. These lines are
+left out because:
+- such genes, spread over two sequences, are likely wrong
+- a mask for their lines on the kept sequence would sit where the file places part of a gene
+  GeenuFF no longer sees
+- it matches the import, which leaves out a line on another sequence than its parent unmasked, so
+  a kept sequence imports the same with or without filtering
+- left in, the CDS lines among them would name a parent matching no line and be masked as
+  `floating_cds`
 
 Without `--gff` only the FASTA file is filtered, e.g. before predicting with Helixer, which saves
 compute otherwise spent on junk fragments.

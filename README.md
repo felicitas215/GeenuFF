@@ -34,6 +34,8 @@ decided on export. Worth reading before relying on the output:
 * [docs/trans_splicing.md](docs/trans_splicing.md): why a gene whose pieces sit on different strands
   is stored but never exported, and why nothing is masked in its place
 * [docs/scripts.md](docs/scripts.md): what each script in `scripts/` reads out of a database
+* [docs/performance.md](docs/performance.md): import speed, memory and masking of GeenuFF 0.4.0
+  against 0.3.2
 
 ## Install
 

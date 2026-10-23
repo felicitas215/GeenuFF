@@ -1,11 +1,8 @@
 #! /usr/bin/env python3
-"""Rebuilds as much of the import summary as the database still holds, for when the import log is
-gone, in the layout of the import summary. Queries through plain sqlite rather than the ORM, and
-fills the counts into geenuff's own ImportStatistics, so the sections and their wording cannot
-drift from what the importer logs.
-
-Counts that only existed while the GFF3 was being read are not in the database and cannot be
-recovered; the script says which at the end.
+"""Rebuilds as much of the import summary as the database holds, in its layout, for when the import
+log is gone. Queries through plain sqlite rather than the ORM and fills geenuff's own
+ImportStatistics, so the sections and wording match what the importer logs. Counts that only
+existed while reading the GFF3 file cannot be recovered; the script lists them at the end.
 """
 import argparse
 import logging

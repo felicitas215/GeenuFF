@@ -1,13 +1,13 @@
 #! /usr/bin/env python3
-"""Puts the exon, CDS and UTR lines of a GFF3 file that name a gene itself as Parent under a
-transcript of that gene, as GeenuFF leaves out or masks them otherwise. A gene without transcript
-lines, as in some MAKER files, gets an mRNA line spanning it, written after the gene line with the
-gene ID and _mRNA as its ID. A gene whose only transcript has no exon, CDS or UTR lines yet gets
-them under that transcript. Either way the transcript becomes their Parent in place of the gene.
+"""Puts the exon, CDS and UTR lines of a GFF3 file that name a gene as Parent under a transcript of
+that gene, which becomes their Parent (GeenuFF leaves out or masks them otherwise):
+- a gene without transcript lines (some MAKER files) gets an mRNA line spanning it, after the gene
+  line, with the gene ID and _mRNA as its ID
+- a gene whose only transcript has no exon, CDS or UTR lines yet gets them under that transcript
+
 Genes with several transcripts, or one that has exon, CDS or UTR lines already, are left as they
-are, as are genes with no CDS line naming them, e.g. pseudogenes. The log warns where a gene
-has overlapping exon or CDS lines, a sign of several isoforms written as one gene, which GeenuFF
-masks.
+are, as are genes no CDS line names, e.g. pseudogenes. The log warns where a gene has overlapping
+exon or CDS lines, a sign of several isoforms written as one gene, which GeenuFF masks.
 This should in general only be used on files where each gene parented feature belongs to one isoform
 only, as multi-isoform features all parented to one gene can not be sorted into the correct isoform
 reliably; which is why genes with several transcripts are left as they are.

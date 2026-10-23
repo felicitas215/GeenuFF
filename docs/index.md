@@ -6,8 +6,9 @@ See the [GitHub repository](https://github.com/usadellab/GeenuFF), its
 running the tests, and the [license](https://github.com/usadellab/GeenuFF/blob/main/LICENSE)
 (GNU GPL v3).
 
-## What
-Relational db Schema & Api to store and interpret gene structure
+## What is GeenuFF?
+A relational db Schema & Api to store and interpret gene structure primarily for
+[Helixer](https://github.com/usadellab/Helixer).
 
 ### Conceptual summary
 GeenuFF defines ranges on the genomic sequence of a gene-structure "type" (transcribed, coding,
@@ -18,15 +19,17 @@ GeenuFF encodes even partial information unambiguously: "start_is_biological_sta
 "end_is_biological_end" say whether a feature covers its full biological range or only part of
 it, so a gene model states whether it is complete and exactly _where_ our knowledge of it ends.
 
-It encodes both biological complexity and technical limitations: transcript pieces group the
-features of a transcript originating from several genomic loci, whether split across two
-scaffolds of a fragmented assembly or truly derived from two or more loci by trans-splicing. The
-schema allows this; the importer, built for eukaryotic GFF3 and Helixer, writes one transcript
-piece per transcript on one sequence, and keeps trans-spliced genes flattened and out of exports
-(see [trans_splicing.md](trans_splicing.md)).
+The schema can encode both biological complexity and technical limitations: transcript pieces can
+group the features of a transcript originating from several genomic loci, whether split across
+two scaffolds of a fragmented assembly or truly derived from two or more loci by trans-splicing.
+The importer, built for eukaryotic GFF3 and Helixer, stores neither: it writes one transcript
+piece per transcript on one sequence, leaves out the lines lying on another sequence than their
+parent (a gene spread over sequences is likely wrong/across scaffolds not easy to piece together),
+and keeps trans-spliced genes flattened and out of exports (see
+[trans_splicing.md](trans_splicing.md)).
 
-## Why
-### general goal
+## Why was GeenuFF developed?
+### General goal
 A gene annotation (which parts of a genome are transcribed into RNA, how the RNA is processed into
 mature mRNA, and which part of it is translated into protein) needs a tailored data structure to
 recreate at will the coordinates of a gene, its parts, and the sequences made from them. It has
@@ -41,16 +44,17 @@ to handle cases like:
   * fragmented genomic sequence
   * incomplete information about the gene annotation itself
 
-### specific advantages over alternatives
+### Specific advantages over alternatives
 GeenuFF is not the first attempt to encode gene structures; if you know e.g. GFF and wonder
 whether this is one more standard on the [pile](https://xkcd.com/927/), this section explains
-_why_ we think it is worth it.
+_why_ we thought it is worth it.
 
 Today GeenuFF is mainly the store of eukaryotic annotation that
-[Helixer](https://github.com/usadellab/Helixer) trains from: it imports GFF3, checks and repairs
-the gene models, and records what stays ambiguous as errors and masks. The schema below is more
-general than what the importer and the exports build from it; where they fall short of it, this
-section says so.
+[Helixer](https://github.com/usadellab/Helixer) trains from: it imports GFF3, checks the gene
+models, repairs what can be repaired unambiguously (e.g. exons built from CDS and UTR lines, a stop
+codon left out of the CDS added), and records what stays ambiguous as errors and masks. The schema
+below is more general than what the importer and the exports build from it; where they fall short
+of it, this section says so.
 
 Gene annotations are usually encoded in a variant of the GFF format (GTF, GFF, GFF3), see
 [http://gmod.org/wiki/GFF3](http://gmod.org/wiki/GFF3). Superficial drawbacks, such as the custom
@@ -173,8 +177,7 @@ transcripts per protein or several proteins per transcript. Its key tables:
     all features making the transcript and any protein translated from it.
   * Protein: has an ID and links to the geenuff_cds features making it.
 
-Eukaryotic, prokaryotic and even trans-spliced gene structures are then encoded the same way and
-parsed by the same code:
+Eukaryotic, prokaryotic and even trans-spliced gene structures can then be encoded the same way:
 * eukaryotic: a SuperLocus points to several Transcripts, each with one "geenuff_transcript" and
   one "geenuff_cds" feature and connected to one Protein.
 * prokaryotic: a SuperLocus points to one Transcript with one "geenuff_transcript" feature,
@@ -186,9 +189,9 @@ parsed by the same code:
   "<>\_is_biological\_<>" attributes, masks where needed and TranscriptPieces.
 
 ("geenuff_cds", start) is always interpreted the same way, unlike a GFF CDS edge whose meaning
-depends on eukaryote or prokaryote, on other CDS lines and on the overlapping exon. Likewise, the
-same code reads a split-locus gene model whether the split is biological (trans-splicing) or
-artificial (fragmented assembly): the features differ, the logic stays the same.
+depends on eukaryote or prokaryote, on other CDS lines and on the overlapping exon. Likewise, a
+split-locus gene model is encoded the same way whether the split is biological (trans-splicing)
+or artificial (fragmented assembly): the features differ, the logic stays the same.
 
 The importer builds only the first of these cases: one transcript piece and one protein per
 transcript, from eukaryotic GFF3. It leaves out lines on another sequence than their parent, so no
@@ -202,7 +205,7 @@ proteins, but the _implicit_ components come out inverted and tedious: an intron
 CDS)`.
 
 ##### GeenuFF increased coordinate consistency
-In GeenuFF a feature's start is always inclusive and its end always exclusive, as in python. A
+In GeenuFF a feature's start is always inclusive and its end always exclusive, as in Python. A
 component left implicit to avoid redundancy (e.g. the UTR as "geenuff_transcript" -
 "geenuff_cds") is therefore always `[inclusive start, exclusive end <or start next>)`, e.g. the
 first coding exon is `[geenuff_cds start, geenuff_intron start)`.
@@ -228,7 +231,7 @@ keys to e.g. Coordinate or Genome, without changing the shared core.
 
 ### Coordinate system
 GeenuFF coordinates count from 0, with the _start_ attribute marking the _inclusive_ start of a
-range and the _end_ attribute its _exclusive_ end. On the plus strand they match python
+range and the _end_ attribute its _exclusive_ end. On the plus strand they match Python
 coordinates; the same logic holds on the _minus_ strand.
 
 To select the elements `{2, 3}` of `[0, 1, 2, 3, 4, ...]`: on the plus strand this is `[2, 4)`,
@@ -247,6 +250,7 @@ Indentation inside a piece indicates a one-to-? relation
 
 * genome
   * coordinate
+    * sequence_chunk
 * super_locus
   * super_locus_overlap, pairs of coding super loci sharing a range, with that range
   * transcript (longest: the one selected for export), < many2many to protein >
@@ -261,8 +265,11 @@ Indentation inside a piece indicates a one-to-? relation
 This _mostly_ holds meta information
 
 ##### coordinate
-Sequence meta info: seqid, length, sha1 hash of the sequence the annotation is for, optionally
-the full sequence.
+Sequence meta info: seqid, length, sha1 hash of the sequence the annotation is for.
+
+##### sequence_chunk
+The sequence of a coordinate, which the import always stores, in rows of up to 100 Mb each, as
+SQLite holds at most 1 GB in one value.
 
 #### super_loci and children
 ###### super_loci
@@ -309,7 +316,8 @@ case (_cis_- or no splicing, a full gene model) a Transcript has a single Transc
 to all its Features.
 
 In cases where the Transcript (final mRNA) is split for either biological or technical reasons,
-each involved locus should have its own transcript_piece.
+each involved locus should have its own transcript_piece; the importer writes no such transcripts
+(see the conceptual summary above).
 
 Each TranscriptPiece should have a single "geenuff_transcript" feature covering its whole range,
 its _start_ at the most 5' and its _end_ at the most 3' part of the piece; only geenuff_mask

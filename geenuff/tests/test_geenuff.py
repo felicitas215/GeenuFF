@@ -1719,13 +1719,15 @@ def test_rename_gff_seqids_stops_where_changed_sequences_hold_too_many_genes(tmp
 
 def test_rename_gff_seqids_pairs_by_a_word_of_a_tab_separated_header(tmp_path):
     """The FASTA header 'GWHAAAA00000001<TAB>OriSeqID=TD01<TAB>Len=30', as GWH writes it, holds the GFF3
-    sequence ID TD01 as a word, split at the tab and the '=', so TD01 is renamed to its FASTA ID."""
+    sequence ID TD01 as a word, split at the tab and the '=', so TD01 is renamed to its FASTA ID; the
+    pairs file gives the full name with its tabs as spaces, keeping its columns."""
     fasta, gff, pairs = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'pairs.tsv'
     fasta.write_text('>GWHAAAA00000001\tOriSeqID=TD01\tLen=30\n' + SPLICED + '\n')
     gff.write_text('##gff-version 3\n' + spliced_gene('TD01', 'g1'))
     run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--pairs-out', str(pairs))
     assert {c[0] for c in feature_lines(tmp_path / 'genes_renamed.gff3')} == {'GWHAAAA00000001'}
-    assert pairs.read_text().splitlines()[1].split('\t')[:3] == ['TD01', 'GWHAAAA00000001', 'full_name']
+    row = pairs.read_text().splitlines()[1].split('\t')
+    assert row[:3] + row[5:] == ['TD01', 'GWHAAAA00000001', 'full_name', 'GWHAAAA00000001 OriSeqID=TD01 Len=30', '']
 
 
 def test_rename_gff_seqids_counts_identical_checks_of_isoforms_once(tmp_path):

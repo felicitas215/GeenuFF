@@ -1,8 +1,8 @@
 #! /usr/bin/env python3
 """Rebuilds the exon lines of the transcripts of a GFF3 file whose CDS lines reach outside them, as
-files can rarely list exon lines for the UTRs only. The new exons are the union of the transcript's exon,
-CDS and UTR lines, touching or overlapping lines forming one exon; they replace its old exon lines and
-follow its transcript line. Other transcripts are left as they are.
+in rare files listing exon lines for the UTRs only. The new exons, the union of a transcript's exon,
+CDS and UTR lines (touching or overlapping lines forming one), replace its exon lines, written after
+its transcript line. Other transcripts are left as they are.
 
 Only for files where this is systematic: elsewhere, a CDS outside its exons means the CDS or the
 exons are wrong, which GeenuFF masks (cds_outside_exons) and rebuilding would hide. The log gives the

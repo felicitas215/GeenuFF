@@ -1,14 +1,14 @@
 #! /usr/bin/env python3
 """Removes short 'junk' sequences from a FASTA file and, given one, their lines from its GFF3 file,
-before import or, the FASTA file alone, before prediction: sequences in a statistically distinct
-cluster of small ones, e.g. organelle genomes or unplaced scaffolds beside the chromosomes, and,
-either way, every sequence below a hard floor (--min-seq-len, by default 1000 bp) (for more see
-docs/scripts.md).
+before import or (FASTA file alone) before prediction:
+- a statistically distinct cluster of small sequences, e.g. organelle genomes or unplaced scaffolds
+  beside the chromosomes
+- every sequence below a hard floor (--min-seq-len, by default 1000 bp)
+See docs/scripts.md for more.
 
-The output files default to the input files' names with _length_filtered before the extension,
-e.g. genome.fna.gz -> genome_length_filtered.fna.gz, each gzipped where its input is (see --gzip).
-The FASTA file is read in fixed-size chunks, so a sequence written on a single line is never held
-in memory whole.
+Outputs default to the input names with _length_filtered before the extension (genome.fna.gz ->
+genome_length_filtered.fna.gz), each gzipped where its input is (see --gzip). The FASTA file is
+read in fixed-size chunks, so a sequence on a single line is never held in memory whole.
 """
 import argparse
 import logging

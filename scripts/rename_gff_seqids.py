@@ -1,11 +1,10 @@
 #! /usr/bin/env python3
-"""Rewrites the sequence IDs of a GFF3 file to those of the FASTA file it annotates, for when the
-sequences were renamed after annotation, e.g. on upload to NCBI. A GFF3 sequence ID is paired with
-the FASTA sequence of the same ID (its header line up to the first whitespace), else with the one
-whose full name (the whole header line) contains it as a word, else with the one its genes fit; every
-pair is checked against the sequence, at the start and stop codons and the introns the GFF3 places on
-it. Lines on sequence IDs without a FASTA sequence are left out. Sequences changed after
-annotation are left out of both files, the FASTA file then being copied without them.
+"""Rewrites the sequence IDs of a GFF3 file to those of its FASTA file, for sequences renamed after
+annotation, e.g. on upload to NCBI. A GFF3 sequence ID is paired with the FASTA sequence of the
+same ID (header up to the first whitespace), else whose whole header holds it as a word, else that
+its genes fit. Every pair is checked at the start and stop codons and introns the GFF3 file places
+on the sequence. Lines on sequence IDs without a FASTA sequence are left out; sequences changed
+after annotation are left out of both files, the FASTA file being copied without them.
 """
 import argparse
 import bisect
@@ -409,7 +408,7 @@ def pair_by_id_or_full_name(gff_sequences: dict[str, GffSequence], sequences: di
     if unjudged:
         n_coding = sum(gff_sequences[gff_id].coding_transcripts for gff_id in unjudged)
         logger.info(f'{len(unjudged)} of the {n_tried} GFF3 sequence IDs paired by ID or full name have too few '
-                    f'genes and checks to be judged by them, e.g. {", ".join(unjudged[:5])}, (fewer than '
+                    f'genes and checks to be judged by them, e.g. {listed(unjudged)} (fewer than '
                     f'{MIN_DECISIVE_GENES} genes and {MIN_DECISIVE_CHECKS} checks), so they are paired on ID or '
                     f'full name and length alone; they hold {n_coding} coding transcripts')
     if one_off:
@@ -632,7 +631,9 @@ def log_stop_codons(gff_sequences: dict[str, GffSequence], pairs: dict[str, Pair
 
 def write_pairs(path: str, gff_sequences: dict[str, GffSequence], pairing: Pairing,
                 full_names: dict[str, str]) -> None:
-    """Writes a TSV row per pair made, and one per GFF3 sequence ID left out, with why."""
+    """Writes a TSV row per pair made, and one per GFF3 sequence ID left out, with why. Tabs in FASTA
+    full names are written as spaces."""
+    full_names = {fasta_id: name.replace('\t', ' ') for fasta_id, name in full_names.items()}
     gff_id_by_fasta_id = {pair.fasta_id: gff_id for gff_id, pair in pairing.pairs.items()}
     left_out = {gff_id: (fasta_id, f'changed: {why}') for gff_id, (fasta_id, why) in pairing.changed.items()}
     left_out |= {gff_id: (fasta_id, f'duplicate of {gff_id_by_fasta_id[fasta_id]}')
