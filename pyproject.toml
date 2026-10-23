@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geenuff"
-version = "0.4.0.dev0"
+version = "0.4.0"
 description = "Schema and API for a relational db that encodes gene models in an explicit, structured, and robust fashion."
 readme = "README.md"
 requires-python = ">=3.10.12"

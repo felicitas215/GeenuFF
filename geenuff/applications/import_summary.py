@@ -255,6 +255,7 @@ class ImportStatistics(object):
         # masked whole, counted among the errors as beyond_sequence_edge
         self.unstorable_transcripts_dropped: int = 0
         self.transcripts_outside_sequence_dropped: int = 0
+        self.transcripts_outside_sequence_examples: list[str] = []  # the first few, for the warning after import
         self.unstranded_transcripts_dropped: int = 0  # the transcripts of genes on neither strand
         # every pair of super loci sharing genomic range, of whatever kind, as recorded in the
         # super_locus_overlap table; these mask nothing, see importer.GFFErrorHandling._record_overlap_pairs

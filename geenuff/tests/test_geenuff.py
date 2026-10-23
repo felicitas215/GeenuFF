@@ -1666,7 +1666,7 @@ def test_rename_gff_seqids_renames_to_fasta_ids_and_leaves_out_unmatched_sequenc
 
 
 # a 30 bp sequence holding a spliced gene, its CDS at 1-6 and 17-22: start codon ATG at 1-3, the
-# intron's GT at 7-8 and AG at 15-16, stop codon TAA at 20-22, i.e. 4 checks for rename_gff_seqids.py
+# intron's GT at 7-8 and AG at 15-16, stop codon TAA at 20-22, i.e. 3 checks for rename_gff_seqids.py
 SPLICED = 'ATGCCC' + 'GT' + 'CCCCCC' + 'AG' + 'CCCTAA' + 'CCCCCCCC'
 
 
@@ -1679,7 +1679,7 @@ def spliced_gene(seqid: str, gene_id: str, offset: int = 0) -> str:
 
 
 def test_rename_gff_seqids_pairs_by_sequence_where_no_id_or_header_word_matches(tmp_path):
-    """scaffoldA is neither a FASTA ID nor a word of a FASTA header; its gene's 4 checks all pass on
+    """scaffoldA is neither a FASTA ID nor a word of a FASTA header; its gene's 3 checks all pass on
     Chr2 and fail on Chr1, so it is paired with Chr2 by sequence and renamed to it."""
     fasta, gff, pairs = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'pairs.tsv'
     fasta.write_text('>Chr1 first\n' + 'C' * 30 + '\n>Chr2 second\n' + SPLICED + '\n')
@@ -1757,18 +1757,76 @@ def test_rename_gff_seqids_reads_genes_crossing_the_origin_of_a_circular_sequenc
 
 
 def test_rename_gff_seqids_warns_of_a_sequence_region_one_bp_off(tmp_path):
-    """A ##sequence-region written 0-based, 0 to 150 for a 150 bp sequence, is 1 bp off, so it does not
-    judge the pair; the 5 genes give 20 checks, enough to judge the pair by them, and all pass, so the
+    """A ##sequence-region written 0-based, 0 to 240 for a 240 bp sequence, is 1 bp off, so it does not
+    judge the pair; the 8 genes are enough to judge the pair by their checks, and all pass, so the
     pair by ID stands and nothing is to be renamed, and a warning asks to check the file."""
     fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
-    fasta.write_text('>Chr1\n' + SPLICED * 5 + '\n')
-    gff.write_text('##gff-version 3\n##sequence-region Chr1 0 150\n'
-                   + ''.join(spliced_gene('Chr1', f'g{i}', 30 * i) for i in range(5)))
+    fasta.write_text('>Chr1\n' + SPLICED * 8 + '\n')
+    gff.write_text('##gff-version 3\n##sequence-region Chr1 0 240\n'
+                   + ''.join(spliced_gene('Chr1', f'g{i}', 30 * i) for i in range(8)))
     run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log))
     assert not (tmp_path / 'genes_renamed.gff3').exists()
     text = log.read_text()
     assert '1 GFF3 sequences have a ##sequence-region 1 bp off' in text
     assert 'their genes fit their FASTA sequences: nothing to rename' in text
+
+
+def test_rename_gff_seqids_finds_bases_put_into_a_sequence_after_annotation(tmp_path):
+    """5 bases put into the FASTA sequence after the 8th of 16 genes shift the last 8 out of place, so
+    their window fails: the sequence changed after annotation and, holding all coding transcripts, stops
+    the script with an error."""
+    fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
+    fasta.write_text('>Chr1\n' + SPLICED * 8 + 'GGGGG' + SPLICED * 8 + '\n')
+    gff.write_text('##gff-version 3\n' + ''.join(spliced_gene('Chr1', f'g{i}', 30 * i) for i in range(16)))
+    result = subprocess.run([sys.executable, str(Path(__file__).parents[2] / 'scripts' / 'rename_gff_seqids.py'),
+                             '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log)])
+    assert result.returncode == 1
+    assert '0 of 8 genes with their start and stop codons and introns in place' in log.read_text()
+
+
+def test_rename_gff_seqids_judges_windows_by_genes_not_checks(tmp_path):
+    """The first of 9 genes has 11 CDS pieces on a stretch of Cs, so all of its 12 checks fail, more
+    than half of the first 20 checks; judged by genes, its window holds 7 passing genes of 8, so the
+    pair by ID stands and nothing is to be renamed."""
+    fasta, gff = tmp_path / 'genome.fa', tmp_path / 'genes.gff3'
+    fasta.write_text('>Chr1\n' + 'C' * 100 + SPLICED * 8 + '\n')
+    pieces = ''.join(f'Chr1\ttest\tCDS\t{1 + 8 * i}\t{3 + 8 * i}\t.\t+\t0\tParent=bad.t1\n' for i in range(11))
+    gff.write_text('##gff-version 3\nChr1\ttest\tgene\t1\t83\t.\t+\t.\tID=bad\n'
+                   'Chr1\ttest\tmRNA\t1\t83\t.\t+\t.\tID=bad.t1;Parent=bad\n' + pieces
+                   + ''.join(spliced_gene('Chr1', f'g{i}', 100 + 30 * i) for i in range(8)))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff))
+    assert not (tmp_path / 'genes_renamed.gff3').exists()
+
+
+def test_rename_gff_seqids_judges_a_sequence_with_few_genes_by_its_checks(tmp_path):
+    """Two genes of 11 CDS pieces each give 24 checks, too few genes for windows but enough checks to
+    judge the pair: on a sequence of Cs none pass, under 25%, so it changed after annotation and,
+    holding all coding transcripts, stops the script with an error."""
+    fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
+    fasta.write_text('>Chr1\n' + 'C' * 200 + '\n')
+    lines = ''
+    for gene, offset in (('a', 0), ('b', 100)):
+        lines += (f'Chr1\ttest\tgene\t{1 + offset}\t{83 + offset}\t.\t+\t.\tID={gene}\n'
+                  f'Chr1\ttest\tmRNA\t{1 + offset}\t{83 + offset}\t.\t+\t.\tID={gene}.t1;Parent={gene}\n')
+        lines += ''.join(f'Chr1\ttest\tCDS\t{1 + offset + 8 * i}\t{3 + offset + 8 * i}\t.\t+\t0\tParent={gene}.t1\n'
+                         for i in range(11))
+    gff.write_text('##gff-version 3\n' + lines)
+    result = subprocess.run([sys.executable, str(Path(__file__).parents[2] / 'scripts' / 'rename_gff_seqids.py'),
+                             '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log)])
+    assert result.returncode == 1
+    assert '0 of 24 start and stop codons and introns of its 2 genes in place' in log.read_text()
+
+
+def test_rename_gff_seqids_logs_pairs_too_small_to_judge(tmp_path):
+    """Chr1 pairs by ID with one gene of 3 checks, too few to judge the pair by them, which stands on its
+    ID and length alone; the log says so, also where nothing is to be renamed."""
+    fasta, gff, log = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'rename.log'
+    fasta.write_text('>Chr1\n' + SPLICED + '\n')
+    gff.write_text('##gff-version 3\n' + spliced_gene('Chr1', 'g1'))
+    run_script('rename_gff_seqids.py', '--fasta', str(fasta), '--gff', str(gff), '--log-file', str(log))
+    assert not (tmp_path / 'genes_renamed.gff3').exists()
+    assert ('1 of the 1 GFF3 sequence IDs paired by ID or full name have too few genes and checks to be judged '
+            'by them') in log.read_text()
 
 
 def test_rename_gff_seqids_leaves_out_lines_whose_parents_lie_on_unpaired_sequences(tmp_path):

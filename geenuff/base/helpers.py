@@ -138,8 +138,9 @@ class NonMatchableIDs(Exception):
     pass
 
 
-def _listed(ids: list[str], n_shown: int = 5) -> str:
-    return ', '.join(ids[:n_shown]) + (', ...' if len(ids) > n_shown else '')
+def listed(items: list[str], separator: str = ', ', n_shown: int = 5) -> str:
+    """The first n_shown items for a log line, joined, with '...' where there are more."""
+    return separator.join(items[:n_shown]) + (f'{separator}...' if len(items) > n_shown else '')
 
 
 def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, str]:
@@ -165,7 +166,7 @@ def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, 
         if len(candidates) == 1:
             substring_matched[gff_id] = candidates[0]
         elif candidates:
-            ambiguous.append(f'{gff_id} (in {_listed(candidates)})')
+            ambiguous.append(f'{gff_id} (in {listed(candidates)})')
         else:
             unmatched.append(gff_id)
     gff_ids_by_fasta_id = defaultdict(list)
@@ -174,7 +175,7 @@ def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, 
     claimed_twice = [f'{fa_id} ({", ".join(ids)})' for fa_id, ids in sorted(gff_ids_by_fasta_id.items())
                      if len(ids) > 1]
 
-    problems = [f'{label} ({len(ids)}): {_listed(ids)}'
+    problems = [f'{label} ({len(ids)}): {listed(ids)}'
                 for label, ids in (('GFF sequence IDs matching no FASTA header', unmatched),
                                    ('GFF sequence IDs contained in several FASTA headers', ambiguous),
                                    ('FASTA headers containing several GFF sequence IDs', claimed_twice))
@@ -184,7 +185,7 @@ def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, 
     if substring_matched:
         pairs = [f'{gff_id} -> {fa_id}' for gff_id, fa_id in substring_matched.items()]
         logger.warning(f'GFF sequence IDs paired with the one FASTA header containing them, for lack of an '
-                       f'identical one ({len(pairs)}); check that these pairs are right: {_listed(pairs)}')
+                       f'identical one ({len(pairs)}); check that these pairs are right: {listed(pairs)}')
     return matched | substring_matched
 
 
@@ -558,6 +559,19 @@ def merge_gff_spans(spans: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
         else:
             merged.append([start, end])
     return [(start, end) for start, end in merged]
+
+
+def built_exon_spans(pieces: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
+    """The exons of a transcript with CDS lines but no exon lines, built from the GFF spans of its CDS
+    and UTR lines (1-based, inclusive): pieces that touch, such as a UTR ending right before the CDS
+    starts, form one exon. Overlapping pieces stay apart, so that the overlap is found as an error."""
+    exons = []
+    for start, end in sorted(pieces, key=lambda span: span[0]):
+        if exons and start == exons[-1][1] + 1:
+            exons[-1][1] = end
+        else:
+            exons.append([start, end])
+    return [(start, end) for start, end in exons]
 
 
 # CDS position check

@@ -9,19 +9,12 @@ import argparse
 import logging
 import os
 
-from geenuff.base.helpers import (NonMatchableIDs, match_seqids, require_fasta_and_gff, require_input_files,
-                                  setup_logging)
+from geenuff.base.helpers import (NonMatchableIDs, listed, match_seqids, require_fasta_and_gff,
+                                  require_input_files, setup_logging)
 from geenuff.parsing.fastahelper import FastaParser
 from geenuff.parsing.gffhelper import GFFParser
 
 logger = logging.getLogger(__name__)
-
-MAX_LISTED = 5
-
-
-def listed(ids: set[str]) -> str:
-    shown = sorted(ids)[:MAX_LISTED]
-    return ', '.join(shown) + (', ...' if len(ids) > MAX_LISTED else '')
 
 
 def main(args: argparse.Namespace) -> None:
@@ -39,10 +32,10 @@ def main(args: argparse.Namespace) -> None:
         match_seqids(fasta, gff)
     except NonMatchableIDs:
         logger.warning(f'{len(missing)} of {len(gff)} sequence IDs of the GFF3 file are no FASTA ID, e.g. '
-                       f'{listed(missing)} (FASTA IDs e.g. {listed(fasta)}). GeenuFF\'s import and many other '
-                       f'tools fail or leave out the genes on them. Check that the FASTA and GFF3 files come from '
-                       f'the same source and assembly; if the sequences were renamed, e.g. on upload to NCBI, '
-                       f'rename_gff_seqids.py pairs and renames them.')
+                       f'{listed(sorted(missing))} (FASTA IDs e.g. {listed(sorted(fasta))}). GeenuFF\'s import '
+                       f'and many other tools fail or leave out the genes on them. Check that the FASTA and GFF3 '
+                       f'files come from the same source and assembly; if the sequences were renamed, e.g. on '
+                       f'upload to NCBI, rename_gff_seqids.py pairs and renames them.')
         raise SystemExit(1)
     logger.info(f'GeenuFF\'s import pairs these {len(missing)} GFF3 sequence IDs with the FASTA IDs containing '
                 f'them, but give the pairs a look since they are no exact match')

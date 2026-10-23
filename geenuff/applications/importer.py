@@ -255,10 +255,16 @@ class OrganizedGeenuffImporterGroup(object):
         sl_i.excluded_from_export = types.OUTSIDE_SEQUENCE
         sl_i.n_dropped_transcripts += 1
         sl_i.n_dropped_coding_transcripts += coding
-        self.controller.stats.transcripts_outside_sequence_dropped += 1
-        logger.warning(f"dropping transcript '{t_id}': its {line.type} runs from {line.start} to "
-                       f"{line.end}, outside its sequence of {self.coord.length} bp; super locus "
-                       f"'{sl_i.given_name}' will not be exported")
+        stats = self.controller.stats
+        stats.transcripts_outside_sequence_dropped += 1
+        description = (f"'{t_id}' ({line.type} {line.start}-{line.end} on {self.coord.seqid}, "
+                       f"{self.coord.length} bp)")
+        if len(stats.transcripts_outside_sequence_examples) < 5:
+            stats.transcripts_outside_sequence_examples.append(description)
+        # one line per transcript at DEBUG only, an annotation of another assembly giving thousands;
+        # a warning after the import counts them
+        logger.debug(f"dropping transcript {description}: outside its sequence; super locus "
+                     f"'{sl_i.given_name}' will not be exported")
 
     def _parse_gff_entries(self, entries):
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
@@ -679,17 +685,14 @@ class OrganizedGFFEntries(object):
         return line
 
     def _built_exons(self, t, t_entries):
-        """Exons for a transcript with CDS lines but no exon lines, built from its CDS and UTR lines:
-        pieces that touch, such as a UTR ending right before the CDS starts, form one exon.
-        Overlapping pieces stay apart, so that the overlap is found as an error."""
-        exons = []
-        for piece in sorted(t_entries['cds'] + t_entries['utrs'], key=lambda e: e.start):
-            if exons and piece.start == exons[-1].end + 1:
-                exons[-1].end = piece.end
-            else:
-                exons.append(self._line(piece.seqid, 'exon', piece.start, piece.end, piece.strand,
-                                        f'Parent={t.get_ID()}'))
-        return exons
+        """Exons for a transcript with CDS lines but no exon lines, built from its CDS and UTR lines
+        (see helpers.built_exon_spans), each on the sequence and strand of its first piece."""
+        pieces = sorted(t_entries['cds'] + t_entries['utrs'], key=lambda e: e.start)
+        first_at = {}
+        for piece in pieces:
+            first_at.setdefault(piece.start, piece)
+        return [self._line(first_at[start].seqid, 'exon', start, end, first_at[start].strand, f'Parent={t.get_ID()}')
+                for start, end in helpers.built_exon_spans((piece.start, piece.end) for piece in pieces)]
 
     def _drop(self, entry, reason):
         self.stats.dropped_lines[reason][entry.type] += 1
@@ -1459,6 +1462,13 @@ class ImportController(object):
                            f'({share:.1%}) have overlapping exon lines and are masked in full (overlapping_exons). '
                            f'The exon lines may be written wrongly, e.g. nested; where the CDS lines are intact, '
                            f'drop the exon lines: GeenuFF then builds the exons from the CDS and UTR lines.')
+        n_outside = self.stats.transcripts_outside_sequence_dropped
+        if n_outside:
+            examples = ', '.join(self.stats.transcripts_outside_sequence_examples)
+            logger.warning(f'{n_outside} transcripts with no CDS line on their sequence have a line starting before '
+                           f'or ending past it and are left out with their genes, e.g. {examples}'
+                           f'{", ..." if n_outside > 5 else ""}. Many of them mean the GFF3 file was made on '
+                           f'another assembly; rename_gff_seqids.py checks the files against each other.')
         n_gene_parented = self.stats.non_coding_genes_with_gene_parented_cds
         # the coding genes and those that would be coding but for CDS lines naming the gene
         n_with_cds = self.stats.genes_with_transcripts() - self.stats.non_coding_genes + n_gene_parented

@@ -174,14 +174,22 @@ Each GFF3 sequence ID is paired with the first FASTA sequence found by:
 | sequence  | the one the genes fit best, where they have enough checks to rule out chance; a tie is logged and goes to the first    |
 
 A check is one position where the GFF3 file places a start codon (ATG), a stop codon (TAA, TAG,
-TGA, also right after the CDS as in GFF3 converted from GTF) or an intron end (GT or GC, AG), so a
-transcript with n introns gives 2 + 2n. Codons are read as GeenuFF's import reads them: along the
-CDS lines and, for a stop codon right after the CDS, along the exons, across an intron where one
-splits the codon. Up to 250 per sequence ID are used: those of its first and
-last genes (20 each) and the rest spread evenly between them. A right sequence passes nearly all,
-a wrong or shifted one about 9% by chance (a pair needs at least 50% in every window, 80% in all
-when found by sequence alone). Identical checks, as from isoforms sharing a CDS start or an intron,
-count once, so that one gene with many isoforms cannot decide a sequence alone.
+TGA, also right after the CDS as in GFF3 converted from GTF) or an intron, both of whose ends are
+checked at once for GT-AG or GC-AG, so a transcript with n introns gives 2 + n. These two hold
+99.5-99.8% of the introns (in *Arabidopsis thaliana* Araport11 from Phytozome 98.7% and 1.1%, in
+*Glycine max* v4.0, NCBI GCF_000004515.6, 98.0% and 1.5%); the rarer kinds, such as AT-AC (0.1% in
+both), fail their check, too few to matter. Codons are read as GeenuFF's import reads them: along
+the CDS lines and, for a stop codon right after the CDS, along the exons, across an intron where
+one splits the codon. A right sequence passes nearly all, a wrong or shifted one about 3% by
+chance. A pair found by sequence alone must pass 80% of up to 250 checks per sequence ID, spread
+evenly along it. Identical checks, as from isoforms sharing a CDS start or an intron, count once,
+so that one gene with many isoforms cannot decide a sequence alone.
+Introns come from the exon lines or, for a transcript without exon lines, from the gaps between
+its CDS lines alone. The import builds such a transcript's exons from its CDS and UTR lines, but
+the introns between UTR lines fail their splice sites often in poorer UTR models (13% in
+*Selaginella moellendorffii* v1.0 from Phytozome, against under 1% in most annotations), enough
+to fail right pairs. Whether a stop codon right after the CDS lies past the exons
+is decided on the exons the import builds.
 
 A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if:
 - the genes reach past its end by more than its length; by less, they are read as crossing the
@@ -189,12 +197,25 @@ A pair by ID or full name does not fit, its FASTA sequence changed after annotat
   length), and checked so, with a warning to check that the sequence is circular or was cut at its
   end after annotation (e.g. trimmed on upload to NCBI), the import masking genes past the end
 - a `##sequence-region` length differs from its own by >= 2 bp
-- or, with 20 checks or more, fewer than half pass in any window (the first 20,
-  the last 20, about 25 each in between)
+- or, with 8 genes with checks or more, fewer than half of the genes pass in any window, a gene
+  passing where at least half of its checks do (the first 8 genes, the last 8, about 10 each in
+  between; at most 100 genes per sequence, the first and last 8 and the rest spread evenly)
+- or, with fewer genes but 20 checks or more, under 25% of the checks pass: a changed sequence
+  passes about 3%, the right one with a poor annotation of partial genes 35-45% (wheat survey
+  contigs, Phytozome *Triticum aestivum* v2.2), so half of the checks would leave out right pairs
 
-A cut or insertion shifts every check after it, so a window shows it wherever it lies
-before the last gene. With 20 checks a wrong sequence passes half in about 3 of a million cases; a
-right one whose annotation passes only 70% fails in about 2%. A `##sequence-region` 1 bp off, as
+A pair with fewer than 8 genes and fewer than 20 checks cannot be judged by them and stands on ID
+or full name and length alone; the log counts these pairs, with the coding transcripts they hold.
+In very fragmented assemblies most sequences are this small, so most pairs can only be checked by
+ID or full name (e.g. 8,094 of 10,335 sequences, with 53% of the coding transcripts, in *Catagonium
+nitens*, NCBI GCA_050002935.1).
+
+A cut or insertion shifts every gene after it, so a window shows it wherever it lies before the
+last genes. On a wrong sequence a gene passes in about 4% of cases (*Catagonium nitens*, NCBI
+GCA_050002935.1), so 4 of 8 pass by chance in about 1 of 10,000 cases; of the genes of a poor
+annotation passing in 80% of cases, 4 of 8 fail in about 1%. Judged by genes rather than checks,
+one gene with many failing checks, such as introns annotated a few bases off, cannot sink a window
+alone. A `##sequence-region` 1 bp off, as
 when the regions are written 0-based (starting at 0), is not used to judge the pair; a warning
 asks to check the GFF3 file's coordinates.
 
@@ -208,8 +229,10 @@ asks to check the GFF3 file's coordinates.
 | coding transcripts changed above 5% or missing above 15%                                            | error, nothing written                                                                                                                                                                              |
 | stop codons right after the CDS                                                                     | pass their check and are counted, those past the exons listed in a warning; GeenuFF adds them on import (see `spec_vs_gff.md`)                                                                      |
 
-Each warning about left-out lines gives the share of coding transcripts lost. `--pairs-out` writes
-every pair with its method, checks passed and FASTA full name. Lines on a kept sequence whose
+Each warning about left-out lines gives the share of coding transcripts lost and a few examples.
+`--pairs-out` writes every pair with its method, checks passed and FASTA full name, and every
+GFF3 sequence ID left out, with why (`left_out_because`: changed, with the checks that failed; a
+duplicate of another; or matching no FASTA sequence). Lines on a kept sequence whose
 parents all lie on a left-out one go with them and are counted in the log, as in
 `filter_sequence_lengths.py` (see there for why).
 
