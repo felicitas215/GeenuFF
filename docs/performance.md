@@ -87,9 +87,9 @@ GeenuFF 0.4.0 changes two things, both keeping wrong labels out of Helixer's tra
 
 * **A gene with an error of its own is masked in full.** A missing start or stop codon, for
   example, means the gene model is wrong, so Helixer learns nothing there rather than a wrong gene.
-  GeenuFF 0.3.2 put these masks beside the gene, and the gene was trained as a complete one. Errors
-  of its own are those of the gene model itself, e.g. a missing start or stop codon, an in-frame
-  stop codon or a too short intron, as opposed to a missing UTR (all types in
+  GeenuFF 0.3.2 put these masks beside the gene, and the gene was trained as a (at least partially)
+  complete one. Errors of its own are those of the gene model itself, e.g. a missing start or stop
+  codon, an in-frame stop codon or a too short intron, as opposed to a missing UTR (all types in
   [spec_vs_gff.md](spec_vs_gff.md#error-types)). GeenuFF 0.3.2 never tested for in-frame stop
   codons, too short CDS, overlapping CDS lines, CDS lines outside the exons, CDS lines without a
   transcript and transcripts reaching past their sequence, and caught a CDS length that is not a
@@ -98,8 +98,8 @@ GeenuFF 0.4.0 changes two things, both keeping wrong labels out of Helixer's tra
   genes without start or stop codon.
 * **A missing UTR masks only a flank.** Where a gene has no UTR annotated, the UTR's real length is
   unknown, so a flank beside the gene is masked. GeenuFF 0.3.2 masked the whole rest of the gap to
-  the neighboring gene on the 5' side, in *H. vulgare* a median of 57 kb, all of it intergenic
-  sequence never trained on. 0.4.0 masks a flank on each side that grows with the gap, about 1 kb
+  the neighboring gene on the 5' side (all of it but that gene's own flank), in *H. vulgare* a
+  median of 57 kb, all of it intergenic sequence never trained on. 0.4.0 masks a flank on each side that grows with the gap, about 1 kb
   for a 10 kb gap.
 
 | species                 | masked, 0.3.2     | masked, 0.4.0   | genes with own errors trained as complete, 0.3.2 | 0.4.0 |

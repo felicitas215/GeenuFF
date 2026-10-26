@@ -7,8 +7,7 @@ lies inside the other, both are masked over their whole length.
 
 One coherent gene beats two with a hole through them: the genes either side of a hole have no
 learnable terminus, and a consumer deriving boundaries from the label array reads its edges as
-transitions that are not there. So a pair that cannot be settled loses both genes entirely rather
-than only the sequence they share.
+transitions that are not there. So a pair that cannot be settled loses both genes entirely.
 
 Only genes with a CDS take part. A bare `gene` line, a non-coding gene and a non-coding isoform
 write no CDS, intron or UTR label, so they cannot collide with anything.
@@ -60,7 +59,7 @@ it sticks out past the kept gene, never toward the kept gene.
   geneC                                               ========  next gene
 
   result  ==================xxxxxxxxxx                ========  kept: geneA (and geneC)
-                            ##########~~~~~                     flank part way into the gap
+                            ##########~~~~~                     flank part-way into the gap
 ```
 
 Where no gene lies that way, the flank reaches toward the end of the sequence by the same rule,
@@ -70,7 +69,7 @@ Where no gene lies that way, the flank reaches toward the end of the sequence by
 ```
   geneA   ==========                   |  no annotated 3' UTR; | end of the sequence
                                        |
-  result  ==========~~~~               |  flank only, part way toward the end, the same reach
+  result  ==========~~~~               |  flank only, part-way toward the end, the same reach
                                        |  as toward a next gene
 ```
 
@@ -93,8 +92,7 @@ nested and are settled like a crossing pair.
 ### Refused, both masked whole
 
 Where both genes are masked outright for their own errors, keeping either recovers nothing, so
-both are masked over their **whole length**: masking only the shared stretch would leave each with
-a hole and save nothing.
+both are masked over their **whole length**.
 
 ```
   geneA        ==================
@@ -105,9 +103,9 @@ a hole and save nothing.
                      ~~~~##################~~~~  geneB likewise
 ```
 
-Nested, refused and chained genes all get the flank on both sides, errors of their own or not.
-On the side facing the partner the flank is measured past it, so it ends inside the partner's
-own mask and adds nothing.
+Nested, refused and chained genes all get the flank mask on both sides, errors of their own or
+not. On the side facing the partner the flank is measured past it, so it ends inside the
+partner's own mask and adds nothing.
 
 ## Which gene is kept
 
@@ -116,7 +114,7 @@ One ranking for a crossing pair, wherever either gene has coding sequence:
 1. **The less damaged gene.** A gene masked outright is never kept; where both are, the pair is
    refused.
 2. **On a tie, the longer spliced CDS**, the same measure that picks the longest isoform.
-3. **On a tie of both, the 5'-most gene.**
+3. **On a tie of both, the 5'-most gene**, the tie on both case was never observed
 
 The kept gene's labels cover the shared stretch, so coding sequence of the dropped gene there
 reads as the kept gene's UTR, intron or CDS.

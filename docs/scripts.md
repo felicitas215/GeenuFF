@@ -121,7 +121,7 @@ mask ranges and whether it is masked in full (see `api.md` for the format).
 Rebuilds the import summary from the database, in the same layout and wording, for when the import
 log is lost. It needs a database with the `transcript_error` table.
 
-From "genes imported" on, its counts are identical to the log's (each gene stores how many of its
+From "Genes imported" on, its counts are identical to the log's (each gene stores how many of its
 transcripts were left out); the overlap outcomes are recovered by running the overlap sweep again
 over the exported spans. What was only counted while reading the GFF3 cannot be recovered and is
 listed at the end: the GFF lines and GFF gene lines steps, with the lines left out while grouping,
@@ -154,8 +154,8 @@ full although exported: `--masked-in-full --exported --output gene_ids`.
 Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first
 whitespace). A GFF3 ID contained in exactly one FASTA ID, e.g. `Chr1` in `Chr1.v2`, is paired with
 it by GeenuFF's import; the warning lists these pairs to look at, as they are no exact match. Where
-IDs cannot be paired so, GeenuFF's import and many other tools fail or leave out the genes on them;
-the warning names them and points to `rename_gff_seqids.py` for sequences renamed after
+IDs cannot be paired like so, GeenuFF's import and many other tools fail or leave out the genes
+on them; the warning names them and points to `rename_gff_seqids.py` for sequences renamed after
 annotation. It exits with 1 then, else 0, so it can gate a pipeline.
 
 ## rename_gff_seqids.py
@@ -189,23 +189,23 @@ sequence alone must pass 80% of up to 250 checks per sequence ID, spread evenly 
 checks, as from isoforms sharing a CDS start or an intron, count once, so that one gene with many
 isoforms cannot decide a sequence alone.
 
-Codons are read as GeenuFF's import reads them: along the CDS lines and, for a stop codon right
-after the CDS, along the exons, across an intron where one splits the codon; whether such a stop
-codon lies past the exons is decided on the exons the import builds. Introns come from the exon
-lines or, for a transcript without exon lines, from the gaps between its CDS lines alone: the
-import builds such a transcript's exons from its CDS and UTR lines, but the introns between UTR
-lines fail their splice sites often in poorer UTR models (13% in *Selaginella moellendorffii* v1.0
-from Phytozome, against under 1% in most annotations), enough to fail right pairs.
+Codons are read as GeenuFF's import reads them, so it is robust against start or stop codon being
+split by an intron (e.g. AT before the intron GXXX after). Introns come from the exon
+lines or, for a transcript without exon lines, from the gaps between its CDS lines alone, as the
+introns between UTR lines fail their splice sites often in poorer UTR models (13% in *Selaginella
+moellendorffii* v1.0 from Phytozome, against under 1% in most annotations), enough to fail right
+pairs.
 
 A pair by ID or full name does not fit, its FASTA sequence changed after annotation, if:
 - the genes reach past its end by more than its length
 - a `##sequence-region` length differs from its own by >= 2 bp
-- or, with 8 genes with checks or more, fewer than half of the genes pass in any window, a gene
-  passing where at least half of its checks do
+- or, with 8 or more genes with checks, where fewer than half of the genes pass in any window, a
+  gene passing where at least half of its checks do
 - or, with fewer genes but 20 checks or more, under 25% of the checks pass: a changed sequence
   passes about 3%, the right one with a poor annotation of partial genes 35-45% (wheat survey
-  contigs, Phytozome *Triticum aestivum* v2.2), so half of the checks would leave out right pairs
-
+  contigs, Phytozome *Triticum aestivum* v2.2)
+---
+### Details on these rules
 Genes reaching past the end by less than the sequence's length are read as crossing the origin of
 a circular sequence, as GFF3 writes such features (their end plus the sequence's length), and
 checked so, with a warning to check that the sequence is circular or was cut at its end after
@@ -226,6 +226,7 @@ or full name and length alone; the log counts these pairs, with the coding trans
 In very fragmented assemblies most sequences are this small, so most pairs can only be checked by
 ID or full name (e.g. 8,094 of 10,335 sequences, with 53% of the coding transcripts, in *Catagonium
 nitens*, NCBI GCA_050002935.1).
+---
 
 | case                                                                                                | result                                                                                                                                                                                              |
 |-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -280,7 +281,7 @@ the first of them, except:
 
 Transcripts falling back to a gene of their own are warned about too, unless
 `--one-gene-per-transcript` is set. Where every coding transcript names a `Parent` other than
-itself, nothing needs adding and no file is written.
+itself and that parent is in the file, nothing needs adding and no file is written.
 
 ## add_transcript_lines.py
 
@@ -296,7 +297,7 @@ transcript as `Parent` in place of the gene:
 | the gene's only transcript has no exon, CDS or UTR lines yet | `mRNA ID=g1.1;Parent=g1`, `CDS ID=g1.1.CDS1;Parent=g1` | that transcript, `g1.1`                                       |
 
 Left as they are:
-- genes with several transcripts, or one that has exon, CDS or UTR lines already
+- genes with several transcripts, or a transcript that has exon, CDS or UTR lines already
 - genes with no CDS line naming them, e.g. NCBI pseudogenes with exon lines only, which are
   non-coding and give no labels either way; the import summary counts the non-coding genes with
   CDS lines naming them
@@ -316,7 +317,8 @@ lines for the UTRs only (happens rarely). The new exons are the union of a trans
 exon, CDS and UTR lines, touching lines forming one exon. Use it only where this is systematic,
 i.e. GeenuFF's import warns about `cds_outside_exons` for more than 5% of the coding transcripts:
 elsewhere the CDS or the exons are wrong, which GeenuFF masks and rebuilding would hide. The log
-gives the share rebuilt and warns at 5% or below. Without such transcripts, no file is written.
+gives the share rebuilt and warns at 5% or below, as those are likely a few wrong genes only and
+not a pattern of a wrongly formatted file. Without such transcripts, no file is written.
 
 ## filter_sequence_lengths.py
 
@@ -330,7 +332,10 @@ file and their lines from its GFF3 file before import:
 
 Nothing is removed where no FASTA sequence or no sequence with coding transcripts would remain.
 Where the sequences below the floor hold over 5% of the bases or coding genes, they are still
-removed, with a warning that a lower `--min-seq-len` keeps them. How the cluster rule plays out:
+removed, with a warning that a lower `--min-seq-len` keeps them. The same goes for the sequences
+of the cluster not below the floor, with a warning that `--no-adaptive` keeps them: the length
+share caps the cluster's bases, but a cluster of many small scaffolds can still hold a larger share
+of the coding genes. How the cluster rule plays out:
 - In a fragmented scaffold-level assembly, the gaps in the dense middle of the length distribution
   are tiny, so the largest gap, among the few longest scaffolds, stands out without separating
   junk from the rest; the length share keeps such a cluster (e.g. 9458 of 9463 scaffolds, 97.6% of

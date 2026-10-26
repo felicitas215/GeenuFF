@@ -48,7 +48,7 @@ Enough to see that a gene was annotated there, not enough to reconstruct it.
 
 #### What survives when a strand is unusable
 
-The parser reads a strand of `?` or `.` as no strand, and the importer meets it at four points:
+The parser reads a strand of `?` (NCBI) or `.` as no strand, and the importer meets it at four points:
 
 | where `?` or `.` appears | what is stored                                                        | exported?                                 |
 |--------------------------|-----------------------------------------------------------------------|-------------------------------------------|
@@ -78,7 +78,7 @@ Not for the gene, and not for the gaps between its pieces:
 
 The pieces themselves would be a well-defined mask, but an excluded gene exports none of its
 features, geenuff_mask included; masking the pieces would need a third state between exported and
-excluded. So the pieces are taught as intergenic although they code. That mislabeling is accepted:
+excluded. So the pieces are taught as intergenic, although they code. That mislabeling is accepted:
 it affects a handful of genes per genome, a few kb each, the same kind of error any incompletely
 annotated genome presents in far greater quantity.
 

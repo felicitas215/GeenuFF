@@ -63,7 +63,7 @@ intergenic bp masked by gap size; a possible remedy is a share below half the ga
 | super_loci_overlap_error | two coding genes share sequence                      | see below and `overlap_masking.md`      |
 
 A missing UTR leaves only the transcript's end unknown; the CDS stays labeled. Every other error
-that masks means the CDS boundaries cannot be trusted, so the gene is masked whole with both
+that masks means the CDS boundaries is not trusted, so the gene is masked whole with both
 flanks: masking only part would leave a hole whose edges read as transitions that are not there
 (see `overlap_masking.md`). Notes on single error types:
 - too_short_intron: typically stands in for an assembly frameshift an annotation pipeline bridged.
