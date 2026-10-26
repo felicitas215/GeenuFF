@@ -37,8 +37,9 @@ MIN_SEQUENCES_FOR_CLUSTERING = 5
 # continuous length distribution, as in fragmented scaffold-level assemblies, and nothing is removed
 DEFAULT_MAX_CLUSTER_LENGTH_FRACTION = 0.05
 DEFAULT_MIN_SEQ_LEN = 1000
-# above this share of the bases or coding genes, sequences below the floor are still removed, with a warning
-FLOOR_WARN_SHARE = 0.05
+# above this share of the bases or coding genes, the sequences below the floor and those in the cluster are each
+# still removed, with a warning
+WARN_SHARE = 0.05
 MAX_LOGGED_IDS = 10
 OUT_SUFFIX = '_length_filtered'  # inserted before the extension of the input files' names by default
 
@@ -144,17 +145,22 @@ def main(args: argparse.Namespace) -> None:
                        'nothing written')
         return
 
-    floor_bp_share = sum(lengths[seq_id] for seq_id in below_floor) / sum(lengths.values())
-    all_genes = sum(g for g, _ in coding.values())
-    floor_gene_share = (sum(coding[seq_id][0] for seq_id in below_floor if seq_id in coding) / all_genes
-                        if all_genes else 0)
-    if max(floor_bp_share, floor_gene_share) > FLOOR_WARN_SHARE:
-        logger.warning(f'The {len(below_floor)} sequences below {args.min_seq_len} bp hold '
-                       f'{100 * floor_bp_share:.2f}% of the bases'
-                       + (f' and {100 * floor_gene_share:.2f}% of the coding genes' if all_genes else '')
-                       + f', more than {100 * FLOOR_WARN_SHARE:g}%. They are removed, as sequences this short '
-                         f'rarely give good training data or predictions; a lower --min-seq-len (0 for none) '
-                         f'keeps them')
+    all_bp, all_genes = sum(lengths.values()), sum(g for g, _ in coding.values())
+    # sequences in the cluster and below the floor count towards the floor, which removes them either way
+    cluster_only = clustered - below_floor
+    cluster_name = 'in the cluster of small ones' + (f' and not below {args.min_seq_len} bp' if below_floor else '')
+    for seq_ids, name, reason in (
+            (below_floor, f'below {args.min_seq_len} bp',
+             'as sequences this short rarely give good training data or predictions; a lower --min-seq-len (0 for '
+             'none) keeps them'),
+            (cluster_only, cluster_name,
+             'as such a cluster mostly holds organelle genomes or unplaced scaffolds; --no-adaptive keeps them')):
+        bp_share = sum(lengths[seq_id] for seq_id in seq_ids) / all_bp
+        gene_share = sum(coding[seq_id][0] for seq_id in seq_ids if seq_id in coding) / all_genes if all_genes else 0
+        if max(bp_share, gene_share) > WARN_SHARE:
+            logger.warning(f'The {len(seq_ids)} sequences {name} hold {100 * bp_share:.2f}% of the bases'
+                           + (f' and {100 * gene_share:.2f}% of the coding genes' if all_genes else '')
+                           + f', more than {100 * WARN_SHARE:g}%. They are removed, {reason}')
 
     removed_lengths = [lengths[seq_id] for seq_id in removed]
     held = ''
