@@ -31,8 +31,10 @@ class GFFParser:
 
 
 class GFFObject:
-    """One feature line of a GFF3 file: its first 9 columns as stripped strings, the 9th also parsed
-    into attributes (see parse_attributes).
+    """One feature line of a GFF3 file: its first 9 columns as stripped strings. Of the 9th, only the ID
+    and the parents are kept parsed (get_ID, get_Parent); attributes parses the whole column on each
+    access. A genome's lines are held by the hundreds of thousands, and the other attributes, often
+    most of a line, are rarely read.
 
     Sources: http://www.ensembl.org/info/website/upload/gff.html (caution, unsecure link) and
             https://github.com/The-Sequence-Ontology/Specifications/blob/master/gff3.md
@@ -94,11 +96,21 @@ class GFFObject:
             Parent, the Alias, Note, DBxref and Ontology_term attributes can have multiple values.
             There can be a variety of custom lowercase attributes."""
 
+    __slots__ = ('seqid', 'source', 'type', 'start', 'end', 'score', 'strand', 'phase', 'attribute', '_id',
+                 '_parents')
+
     def __init__(self, gffline: str):
         columns = [column.strip() for column in gffline.split('\t')[:9]]
         (self.seqid, self.source, self.type, self.start, self.end, self.score, self.strand, self.phase,
          self.attribute) = columns
-        self.attributes = GFFObject.parse_attributes(self.attribute)
+        attributes = GFFObject.parse_attributes(self.attribute)
+        self._id = attributes.get('ID')
+        self._parents = GFFObject.parents(attributes) or None
+
+    @property
+    def attributes(self) -> dict[str, str]:
+        """The attribute column parsed (see parse_attributes), anew on each access."""
+        return GFFObject.parse_attributes(self.attribute)
 
     @staticmethod
     def parse_attributes(column: str) -> dict[str, str]:
@@ -128,12 +140,12 @@ class GFFObject:
         return ';'.join(pairs + [f'Parent={",".join(parents)}'])
 
     def get_ID(self) -> str | None:
-        return self.attributes.get('ID')
+        return self._id
 
     def get_Parent(self) -> list[str] | None:
         """The line's parents (see parents), None where there are none."""
-        return GFFObject.parents(self.attributes) or None
+        return self._parents
 
     def __repr__(self) -> str:
         return (f'{self.seqid},{self.source},{self.type},{self.start},{self.end},{self.score},{self.strand},'
-                f'{self.phase},{self.attributes}')
+                f'{self.phase},{self.attribute}')

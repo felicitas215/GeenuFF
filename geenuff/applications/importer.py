@@ -650,12 +650,15 @@ class OrganizedGFFEntries(object):
     together with every line below them.
     """
 
-    def __init__(self, gff_file, stats=None):
+    def __init__(self, gff_file, stats=None, entry_class=gffhelper.GFFObject):
         self.gff_file = gff_file
         self.organized_entries = {}
         # only present when constructed as part of a full ImportController.add_gff() run;
         # standalone/test use (no controller) gets its own throwaway counter
         self.stats = stats if stats is not None else ImportStatistics()
+        # the class each line of the file is read into, a GFFObject or a subclass of it
+        # i.e. LineIDs form filter_longest_transcript.py
+        self.entry_class = entry_class
 
     def load_organized_entries(self):
         genes, transcripts, pieces = [], [], []
@@ -911,7 +914,7 @@ class OrganizedGFFEntries(object):
     def _gff_gen(self):
         for line in gffhelper.GFFParser.feature_lines(self.gff_file):
             self.stats.gff_lines_read += 1
-            entry = gffhelper.GFFObject(gffline=line)
+            entry = self.entry_class(gffline=line)  # GFFObject or LineIDs form filter_longest_transcript.py
             if entry.type not in KNOWN_TYPES:
                 # an unrecognized Sequence Ontology term shouldn't take down the whole
                 # import; skip just this line and keep going

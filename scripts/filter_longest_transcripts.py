@@ -24,7 +24,6 @@ from dataclasses import dataclass, field
 from geenuff.applications.import_summary import DROPPED_LINE_REASONS
 from geenuff.applications.importer import (GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES, FastaImporter,
                                            MissingGeneLines, OrganizedGeenuffImporterGroup, OrganizedGFFEntries)
-from geenuff.base import orm
 from geenuff.base.helpers import (Compression, NonMatchableIDs, add_output_compression_args, check_output_paths,
                                   insert_before_extension, match_seqids, merge_gff_spans, open_out, output_compression,
                                   output_path, require_fasta_and_gff, require_input_files, setup_logging,
@@ -68,6 +67,30 @@ class Selection:
     stop_codon_in_utr: list[str] = field(default_factory=list)
 
 
+class LineIds(GFFObject):
+    """A GFF3 line as the import's grouping reads it, without its attribute column once its ID and parents
+    are parsed: the kept lines are written from the file itself, so no other attribute is needed, and the
+    attribute columns are often most of a file."""
+    __slots__ = ()
+
+    def __init__(self, gffline: str):
+        super().__init__(gffline)
+        self.attribute = None
+
+
+class Sequence:
+    """One FASTA sequence, read as the import's stop codon functions read an orm.Coordinate (length,
+    sequence_range), without the copy of the sequence a Coordinate keeps in chunks."""
+    __slots__ = ('sequence', 'length')
+
+    def __init__(self, sequence: str):
+        self.sequence, self.length = sequence, len(sequence)
+
+    def sequence_range(self, start: int, end: int) -> str:
+        """sequence[start:end], start clipped to 0, as orm.Coordinate.sequence_range."""
+        return self.sequence[max(start, 0):end]
+
+
 def coding_length(cds: list[GFFObject], exons: list[GFFObject]) -> int:
     """Bases from the first to the last CDS line that lie in the exons: the spliced CDS length the import
     picks the longest transcript by (OrganizedGeenuffImporterGroup._coding_length), here from the GFF
@@ -77,7 +100,7 @@ def coding_length(cds: list[GFFObject], exons: list[GFFObject]) -> int:
                for e_start, e_end in merge_gff_spans((e.start, e.end) for e in exons))
 
 
-def add_stop_codon(t: GFFObject, entries: dict, is_plus_strand: bool, coord: orm.Coordinate) -> int | None:
+def add_stop_codon(t: GFFObject, entries: dict, is_plus_strand: bool, coord: Sequence) -> int | None:
     """Adds a missing stop codon to a transcript's lines in place, as the import adds it (see
     OrganizedGeenuffImporterGroup.add_missing_stop_codon).
 
@@ -130,10 +153,9 @@ def record_stop_codon(t_id: str, old_cds: list[GFFObject], old_exons: list[GFFOb
                                              for i, line in enumerate(in_reading_order)]
 
 
-def sequences(fasta_path: str, gff_path: str, seqids: set[str]) -> Iterator[tuple[str, orm.Coordinate]]:
-    """Yields (GFF sequence ID, Coordinate holding its sequence) for the given GFF sequence IDs, one
-    FASTA sequence at a time, paired with the FASTA IDs as the import pairs them (see
-    helpers.match_seqids).
+def sequences(fasta_path: str, gff_path: str, seqids: set[str]) -> Iterator[tuple[str, Sequence]]:
+    """Yields (GFF sequence ID, its sequence) for the given GFF sequence IDs, one FASTA sequence at a
+    time, paired with the FASTA IDs as the import pairs them (see helpers.match_seqids).
 
     Raises:
         SystemExit: where a GFF sequence ID matches no FASTA sequence or several
@@ -145,7 +167,7 @@ def sequences(fasta_path: str, gff_path: str, seqids: set[str]) -> Iterator[tupl
     gff_ids = {fasta_id: gff_id for gff_id, fasta_id in pairs.items() if gff_id in seqids}
     for fasta_id, sequence in FastaImporter.parse_fasta(fasta_path):
         if fasta_id in gff_ids:
-            yield gff_ids[fasta_id], orm.Coordinate(sequence=sequence, length=len(sequence), seqid=fasta_id)
+            yield gff_ids[fasta_id], Sequence(sequence)
 
 
 def longest_transcripts(gff_path: str, fasta_path: str | None) -> Selection:
@@ -154,7 +176,7 @@ def longest_transcripts(gff_path: str, fasta_path: str | None) -> Selection:
     Raises:
         SystemExit: where coding transcripts name no Parent gene (see importer.MissingGeneLines)
     """
-    organizer = OrganizedGFFEntries(gff_path)
+    organizer = OrganizedGFFEntries(gff_path, entry_class=LineIds)
     try:
         organizer.load_organized_entries()
     except MissingGeneLines as e:
@@ -170,11 +192,12 @@ def longest_transcripts(gff_path: str, fasta_path: str | None) -> Selection:
     # with a FASTA file, the genes are handled sequence by sequence alongside it, one sequence in memory
     # at a time; without one, no sequence is needed
     coords = (sequences(fasta_path, gff_path, set(entries)) if fasta_path
-              else ((seqid, None) for seqid in entries))
+              else ((seqid, None) for seqid in list(entries)))
     selection = Selection()
     outcomes = selection.outcomes
     for seqid, coord in coords:
-        for group in entries[seqid]:
+        # the genes of a sequence are released once handled
+        for group in entries.pop(seqid):
             gene = group['super_locus']
             # transcripts made for CDS lines without a transcript line are no transcripts of the file
             # (side effect of using the importer's functions, floating CDS get treated by it)

@@ -1,6 +1,6 @@
 # Import speed, memory and masking: GeenuFF 0.4.0 against 0.3.2
 
-GeenuFF 0.4.0 imports a genome 2.0 to 3.7 times faster than GeenuFF 0.3.2 and needs 1.2 to 2.7
+GeenuFF 0.4.0 imports a genome 1.8 to 3.7 times faster than GeenuFF 0.3.2 and needs 1.7 to 4.2
 times less memory. It masks genes with errors of their own on the gene, where 0.3.2 mostly masked
 only beside them, and masks far fewer intergenic bases.
 
@@ -59,19 +59,21 @@ organelle genomes and unplaced scaffolds; renaming found nothing to change in an
 
 | species                 | 0.3.2: s, GB | 0.4.0: s, GB | faster | less memory |
 |-------------------------|--------------|--------------|--------|-------------|
-| *O. lucimarinus*        | 6.9, 0.22    | 3.5, 0.14    | 2.0x   | 1.5x        |
-| *A. thaliana* Araport11 | 98.5, 1.53   | 40.0, 1.23   | 2.5x   | 1.2x        |
-| *A. thaliana* TAIR12    | 131.6, 3.32  | 36.0, 1.93   | 3.7x   | 1.7x        |
-| *V. vinifera*           | 112.1, 3.15  | 41.8, 1.66   | 2.7x   | 1.9x        |
-| *Z. mays*               | 195.6, 5.90  | 74.6, 2.61   | 2.6x   | 2.3x        |
-| *H. vulgare*            | 152.5, 6.47  | 73.3, 2.37   | 2.1x   | 2.7x        |
+| *O. lucimarinus*        | 6.9, 0.22    | 3.9, 0.09    | 1.8x   | 2.4x        |
+| *A. thaliana* Araport11 | 98.5, 1.53   | 41.6, 0.91   | 2.4x   | 1.7x        |
+| *A. thaliana* TAIR12    | 131.6, 3.32  | 35.9, 0.97   | 3.7x   | 3.4x        |
+| *V. vinifera*           | 112.1, 3.15  | 42.2, 0.83   | 2.7x   | 3.8x        |
+| *Z. mays*               | 195.6, 5.90  | 76.1, 1.42   | 2.6x   | 4.2x        |
+| *H. vulgare*            | 152.5, 6.47  | 71.8, 2.37   | 2.1x   | 2.7x        |
 
 Import time follows the number of GFF3 lines more than the genome size. Memory grows much less with
 the genome than before, as 0.4.0 writes the sequences to the database piece by piece instead of
-holding the whole genome.
+holding the whole genome, and keeps of each GFF3 line's attributes only the ID and the parents. Its
+peak follows the GFF3 lines, unless the largest sequence is larger, as in *H. vulgare* (chromosomes up
+to 666 Mb).
 
 Very large chromosomes: *Pinus massoniana* (21.9 Gb, largest chromosome 2.4 Gb) imports with 0.4.0
-in 270 s at 8.0 GB. GeenuFF 0.3.2 cannot import it: it stops on any chromosome over 2.1 Gb
+in 251 s at 8.0 GB. GeenuFF 0.3.2 cannot import it: it stops on any chromosome over 2.1 Gb
 (`OverflowError: string longer than INT_MAX bytes`), as it stores each sequence as one piece
 (Python's SQLite interface only works on up to 2^31 - 1 bytes).
 
