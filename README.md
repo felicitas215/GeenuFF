@@ -64,8 +64,9 @@ py.test
 cd ../..
 ```
 
-`tests/test_helixer_h5.py` runs the import and Helixer's `geenuff2h5.py` end to end. It is
-skipped where Helixer is not installed, and `py.test -m 'not helixer'` leaves it out where it is.
+`tests/test_helixer_h5.py` (inside `GeenuFF/geenuff`) runs the import and Helixer's `geenuff2h5.py`
+end to end. It is skipped where Helixer is not installed, and `py.test -m 'not helixer'` leaves it
+out where it is.
 
 ## Usage
 

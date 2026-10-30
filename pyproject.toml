@@ -57,6 +57,7 @@ script-files = [
     "scripts/dump_json.py",
     "scripts/dump_lengthinfo.py",
     "scripts/dump_to_fasta.py",
+    "scripts/filter_longest_transcripts.py",
     "scripts/filter_sequence_lengths.py",
     "scripts/list_transcripts.py",
     "scripts/rebuild_exons.py",

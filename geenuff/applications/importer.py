@@ -185,7 +185,35 @@ class OrganizedGeenuffImporterGroup(object):
                      f"'{sl_i.given_name}' will not be exported")
 
     @staticmethod
-    def _cds_extended_by_a_codon(t_entries, is_plus_strand, seq_length):
+    def add_missing_stop_codon(t, t_entries, is_plus_strand, coord, cds_seq):
+        """Adds the stop codon to a transcript's CDS lines where it alone is missing: the CDS, given
+        as its spliced sequence cds_seq, being whole codons without any stop codon, and the next
+        codon along the exons (see cds_extended_by_a_codon) being one. GTF leaves the stop codon out
+        of the CDS, and GFF3 converted from GTF can keep it that way (GTF itself is not read);
+        translation ends there whatever the file says. Where the exons end before it, the last exon
+        and the transcript are extended to hold it (see extend_to_cds). Changes t and t_entries in
+        place.
+
+        Returns:
+            the spliced sequence of the extended CDS and how many of the 3 bases added lie past the
+            exons, or None where nothing was added
+        """
+        if len(cds_seq) % 3 or has_inframe_stop_codon(cds_seq) or cds_seq[-3:] in STOP_CODONS:
+            return None
+        extended = OrganizedGeenuffImporterGroup.cds_extended_by_a_codon(t_entries, is_plus_strand, coord.length)
+        if extended is None:
+            return None
+        extended_cds, n_past_exons = extended
+        extended_seq = spliced_cds_sequence(coord, extended_cds, is_plus_strand)
+        if extended_seq[-3:] not in STOP_CODONS:
+            return None
+        t_entries['cds'] = extended_cds
+        if n_past_exons:
+            OrganizedGeenuffImporterGroup.extend_to_cds(t, t_entries, is_plus_strand)
+        return extended_seq, n_past_exons
+
+    @staticmethod
+    def cds_extended_by_a_codon(t_entries, is_plus_strand, seq_length):
         """Copies of a transcript's CDS lines extended by the 3 bases following them along its
         exons, possibly across an intron, and directly past its last exon where fewer are left in
         the exons, with how many of the 3 lie past them; None where the sequence ends first. Used
@@ -216,7 +244,7 @@ class OrganizedGeenuffImporterGroup(object):
         return sorted(pieces, key=lambda c: c.start), n_past
 
     @staticmethod
-    def _extend_to_cds(t, t_entries, is_plus_strand):
+    def extend_to_cds(t, t_entries, is_plus_strand):
         """Extends a transcript line and a copy of its outermost exon at the 3' end to the end of
         its CDS, for a stop codon added past them."""
         exons = t_entries['exons']
@@ -392,24 +420,17 @@ class OrganizedGeenuffImporterGroup(object):
                 is_truncated = len(cds_seq) % 3 != 0
                 has_inframe_stop = has_inframe_stop_codon(cds_seq)
                 has_stop_codon = cds_seq[-3:] in STOP_CODONS
-                # GTF leaves the stop codon out of the CDS, and GFF3 converted from GTF can keep it
-                # that way (GTF itself is not read). Where it alone is missing, the CDS being
-                # whole codons without any stop codon, and the next codon is one, it is added:
-                # translation ends there whatever the file says. Where the exons end before it,
-                # the last exon and the transcript are extended to hold it. The other checks above
-                # hold for the extended CDS as well
-                if not (t_importers['mask_whole'] or is_truncated or has_inframe_stop or has_stop_codon):
-                    extended = self._cds_extended_by_a_codon(t_entries, t_is_plus_strand, self.coord.length)
-                    if extended is not None:
-                        extended_cds, n_past_exons = extended
-                        extended_seq = spliced_cds_sequence(self.coord, extended_cds, t_is_plus_strand)
-                        if extended_seq[-3:] in STOP_CODONS:
-                            t_entries['cds'], cds_seq, has_stop_codon = extended_cds, extended_seq, True
-                            stats.stop_codons_recovered += 1
-                            if n_past_exons:
-                                self._extend_to_cds(t, t_entries, t_is_plus_strand)
-                                tf_i.set_start_end_from_gff(t.start, t.end)
-                                stats.stop_codons_recovered_past_exons += 1
+                # a stop codon missing alone is added; the other checks above hold for the extended
+                # CDS as well
+                if not t_importers['mask_whole']:
+                    added = self.add_missing_stop_codon(t, t_entries, t_is_plus_strand, self.coord, cds_seq)
+                    if added is not None:
+                        cds_seq, n_past_exons = added
+                        has_stop_codon = True
+                        stats.stop_codons_recovered += 1
+                        if n_past_exons:
+                            tf_i.set_start_end_from_gff(t.start, t.end)
+                            stats.stop_codons_recovered_past_exons += 1
                 # the lines are sorted by start, so any overlap shows between neighbors
                 cds_lines = t_entries['cds']
                 overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))

@@ -8,14 +8,17 @@ and `summarize_geenuff_db.py` to stdout.
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
 `check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
 `rebuild_exons.py` and `filter_sequence_lengths.py` (i.e. the preparation scripts), check and
-prepare the files for import.  
+prepare the files for import. `filter_longest_transcripts.py` cuts a GFF3 file down to one
+transcript per gene without a database, e.g. as the reference for gffcompare, and reads and writes
+files as the preparation scripts do.  
 Installing GeenuFF, directly or as a dependency of Helixer, puts all of them onto the PATH
 (see `pyproject.toml`), so they are called by name, e.g.
 `check_seqids.py --fasta genome.fa --gff genome.gff3`.
 
 `dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
-`rebuild_exons.py` and `filter_sequence_lengths.py` log what they leave out or change; `--log-file`
-writes that log to a file as well as the terminal, to keep it beside the output.
+`rebuild_exons.py`, `filter_sequence_lengths.py` and `filter_longest_transcripts.py` log what they
+leave out or change; `--log-file` writes that log to a file as well as the terminal, to keep it
+beside the output.
 
 No script writes over its input files or database. Each stops before anything is written where:
 - an output path names an input file or database
@@ -38,13 +41,14 @@ each preparation script writes beside its input, the input's name with a suffix 
 extension, so a chain of them names every step, e.g.
 `genes_renamed_length_filtered_with_genes.gff3`:
 
-| script                       | suffix              |
-|------------------------------|---------------------|
-| `rename_gff_seqids.py`       | `_renamed`          |
-| `filter_sequence_lengths.py` | `_length_filtered`  |
-| `add_gene_lines.py`          | `_with_genes`       |
-| `add_transcript_lines.py`    | `_with_transcripts` |
-| `rebuild_exons.py`           | `_exons_rebuilt`    |
+| script                          | suffix                                           |
+|---------------------------------|--------------------------------------------------|
+| `rename_gff_seqids.py`          | `_renamed`                                       |
+| `filter_sequence_lengths.py`    | `_length_filtered`                               |
+| `add_gene_lines.py`             | `_with_genes`                                    |
+| `add_transcript_lines.py`       | `_with_transcripts`                              |
+| `rebuild_exons.py`              | `_exons_rebuilt`                                 |
+| `filter_longest_transcripts.py` | `_longest`, `_longest_cds_only` with `--no-utrs` |
 
 ## dump_filtered_gff3.py
 
@@ -64,6 +68,43 @@ for comparing a prediction gene by gene rather than on sound genes only. The log
 genes were left out and why. An mRNA line names its transcript's errors, e.g.
 `geenuff_errors=missing_utr_5p,truncated_cds`, and that of a gene dropped for an overlap the
 reason, `geenuff_excluded=overlap_dropped`.
+
+## filter_longest_transcripts.py
+
+Keeps one transcript per gene of a GFF3 file, the one with the longest spliced CDS (the first in the
+file on ties), with its gene line and its exon, CDS and UTR lines; `--no-utrs` leaves out the exon
+and UTR lines too, so every transcript keeps only its CDS lines, which gffcompare then takes as
+exons. Unlike `dump_filtered_gff3.py`, it needs no database and writes the kept lines as they are,
+in file order, with their IDs and attributes.
+
+The lines are grouped into genes and transcripts as the import groups them, and the length is the
+one the import picks the longest transcript by. Left out:
+- lines the import leaves out while grouping, e.g. gene lines sharing an ID such as NCBI's
+  trans-spliced organelle genes split into parts; the log counts them per reason
+- genes without a coding transcript, and every line of a type the import does not read as a gene,
+  transcript, exon, CDS or UTR; it reads all their Sequence Ontology terms (e.g.
+  `protein_coding_gene`, `mRNA`, `transcript`, `coding_exon`, `five_prime_UTR`), and a kept line
+  keeps its type as written
+- genes whose gene line or a line of the chosen transcript has no definite strand (`.` or `?`), or
+  another one than the rest
+
+A line shared by several transcripts names only the kept one as `Parent`.
+
+### adding stop codons
+`--add-stop-codons` (with `--fasta`) adds a stop codon missing from a CDS as the import adds it,
+before the longest transcript is picked: where the CDS is whole codons without any stop codon and
+the codon after it, along the exons, is one, as in GFF3 converted from GTF. The 3' CDS line is
+extended, or added as an individual line with its phase if the stop codon is past and intron; where
+the codon lies past the exons, the 3' exon line, the transcript line and, if need be, the gene line
+are extended as well.  
+A UTR line holding the codon is shortened to start after it, or left out where
+the codon covers it completely; the log warns with their number and examples, as a UTR annotated to
+start with a stop codon likely comes from a conversion that put the stop codon into the UTR instead
+of the CDS. The FASTA file is read one sequence at a time. Without the option, no FASTA file is read
+and such a CDS counts without its stop codon, so on a tie another transcript than the import's may be
+picked. Since GeenuFF repairs stop codons, this is then also a more honest comparison between reference
+and what Helixer saw. It stays optional, so changing the reference the predictions get compared to is
+not the default.
 
 ## dump_to_fasta.py
 

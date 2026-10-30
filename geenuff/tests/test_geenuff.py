@@ -1956,6 +1956,131 @@ def test_add_transcript_lines_leaves_genes_without_cds_lines_as_they_are(tmp_pat
     assert not out.exists()
 
 
+LONGEST_GFF = ('##gff-version 3\n'
+               'CHR\ttest\tregion\t1\t1000\t.\t+\t.\tID=CHR\n'
+               'CHR\ttest\tgene\t101\t400\t.\t+\t.\tID=g1\n'
+               'CHR\ttest\tmRNA\t101\t300\t.\t+\t.\tID=t1a;Parent=g1\n'
+               'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=t1b;Parent=g1\n'
+               'CHR\ttest\texon\t101\t200\t.\t+\t.\tParent=t1a,t1b\n'
+               'CHR\ttest\texon\t251\t300\t.\t+\t.\tParent=t1a\n'
+               'CHR\ttest\texon\t301\t400\t.\t+\t.\tParent=t1b\n'
+               'CHR\ttest\tCDS\t121\t200\t.\t+\t0\tParent=t1a,t1b\n'
+               'CHR\ttest\tCDS\t251\t280\t.\t+\t1\tParent=t1a\n'
+               'CHR\ttest\tCDS\t301\t380\t.\t+\t1\tParent=t1b\n'
+               'CHR\ttest\tthree_prime_UTR\t281\t300\t.\t+\t.\tParent=t1a\n'
+               'CHR\ttest\tthree_prime_UTR\t381\t400\t.\t+\t.\tParent=t1b\n'
+               'CHR\ttest\tgene\t501\t600\t.\t-\t.\tID=g2\n'
+               'CHR\ttest\tmRNA\t501\t600\t.\t-\t.\tID=t2a;Parent=g2\n'
+               'CHR\ttest\tmRNA\t501\t600\t.\t-\t.\tID=t2b;Parent=g2\n'
+               'CHR\ttest\tCDS\t511\t570\t.\t-\t0\tParent=t2a\n'
+               'CHR\ttest\tCDS\t531\t590\t.\t-\t0\tParent=t2b\n'
+               'CHR\ttest\tgene\t651\t700\t.\t+\t.\tID=g3\n'
+               'CHR\ttest\tlnc_RNA\t651\t700\t.\t+\t.\tID=t3;Parent=g3\n'
+               'CHR\ttest\texon\t651\t700\t.\t+\t.\tParent=t3\n'
+               'CHR\ttest\tgene\t751\t850\t.\t?\t.\tID=g4\n'
+               'CHR\ttest\tmRNA\t751\t850\t.\t?\t.\tID=t4;Parent=g4\n'
+               'CHR\ttest\tCDS\t761\t820\t.\t?\t0\tParent=t4\n')
+
+
+LONGEST_EXPECTED = ['##gff-version 3',
+                    'CHR\ttest\tgene\t101\t400\t.\t+\t.\tID=g1',
+                    'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=t1b;Parent=g1',
+                    'CHR\ttest\texon\t101\t200\t.\t+\t.\tParent=t1b',
+                    'CHR\ttest\texon\t301\t400\t.\t+\t.\tParent=t1b',
+                    'CHR\ttest\tCDS\t121\t200\t.\t+\t0\tParent=t1b',
+                    'CHR\ttest\tCDS\t301\t380\t.\t+\t1\tParent=t1b',
+                    'CHR\ttest\tthree_prime_UTR\t381\t400\t.\t+\t.\tParent=t1b',
+                    'CHR\ttest\tgene\t501\t600\t.\t-\t.\tID=g2',
+                    'CHR\ttest\tmRNA\t501\t600\t.\t-\t.\tID=t2a;Parent=g2',
+                    'CHR\ttest\tCDS\t511\t570\t.\t-\t0\tParent=t2a']
+LONGEST_NO_UTRS_EXPECTED = ['##gff-version 3',
+                            'CHR\ttest\tgene\t101\t400\t.\t+\t.\tID=g1',
+                            'CHR\ttest\tmRNA\t101\t400\t.\t+\t.\tID=t1b;Parent=g1',
+                            'CHR\ttest\tCDS\t121\t200\t.\t+\t0\tParent=t1b',
+                            'CHR\ttest\tCDS\t301\t380\t.\t+\t1\tParent=t1b',
+                            'CHR\ttest\tgene\t501\t600\t.\t-\t.\tID=g2',
+                            'CHR\ttest\tmRNA\t501\t600\t.\t-\t.\tID=t2a;Parent=g2',
+                            'CHR\ttest\tCDS\t511\t570\t.\t-\t0\tParent=t2a']
+
+
+@pytest.mark.parametrize('options, expected', [([], LONGEST_EXPECTED), (['--no-utrs'], LONGEST_NO_UTRS_EXPECTED)])
+def test_filter_longest_transcripts_keeps_the_longest_coding_transcript_per_gene(tmp_path, options, expected):
+    """filter_longest_transcripts.py keeps t1b, whose spliced CDS (160 bp) is longer than t1a's (110
+    bp), with the lines shared with t1a naming only t1b as Parent, and t2a, the first of two of equal
+    length; the non-coding g3, g4 on no definite strand and the region line are left out. The kept
+    lines are written as they are, in file order, the exon and UTR lines left out with --no-utrs."""
+    gff, out = tmp_path / 'genes.gff3', tmp_path / 'longest.gff3'
+    gff.write_text(LONGEST_GFF)
+    run_script('filter_longest_transcripts.py', '--gff', str(gff), '-o', str(out), *options)
+    assert out.read_text().splitlines() == expected
+
+
+# the CDS of testdata/stop_codon.gff3 once the stop codons are added, and the transcripts extended for a
+# codon past their exons (GeenuFF coordinates); the import and filter_longest_transcripts.py
+# --add-stop-codons are both tested against them, so that either one drifting apart fails its own test
+STOP_CODON_CDS = {'tPlus': (20, 80), 'tSplit': (171, 261), 'tMinus': (396, 336),
+                  'tNoStop': (470, 530), 'tFrame': (620, 682), 'tCdsOnly': (760, 820), 'tExonEnd': (936, 876),
+                  'tShort': (1020, 1077), 'tExact': (1170, 1230)}
+STOP_CODON_EXTENDED_TRANSCRIPTS = {'tCdsOnly': (760, 820), 'tExonEnd': (949, 876)}
+
+
+def test_filter_longest_transcripts_adds_stop_codons_as_the_import_does(tmp_path):
+    """With --add-stop-codons, every CDS gets the stop codon the import adds to it (STOP_CODON_CDS),
+    see testdata/stop_codon.gff3: tSplit's across the intron, as a CDS line of its own with the phase
+    of the codon's last base, and tCdsOnly's and tExonEnd's past their exons, their exon (where it
+    has a line), mRNA and gene lines extended along; tNoStop and tFrame stay as they are."""
+    out = tmp_path / 'longest.gff3'
+    run_script('filter_longest_transcripts.py', '--gff', 'testdata/stop_codon.gff3', '--fasta',
+               'testdata/stop_codon.fa', '--add-stop-codons', '-o', str(out))
+    spans = defaultdict(list)  # {(type, ID or Parent): [(start, end, phase)]}
+    for columns in feature_lines(out):
+        spans[columns[2], columns[8].split(';')[0].split('=')[1]].append((int(columns[3]), int(columns[4]),
+                                                                          columns[7]))
+    strands = {columns[8].split(';')[0].split('=')[1]: columns[6] == '+' for columns in feature_lines(out)
+               if columns[2] == 'mRNA'}
+
+    # the span from the first to the last CDS line, in GeenuFF coordinates as the import gives them
+    cds = {name: helpers.get_geenuff_start_end(lines[0][0], lines[-1][1], strands[name])
+           for (feature_type, name), lines in spans.items() if feature_type == 'CDS'}
+    assert cds == STOP_CODON_CDS
+    for name, span in STOP_CODON_EXTENDED_TRANSCRIPTS.items():
+        (start, end, _), = spans['mRNA', name]
+        assert helpers.get_geenuff_start_end(start, end, strands[name]) == span
+    assert spans['CDS', 'tSplit'] == [(172, 230, '0'), (261, 261, '1')]
+    assert spans['gene', 'gCdsOnly'] == [(761, 820, '.')]
+    for feature_type, name in [('exon', 'tExonEnd'), ('gene', 'gExonEnd')]:
+        assert spans[feature_type, name] == [(878, 950, '.')]
+
+
+def test_filter_longest_transcripts_shortens_utr_lines_holding_the_added_stop_codon(tmp_path):
+    """A 3' UTR line starting with the stop codon added to the CDS is shortened to start after it
+    (tA), and one holding nothing but the codon is left out (tB); the log counts both."""
+    sequence = ['C'] * 400
+    for position, codon in [(101, 'ATG'), (158, 'TAA'), (301, 'ATG'), (358, 'TAA')]:
+        sequence[position - 1:position + 2] = codon
+    fasta, gff, out, log = (tmp_path / name for name in ('genome.fa', 'genes.gff3', 'longest.gff3', 'longest.log'))
+    fasta.write_text('>CHR\n' + ''.join(sequence) + '\n')
+    gff.write_text('##gff-version 3\n'
+                   'CHR\ttest\tgene\t91\t200\t.\t+\t.\tID=gA\n'
+                   'CHR\ttest\tmRNA\t91\t200\t.\t+\t.\tID=tA;Parent=gA\n'
+                   'CHR\ttest\texon\t91\t200\t.\t+\t.\tParent=tA\n'
+                   'CHR\ttest\tCDS\t101\t157\t.\t+\t0\tParent=tA\n'
+                   'CHR\ttest\tthree_prime_UTR\t158\t200\t.\t+\t.\tParent=tA\n'
+                   'CHR\ttest\tgene\t291\t360\t.\t+\t.\tID=gB\n'
+                   'CHR\ttest\tmRNA\t291\t360\t.\t+\t.\tID=tB;Parent=gB\n'
+                   'CHR\ttest\texon\t291\t360\t.\t+\t.\tParent=tB\n'
+                   'CHR\ttest\tCDS\t301\t357\t.\t+\t0\tParent=tB\n'
+                   'CHR\ttest\tthree_prime_UTR\t358\t360\t.\t+\t.\tParent=tB\n')
+    run_script('filter_longest_transcripts.py', '--gff', str(gff), '--fasta', str(fasta), '--add-stop-codons',
+               '-o', str(out), '--log-file', str(log))
+    assert [(columns[2], columns[3], columns[4]) for columns in feature_lines(out)] == [
+        ('gene', '91', '200'), ('mRNA', '91', '200'), ('exon', '91', '200'), ('CDS', '101', '160'),
+        ('three_prime_UTR', '161', '200'),
+        ('gene', '291', '360'), ('mRNA', '291', '360'), ('exon', '291', '360'), ('CDS', '301', '360')]  # tB UTR dropped
+    assert '2 of them have a UTR line holding the stop codon' in log.read_text()
+    assert '(1 UTR lines covered by it left out)' in log.read_text()
+
+
 def test_coding_transcripts_past_a_sequence_edge_are_clipped_and_masked_whole():
     """A coding transcript reaching past its sequence keeps the part on it, selected for export
     and masked over at least that part; one with no CDS line on the sequence is left out with its
@@ -1984,23 +2109,20 @@ def test_a_cds_missing_only_its_stop_codon_gets_the_one_after_it():
     3 bases of its exons where they are a stop codon, also across an intron and on the minus
     strand, and by the 3 bases right after its last exon where the exons end with the CDS, the
     exon and the transcript then extended with it; it is left as it is where they are none or its
-    frame is off. See testdata/stop_codon.gff3."""
+    frame is off. See testdata/stop_codon.gff3 and STOP_CODON_CDS."""
     controller = ImportController(database_path='sqlite:///:memory:')
     controller.add_genome('testdata/stop_codon.fa', 'testdata/stop_codon.gff3', clean_gff=True)
     transcripts = transcripts_by_name(controller)
 
-    expected = {'tPlus': (20, 80), 'tSplit': (171, 261), 'tMinus': (396, 336),
-                'tNoStop': (470, 530), 'tFrame': (620, 682), 'tCdsOnly': (760, 820), 'tExonEnd': (936, 876),
-                'tShort': (1020, 1077), 'tExact': (1170, 1230)}
-    assert {name: feature_ranges(t, types.GEENUFF_CDS)[0] for name, t in transcripts.items()} == expected
+    assert {name: feature_ranges(t, types.GEENUFF_CDS)[0] for name, t in transcripts.items()} == STOP_CODON_CDS
     # 57 bp of CDS in the file and 60 once extended, so none of them is too short either
     for name in ['tPlus', 'tSplit', 'tMinus']:
         assert not error_types(transcripts[name])
     # the stop codon recovered, only the UTRs their exons lack remain
     assert error_types(transcripts['tCdsOnly']) == {types.MISSING_UTR_5P, types.MISSING_UTR_3P}
     assert error_types(transcripts['tExonEnd']) == {types.MISSING_UTR_3P}
-    assert feature_ranges(transcripts['tCdsOnly'], types.GEENUFF_TRANSCRIPT) == [(760, 820)]
-    assert feature_ranges(transcripts['tExonEnd'], types.GEENUFF_TRANSCRIPT) == [(949, 876)]
+    for name, span in STOP_CODON_EXTENDED_TRANSCRIPTS.items():
+        assert feature_ranges(transcripts[name], types.GEENUFF_TRANSCRIPT) == [span]
     assert types.MISSING_STOP_CODON in error_types(transcripts['tNoStop'])
     assert types.TRUNCATED_CDS in error_types(transcripts['tFrame'])
     assert controller.stats.stop_codons_recovered == 5

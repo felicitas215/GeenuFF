@@ -79,9 +79,12 @@ in 270 s at 8.0 GB. GeenuFF 0.3.2 cannot import it: it stops on any chromosome o
 
 ![What Helixer is trained on per gene](../img/masking_genes.png)
 
-Red marks genes with errors of their own that Helixer is nevertheless trained on as complete genes,
-which only GeenuFF 0.3.2 does; dark gray marks genes masked on the gene, so that Helixer learns
-nothing there instead of a wrong gene model. The axis starts at 75%.
+Red marks genes with errors in their structure that Helixer is nevertheless trained on as complete genes,
+which only GeenuFF 0.3.2 does. "Complete" here means that the CDS/CDs-introns stays unmasked and only
+the flanks beyond are masked. This technically signals that the exact gene boundaries are unclear, but
+also leaving a partial (or erroneous where it has errors previous not analyzed) gene in as valid
+training data. Dark gray marks genes completely masked out, so that Helixer learns nothing there
+instead of a wrong gene model. The axis starts at 75%.
 
 GeenuFF 0.4.0 changes two things, both keeping wrong labels out of Helixer's training data:
 
@@ -99,8 +102,8 @@ GeenuFF 0.4.0 changes two things, both keeping wrong labels out of Helixer's tra
 * **A missing UTR masks only a flank.** Where a gene has no UTR annotated, the UTR's real length is
   unknown, so a flank beside the gene is masked. GeenuFF 0.3.2 masked the whole rest of the gap to
   the neighboring gene on the 5' side (all of it but that gene's own flank), in *H. vulgare* a
-  median of 57 kb, all of it intergenic sequence never trained on. 0.4.0 masks a flank on each side that grows with the gap, about 1 kb
-  for a 10 kb gap.
+  median of 57 kb, all of it intergenic sequence never trained on. 0.4.0 masks a flank on each side
+  that grows with the gap, about 1 kb for a 10 kb gap.
 
 | species                 | masked, 0.3.2     | masked, 0.4.0   | genes with own errors trained as complete, 0.3.2 | 0.4.0 |
 |-------------------------|-------------------|-----------------|--------------------------------------------------|-------|
@@ -116,13 +119,16 @@ Nearly all masked bases lie beside the genes, sequence data Helixer learns neith
 intergenic: GeenuFF 0.4.0 masks 3 to 24 times fewer of them, except in TAIR12 (see below).
 
 The example shows the flank on one gene without UTRs, AT1G01335: GeenuFF 0.3.2 masks the 8.7 kb
-before it, 0.4.0 a 1 kb flank. GeenuFF 0.3.2 also masks the gene itself, as an effect of how the
-file is written: TAIR12 lists each exon twice, under the transcript and under the gene, and 0.3.2
-counts the copies as overlapping exons. GeenuFF 0.4.0 leaves the copies out, and the gene is
-trained.
+before it, 0.4.0 a 1 kb flank. This happened because of a bug that caused 5' flank mask ranges to
+be computed not from the start of the gene with the error, but from the upstream gene. GeenuFF
+0.3.2 also masks the gene itself, as an effect of how the file is written: TAIR12 as downloaded
+from NCBI lists each exon twice, under the transcript and under the gene, and 0.3.2 counts the
+copies as overlapping exons. GeenuFF 0.4.0 leaves the copies out, and the gene is trained. So,
+even GFF files that were auto-edited by NCBI on upload can be dealt with for the most part by the
+new version.
 
 ![Masks around a gene without UTRs, A. thaliana TAIR12](../img/masking_example.png)
 
-The same exon copies cost GeenuFF 0.3.2 most of TAIR12: it exports 5,697 of the 26,867 genes with
+The same exon copies cost GeenuFF 0.3.2 most of NCBI's TAIR12: it exports 5,697 of the 26,867 genes with
 CDS lines, finding no transcript to export for the others, which is why it masks less of this genome
 than 0.4.0. GeenuFF 0.4.0 exports 26,735.
