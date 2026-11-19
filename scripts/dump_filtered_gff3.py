@@ -2,7 +2,7 @@
 import argparse
 
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
-from geenuff.base.helpers import check_output_paths, require_input_files, setup_logging
+from geenuff.base.helpers import add_version_arg, check_output_paths, require_input_files, setup_logging
 
 
 def main(args: argparse.Namespace) -> None:
@@ -17,6 +17,7 @@ if __name__ == '__main__':
                      'one, for comparing a Helixer prediction against its reference. By default '
                      'only the ones not masked whole, i.e. the same gene models Helixer\'s h5 '
                      'export gives labels from.'))
+    add_version_arg(parser)
     parser.add_argument('--db-path-in', type=str, required=True,
                         help='Path to the GeenuFF SQLite input database.')
     parser.add_argument('-o', '--out', type=str, required=True,

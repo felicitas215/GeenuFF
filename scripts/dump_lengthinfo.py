@@ -3,6 +3,7 @@ import logging
 
 from geenuff.applications.exporters.lengths import LengthExportController
 from geenuff.applications.exporter import MODES, RangeArgParser
+from geenuff.base.helpers import log_version
 
 
 class LengthArgParser(RangeArgParser):
@@ -14,6 +15,7 @@ class LengthArgParser(RangeArgParser):
 
 def main(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    log_version()
     controller = LengthExportController(args.db_path_in, args.longest, args.coding)
     if args.mode in MODES:
         controller.prep_ranges(MODES[args.mode])

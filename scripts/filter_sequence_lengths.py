@@ -12,9 +12,9 @@ import math
 import os
 from collections import OrderedDict, defaultdict
 
-from geenuff.base.helpers import (add_output_compression_args, check_output_paths, insert_before_extension,
-                                  output_compression, output_path, require_fasta_and_gff, require_input_files,
-                                  setup_logging, write_fasta_without, write_gff_without)
+from geenuff.base.helpers import (add_output_compression_args, add_version_arg, check_output_paths,
+                                  insert_before_extension, output_compression, output_path, require_fasta_and_gff,
+                                  require_input_files, setup_logging, write_fasta_without, write_gff_without)
 from geenuff.base.types import PIECE_KEYS
 from geenuff.parsing.fastahelper import SEQUENCE_WHITESPACE, FastaParser
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
@@ -185,6 +185,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_version_arg(parser)
     parser.add_argument('--fasta', type=str, required=True, help='FASTA file (may be gzipped)')
     parser.add_argument('--gff', type=str,
                         help='GFF3 file of the FASTA file (may be gzipped); left out to filter the FASTA file alone, '

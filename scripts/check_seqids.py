@@ -8,7 +8,7 @@ import argparse
 import logging
 import os
 
-from geenuff.base.helpers import listed, require_fasta_and_gff, require_input_files, setup_logging
+from geenuff.base.helpers import add_version_arg, listed, require_fasta_and_gff, require_input_files, setup_logging
 from geenuff.parsing.fastahelper import FastaParser
 from geenuff.parsing.gffhelper import GFFParser
 
@@ -35,6 +35,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_version_arg(parser)
     parser.add_argument('--fasta', type=str, required=True, help='FASTA file (may be gzipped)')
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     args = parser.parse_args()

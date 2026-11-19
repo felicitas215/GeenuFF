@@ -13,9 +13,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
-from geenuff.base.helpers import (Compression, add_output_compression_args, check_output_paths, insert_before_extension,
-                                  open_out, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging)
+from geenuff.base.helpers import (Compression, add_output_compression_args, add_version_arg, check_output_paths,
+                                  insert_before_extension, open_out, output_compression, output_path,
+                                  require_fasta_and_gff, require_input_files, setup_logging)
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
@@ -198,6 +198,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_version_arg(parser)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     parser.add_argument('-o', '--out', type=str,
                         help=(f'output GFF3 file, gzipped where the input is (see --gzip) (default: the GFF3 file\'s '

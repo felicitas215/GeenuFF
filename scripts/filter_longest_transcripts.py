@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from geenuff.applications.import_summary import DROPPED_LINE_REASONS
 from geenuff.applications.importer import (GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES, FastaImporter,
                                            MissingGeneLines, OrganizedGeenuffImporterGroup, OrganizedGFFEntries)
-from geenuff.base.helpers import (Compression, NonMatchableIDs, add_output_compression_args, check_output_paths,
-                                  gff_spans_overlap, insert_before_extension, merge_gff_spans, open_out,
-                                  output_compression, output_path, outside_sequence, require_fasta_and_gff,
+from geenuff.base.helpers import (Compression, NonMatchableIDs, add_output_compression_args, add_version_arg,
+                                  check_output_paths, gff_spans_overlap, insert_before_extension, merge_gff_spans,
+                                  open_out, output_compression, output_path, outside_sequence, require_fasta_and_gff,
                                   require_identical_seqids, require_input_files, setup_logging, spliced_cds_sequence,
                                   strand_or_none)
 from geenuff.parsing.fastahelper import FastaParser
@@ -355,6 +355,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_version_arg(parser)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
     parser.add_argument('--fasta', type=str,
                         help=('FASTA file of the genome (may be gzipped), for --add-stop-codons and excluding '

@@ -15,8 +15,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, DEFAULT_THREADS, add_output_compression_args,
-                                  built_exon_spans, check_output_paths, codon_after_cds, compression_for,
-                                  insert_before_extension, listed, output_compression, output_path,
+                                  add_version_arg, built_exon_spans, check_output_paths, codon_after_cds,
+                                  compression_for, insert_before_extension, listed, output_compression, output_path,
                                   require_fasta_and_gff, require_input_files, setup_logging, write_fasta_without,
                                   write_gff_without)
 from geenuff.base.types import PIECE_KEYS, TRANSCRIPT_TYPES
@@ -722,6 +722,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_version_arg(parser)
     parser.add_argument('--fasta', type=str, required=True, help='FASTA file the GFF3 file annotates (may be gzipped)')
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file to rename (may be gzipped)')
     parser.add_argument('-o', '--out', type=str,

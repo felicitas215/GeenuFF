@@ -6,8 +6,8 @@ import logging
 import argparse
 
 from geenuff.applications.importer import ImportController
-from geenuff.base.helpers import (check_output_paths, is_fasta_name, is_gff_name, require_fasta_and_gff,
-                                  require_input_files)
+from geenuff.base.helpers import (add_version_arg, check_output_paths, is_fasta_name, is_gff_name, log_version,
+                                  require_fasta_and_gff, require_input_files)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ def main(args, paths):
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(logging.Formatter(fmt=msg_fmt_str))
     logging.getLogger().addHandler(stdout_handler)
+    log_version()
 
     # try to load config
     config = {}
@@ -89,13 +90,15 @@ def main(args, paths):
 
     controller = ImportController(database_path=paths.db_out, config=config, replace_db=args.replace_db)
     genome_args = {}
-    for key in ['species', 'accession', 'version', 'acquired_from']:
+    for key in ['species', 'accession', 'acquired_from']:
         genome_args[key] = vars(args)[key]
+    genome_args['version'] = args.genome_version
     controller.add_genome(paths.fasta_in, paths.gff_in, genome_args)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    add_version_arg(parser)
     parser.add_argument('--basedir', help='organized output (& input) directory. If this is not set, --fasta, --gff3 '
                         'and --db-path must be set.')
     parser.add_argument('--config-file', type=str, default=DEFAULT_CONFIG_FILE,
@@ -123,7 +126,7 @@ if __name__ == '__main__':
     genome_attr = parser.add_argument_group('Possible genome attributes:')
     genome_attr.add_argument('--species', required=True, help='name of the species')
     genome_attr.add_argument('--accession', default='', help='')
-    genome_attr.add_argument('--version', default='', help='genome version')
+    genome_attr.add_argument('--genome-version', default='', help='genome version, e.g. the assembly name')
     genome_attr.add_argument('--acquired-from', default='', help='genome source')
 
     args = parser.parse_args()

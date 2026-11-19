@@ -8,6 +8,7 @@ import os
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from types import GeneratorType
 from typing import TYPE_CHECKING, BinaryIO, TextIO
 
@@ -120,7 +121,8 @@ def insert_before_extension(path: str, text: str) -> str:
 
 
 def setup_logging(log_file: str | None = None) -> None:
-    """Logs INFO and above to stdout and, given a path, to that file as well, overwriting it.
+    """Logs INFO and above to stdout and, given a path, to that file as well, overwriting it, starting
+    with the GeenuFF version.
 
     Args:
         log_file: the file to write the log to besides stdout, if given
@@ -129,6 +131,7 @@ def setup_logging(log_file: str | None = None) -> None:
     if log_file:
         handlers.append(logging.FileHandler(log_file, mode='w'))
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s', handlers=handlers)
+    log_version()
 
 
 # Mapper
@@ -174,6 +177,29 @@ DEFAULT_COMPRESSION_LEVEL = 4
 # 4, 1.0 s with 8 and 0.5 s with 32 (one test machine), so more threads help nearly in proportion,
 # and 4 is a default that leaves the rest of a shared machine free
 DEFAULT_THREADS = 4
+
+
+def geenuff_version() -> str | None:
+    """The installed GeenuFF version, None where run from a source tree without installing."""
+    try:
+        return version('geenuff')
+    except PackageNotFoundError:
+        return None
+
+
+def version_text() -> str:
+    """'GeenuFF <version>', as --version prints it and the scripts log it."""
+    return f'GeenuFF {geenuff_version() or "(not installed, version unknown)"}'
+
+
+def add_version_arg(parser: argparse.ArgumentParser) -> None:
+    """Adds --version, printing the GeenuFF version and exiting."""
+    parser.add_argument('--version', action='version', version=version_text())
+
+
+def log_version() -> None:
+    """Logs the GeenuFF version, the first line of a script's log."""
+    logger.info(version_text())
 
 
 @dataclass(frozen=True)

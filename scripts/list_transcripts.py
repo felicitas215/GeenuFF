@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from geenuff.applications.import_summary import UNEXPORTED_REASONS
 from geenuff.applications.importer import error_severity
 from geenuff.base import types
-from geenuff.base.helpers import check_output_paths, geenuff_to_gff_start_end, is_masked_whole, require_input_files
+from geenuff.base.helpers import (add_version_arg, check_output_paths, geenuff_to_gff_start_end, is_masked_whole,
+                                  log_version, require_input_files)
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ def write_counts(rows: list[TranscriptRow], out) -> None:
 
 def main(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    log_version()
     logger.info(f'Reading "{args.db_path_in}"')
     con = sqlite3.connect(args.db_path_in)
     rows = [row for row in read_transcripts(con) if matches(row, args)]
@@ -162,6 +164,7 @@ def main(args: argparse.Namespace) -> None:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_version_arg(parser)
     parser.add_argument('--db-path-in', type=str, required=True, help='Path to the GeenuFF SQLite database.')
     parser.add_argument('-o', '--out', type=str, help='output file (default is stdout)')
     parser.add_argument('--output', choices=['table', 'gene_ids', 'transcript_ids', 'counts'], default='table',

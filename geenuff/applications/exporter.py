@@ -13,7 +13,8 @@ from sqlalchemy.orm import sessionmaker
 from geenuff.base.orm import (Coordinate, Genome, Feature, Transcript, TranscriptPiece,
                               association_transcript_piece_to_feature as asso_tp_2_f, SuperLocus)
 from geenuff.base.handlers import TranscriptHandlerBase, SuperLocusHandlerBase
-from geenuff.base.helpers import full_db_path, Counter, in_enum_values, check_output_paths, require_input_files
+from geenuff.base.helpers import (full_db_path, Counter, in_enum_values, add_version_arg, check_output_paths,
+                                  require_input_files)
 from geenuff.base import types
 
 # this module is called from inside Helixer's export pipeline (helixer/export/exporter.py),
@@ -46,6 +47,7 @@ class QueriedFeature:
 class ExportArgParser(object):
     def __init__(self):
         self.parser = argparse.ArgumentParser()
+        add_version_arg(self.parser)
         self.parser.add_argument('--db-path-in', type=str, required=True,
                                  help='Path to the Geenuff SQLite input database.')
         self.parser.add_argument('-l', '--longest', action='store_true',

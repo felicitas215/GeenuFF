@@ -3,7 +3,7 @@ import logging
 
 from geenuff.applications.exporters.json import JsonExportController
 from geenuff.applications.exporter import ExportArgParser
-from geenuff.base.helpers import strand_as_bool
+from geenuff.base.helpers import log_version, strand_as_bool
 
 
 class JsonArgParser(ExportArgParser):
@@ -29,6 +29,7 @@ class JsonArgParser(ExportArgParser):
 
 def main(args):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
+    log_version()
     controller = JsonExportController(args.db_path_in, args.longest, all_types=args.show_all)
     is_plus_strand = strand_as_bool(args.strand)
     controller.query_and_write(species=args.species,

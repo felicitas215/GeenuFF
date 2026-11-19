@@ -7,7 +7,6 @@ import shutil
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from importlib.metadata import PackageNotFoundError, version
 
 import intervaltree
 from abc import ABC, abstractmethod
@@ -1485,12 +1484,8 @@ class ImportController(object):
 
         self.clean_tmp_data()
         self.stats = ImportStatistics()
-        try:
-            geenuff_version = version('geenuff')
-        except PackageNotFoundError:  # run from a source tree without installing
-            geenuff_version = None
         genome_args = {**genome_args, 'fasta_path': os.path.abspath(fasta_path),
-                       'gff_path': os.path.abspath(gff_path), 'geenuff_version': geenuff_version,
+                       'gff_path': os.path.abspath(gff_path), 'geenuff_version': helpers.geenuff_version(),
                        'imported': datetime.now().isoformat(timespec='seconds')}
         self.add_sequences(fasta_path, genome_args)
         self.stats.genome_bases = sum(c.length for c in self.latest_fasta_importer.genome.coordinates)
