@@ -23,6 +23,7 @@ from geenuff.applications.import_summary import GENES_GIVING_LABELS, SUMMARY_STE
 from geenuff.applications.exporter import GeenuffExportController
 from geenuff.applications.exporters.gff3 import FilteredGff3ExportController
 from geenuff.parsing import gffhelper
+from geenuff.parsing.fastahelper import InvalidBase
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -1494,6 +1495,23 @@ def test_coding_transcripts_naming_no_parent_stop_the_import(tmp_path):
         organizer.load_organized_entries()
     assert (error.value.transcript_ids, error.value.n_coding) == (['g1.t1'], 1)
     assert 'add_gene_lines.py' in str(error.value)
+
+
+@pytest.mark.parametrize('fasta_text, error', [
+    ('>CHR\nACGT;ACGT\n', InvalidBase),  # stops while reading the FASTA file
+    ('>CHR\n' + 'ACGT' * 25 + '\n', MissingGeneLines),  # stops while reading the GFF3 file
+])
+def test_an_import_stopped_by_an_error_leaves_no_database(tmp_path, fasta_text, error):
+    fasta, gff, db = tmp_path / 'genome.fa', tmp_path / 'genes.gff3', tmp_path / 'genome.sqlite3'
+    fasta.write_text(fasta_text)
+    gff.write_text('##gff-version 3\n'
+                   'CHR\tT\tmRNA\t21\t53\t.\t+\t.\tID=g1.t1\n'
+                   'CHR\tT\tCDS\t21\t53\t.\t+\t0\tParent=g1.t1\n')
+    controller = ImportController(database_path=str(db))
+    with pytest.raises(error):
+        controller.add_genome(str(fasta), str(gff), {'species': 'test'})
+    # neither the database nor any file beside it is left
+    assert sorted(path.name for path in tmp_path.iterdir()) == ['genes.gff3', 'genome.fa']
 
 
 def test_non_coding_transcripts_naming_no_parent_are_left_out(tmp_path):

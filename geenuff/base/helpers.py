@@ -285,7 +285,9 @@ GFF_EXTENSIONS = ('.gff', '.gff3')
 GTF_EXTENSIONS = ('.gtf',)
 # GTF attribute columns start with gene_id or transcript_id, a space and the value
 GTF_ATTRIBUTE_STARTS = (b'gene_id ', b'transcript_id ')
-GTF_HINT = 'GeenuFF reads GFF3 only; convert it to GFF3 first, e.g. with AGAT (agat_convert_sp_gxf2gxf.pl)'
+# gffread writes gene lines only with --keep-genes, its transcripts otherwise naming no Parent gene
+GTF_HINT = ('GeenuFF reads GFF3 only; convert it to GFF3 first, e.g. with gffread (gffread --keep-genes in.gtf '
+            '-o out.gff3) or AGAT (agat_convert_sp_gxf2gxf.pl)')
 
 
 def name_ending(path: str) -> str:

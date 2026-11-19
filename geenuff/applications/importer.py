@@ -3,7 +3,6 @@ import copy
 import bisect
 import math
 import logging
-import shutil
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -1460,6 +1459,17 @@ class ImportController(object):
         orm.Base.metadata.create_all(self.engine)
         self.session = sessionmaker(bind=self.engine)()
 
+    def _remove_database(self):
+        """Closes the database and deletes its file, so an import stopped by an error leaves no
+        incomplete database behind (the error and the entries it arose in are in the log)."""
+        self.session.close()
+        self.engine.dispose()
+        # the path may be given as an SQLAlchemy URL, and an in-memory database has no file
+        file_path = self.database_path.removeprefix('sqlite:///')
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            logger.warning(f'Removed the incomplete database at {file_path}')
+
     def make_genome(self, genome_args=None):
         if genome_args is None:
             genome_args = {}
@@ -1487,22 +1497,13 @@ class ImportController(object):
         genome_args = {**genome_args, 'fasta_path': os.path.abspath(fasta_path),
                        'gff_path': os.path.abspath(gff_path), 'geenuff_version': helpers.geenuff_version(),
                        'imported': datetime.now().isoformat(timespec='seconds')}
-        self.add_sequences(fasta_path, genome_args)
-        self.stats.genome_bases = sum(c.length for c in self.latest_fasta_importer.genome.coordinates)
         try:
+            self.add_sequences(fasta_path, genome_args)
+            self.stats.genome_bases = sum(c.length for c in self.latest_fasta_importer.genome.coordinates)
             self.add_gff(gff_path, clean=clean_gff)
             self.run_analyze()
-        except Exception as e:
-            self.session.close()
-            # the path may be given as an SQLAlchemy URL, and an in-memory database has no file
-            file_path = self.database_path.removeprefix('sqlite:///')
-            if os.path.isfile(file_path):
-                part_path = f'{file_path}.partial'
-                shutil.move(file_path, part_path)
-                logger.error(f'Aborting due to error, attempt so far saved at {part_path} '
-                             f'for debugging purposes: {type(e).__name__}: {e}')
-            else:
-                logger.error(f'Aborting due to error: {type(e).__name__}: {e}')
+        except Exception:
+            self._remove_database()
             raise
         self.stats.log_summary(species)
         n_total = self.stats.total_coding_transcripts
