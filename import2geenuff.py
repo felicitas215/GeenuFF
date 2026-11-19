@@ -18,7 +18,8 @@ class PathFinder(object):
     INPUT = 'input'
     OUTPUT = 'output'
 
-    def __init__(self, db_path, basedir, species, fasta=None, gff=None, logfile=None):
+    def __init__(self, db_path: str | None, basedir: str | None, species: str, fasta: str | None = None,
+                 gff: str | None = None, logfile: str | None = None) -> None:
         # directories
         self.db_out = db_path
         self.basedir = basedir
@@ -37,14 +38,14 @@ class PathFinder(object):
         db_stem = self.db_out.removeprefix('sqlite:///').removesuffix('.sqlite3')
         self.problems_out = logfile or f'{db_stem}_geenuff_import.log'
 
-    def _get_fa(self, provided):
+    def _get_fa(self, provided: str | None) -> str:
         if provided is not None:
             return provided
         maybe = [x for x in os.listdir(self.input) if is_fasta_name(x)]
         self._confirm_exactly_one(maybe, 'fasta')
         return self.input + maybe[0]
 
-    def _get_gff(self, provided):
+    def _get_gff(self, provided: str | None) -> str:
         if provided is not None:
             return provided
         maybe = [x for x in os.listdir(self.input) if is_gff_name(x)]
@@ -52,11 +53,11 @@ class PathFinder(object):
         return self.input + maybe[0]
 
     @staticmethod
-    def _confirm_exactly_one(possibilities, info):
+    def _confirm_exactly_one(possibilities: list[str], info: str) -> None:
         assert len(possibilities) == 1, f'no(n) unique {info} file found as input. Found: {possibilities}'
 
 
-def main(args, paths):
+def main(args: argparse.Namespace, paths: PathFinder) -> None:
     # checked before the log file is opened, which would overwrite the existing database's import log
     if os.path.exists(paths.db_out.removeprefix('sqlite:///')) and not args.replace_db:
         sys.exit(f'database already existing at {paths.db_out} and --replace-db not set')

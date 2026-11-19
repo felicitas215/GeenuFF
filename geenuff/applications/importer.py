@@ -1,21 +1,27 @@
+from __future__ import annotations
+
 import os
 import copy
 import bisect
 import math
 import logging
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TypedDict
 
 import intervaltree
 from abc import ABC, abstractmethod
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from geenuff.base import orm
 from geenuff.base import types
 from geenuff.base import helpers
 from geenuff.parsing import fastahelper, gffhelper
+from geenuff.parsing.gffhelper import GFFObject
 from geenuff.base.helpers import (get_strand_direction, strand_or_none, get_geenuff_start_end,
                                   has_inframe_stop_codon, plural, spliced_cds_sequence, START_CODON,
                                   STOP_CODONS)
@@ -71,13 +77,61 @@ class MissingGeneLines(Exception):
     """Coding transcript lines name no Parent, as gene predictors write them without gene lines;
     transcript_ids lists them in file order, n_coding counts all coding transcript lines."""
 
-    def __init__(self, message: str, transcript_ids: list[str], n_coding: int):
+    def __init__(self, message: str, transcript_ids: list[str], n_coding: int) -> None:
         super().__init__(message)
         self.transcript_ids = transcript_ids
         self.n_coding = n_coding
 
 
-def error_severity(errors) -> str:
+# a range as GFF (start, end) or, sign-normalized, as (lo, hi)
+Span = tuple[int, int]
+# (kept locus, dropped locus, [(range, side)]) or three Nones, see GFFErrorHandling._decide_overlap_pair
+OverlapDecision = tuple[int, int, list[tuple[Span, int]]] | tuple[None, None, None]
+# {ID of a gene or transcript line left out: (the reason its chain was left out for, the gene ID the
+# chain starts from, or None where it starts from a transcript line)}
+DroppedIDs = dict[str, tuple[str, str | None]]
+
+
+class TranscriptEntries(TypedDict):
+    """The lines of one transcript, exons, CDS and UTRs sorted by start (see OrganizedGFFEntryGroup)."""
+    exons: list[GFFObject]
+    cds: list[GFFObject]
+    utrs: list[GFFObject]
+    exons_built: bool
+    floating: bool
+
+
+class EntryGroup(TypedDict):
+    """The lines of one gene (see OrganizedGFFEntryGroup)."""
+    super_locus: GFFObject
+    transcripts: dict[GFFObject, TranscriptEntries]
+
+
+class TranscriptImporters(TypedDict, total=False):
+    """The importers of one transcript (see OrganizedGeenuffImporterGroup); protein, cds, introns,
+    coding_length and findings are set for coding transcripts only."""
+    transcript: TranscriptImporter
+    transcript_piece: TranscriptPieceImporter
+    transcript_feature: FeatureImporter
+    protein: ProteinImporter
+    cds: FeatureImporter
+    introns: list[FeatureImporter]
+    masks: list[FeatureImporter]
+    detected_error_types: set[str]
+    mask_whole: str | None
+    coding_length: int
+    findings: list[Finding]
+
+
+class ImporterGroup(TypedDict, total=False):
+    """The importers of one super locus (see OrganizedGeenuffImporterGroup); unresolved_overlap is
+    set only where an overlap leaves it masked whole ('nested' or 'chain')."""
+    super_locus: SuperLocusImporter
+    transcripts: list[TranscriptImporters]
+    unresolved_overlap: str
+
+
+def error_severity(errors: set[str]) -> str:
     """What a transcript's own errors take away, from its error types, as the overlap decision
     grades it (see GFFErrorHandling._locus_severity): 'masked_outright', 'flank_masked' or 'none'.
     The masks of an overlap are not the transcript's own."""
@@ -100,7 +154,7 @@ PREPARING_SCRIPTS = ('add_gene_lines.py for transcripts without a gene or naming
 
 # core queue prep
 class InsertionQueue(helpers.QueueController):
-    def __init__(self, session, engine):
+    def __init__(self, session: Session, engine: Engine) -> None:
         super().__init__(session, engine)
         self.super_locus = helpers.CoreQueue(orm.SuperLocus.__table__.insert())
         self.transcript = helpers.CoreQueue(orm.Transcript.__table__.insert())
@@ -164,10 +218,10 @@ class OrganizedGeenuffImporterGroup(object):
     }
     """
 
-    def __init__(self, organized_gff_entries, coord, controller):
+    def __init__(self, organized_gff_entries: EntryGroup, coord: orm.Coordinate, controller: ImportController) -> None:
         self.coord = coord
         self.controller = controller
-        self.importers = {'transcripts': []}
+        self.importers: ImporterGroup = {'transcripts': []}
         try:
             self._parse_gff_entries(organized_gff_entries)
         except Exception as e:
@@ -175,7 +229,8 @@ class OrganizedGeenuffImporterGroup(object):
                          f'{organized_gff_entries}')
             raise e
 
-    def _drop_unstorable_transcript(self, sl_i, t_id, what, gff_start, gff_end, coding):
+    def _drop_unstorable_transcript(self, sl_i: SuperLocusImporter, t_id: str, what: str, gff_start: int,
+                                    gff_end: int, coding: bool) -> None:
         """Leaves a transcript out entirely because one of its lines has no range it could be
         stored as, its start running past its end. Trans-spliced organellar genes wrapping a
         circular molecule's origin are written this way; nothing can be made of them here, and
@@ -189,7 +244,7 @@ class OrganizedGeenuffImporterGroup(object):
                      f"'{sl_i.given_name}' will not be exported")
 
     @staticmethod
-    def cds_line_checks(t_entries):
+    def cds_line_checks(t_entries: TranscriptEntries) -> tuple[list[Span], bool, bool]:
         """The spans of a transcript's CDS lines (GFF, 1-based, inclusive), whether they overlap and
         whether they reach outside its exons (see helpers.cds_outside_exons). Every caller of
         add_missing_stop_codon runs these first and adds no stop codon where either holds.
@@ -203,7 +258,8 @@ class OrganizedGeenuffImporterGroup(object):
                 helpers.cds_outside_exons(cds_spans, [(e.start, e.end) for e in t_entries['exons']]))
 
     @staticmethod
-    def add_missing_stop_codon(t, t_entries, is_plus_strand, coord, cds_seq):
+    def add_missing_stop_codon(t: GFFObject, t_entries: TranscriptEntries, is_plus_strand: bool,
+                               coord: orm.Coordinate, cds_seq: str) -> tuple[str, int] | None:
         """Adds the stop codon to a transcript's CDS lines where it alone is missing: the CDS, given
         as its spliced sequence cds_seq, being whole codons without any stop codon, and the next
         codon along the exons (see cds_extended_by_a_codon) being one. GTF leaves the stop codon out
@@ -234,7 +290,8 @@ class OrganizedGeenuffImporterGroup(object):
         return extended_seq, n_past_exons
 
     @staticmethod
-    def cds_extended_by_a_codon(t_entries, is_plus_strand, seq_length):
+    def cds_extended_by_a_codon(t_entries: TranscriptEntries, is_plus_strand: bool,
+                                seq_length: int) -> tuple[list[GFFObject], int] | None:
         """Copies of a transcript's CDS lines extended by the 3 bases following them along its
         exons, possibly across an intron, and directly past its last exon where fewer are left in
         the exons, with how many of the 3 lie past them; None where the sequence ends first. Used
@@ -265,7 +322,7 @@ class OrganizedGeenuffImporterGroup(object):
         return sorted(pieces, key=lambda c: c.start), n_past
 
     @staticmethod
-    def extend_to_cds(t, t_entries, is_plus_strand):
+    def extend_to_cds(t: GFFObject, t_entries: TranscriptEntries, is_plus_strand: bool) -> None:
         """Extends a transcript line and a copy of its outermost exon at the 3' end to the end of
         its CDS, for a stop codon added past them."""
         exons = t_entries['exons']
@@ -280,7 +337,7 @@ class OrganizedGeenuffImporterGroup(object):
             t_entries['exons'] = [first] + exons[1:]
             t.start = min(t.start, first.start)
 
-    def _clip_to_sequence(self, t, t_entries):
+    def _clip_to_sequence(self, t: GFFObject, t_entries: TranscriptEntries) -> bool:
         """Clips a transcript reaching past an edge of its sequence to the part on it, leaving out
         its exon and CDS lines wholly beyond. Returns False, changing nothing, where no CDS line
         of it lies on the sequence."""
@@ -294,7 +351,8 @@ class OrganizedGeenuffImporterGroup(object):
             line.start, line.end = max(line.start, 1), min(line.end, length)
         return True
 
-    def _drop_transcript_outside_sequence(self, sl_i, t_id, line, coding):
+    def _drop_transcript_outside_sequence(self, sl_i: SuperLocusImporter, t_id: str, line: GFFObject,
+                                          coding: bool) -> None:
         """Leaves a transcript with no CDS line on its sequence out entirely because one of its
         lines starts before its sequence or ends past it, which an annotation of another assembly
         version, or a gene crossing the origin of a circular molecule written with an end past
@@ -315,7 +373,7 @@ class OrganizedGeenuffImporterGroup(object):
         logger.debug(f"dropping transcript {description}: outside its sequence; super locus "
                      f"'{sl_i.given_name}' will not be exported")
 
-    def _parse_gff_entries(self, entries):
+    def _parse_gff_entries(self, entries: EntryGroup) -> None:
         """Changes the GFF format into the GeenuFF format. Does all the parsing."""
         sl = entries['super_locus']
         stats = self.controller.stats
@@ -359,8 +417,8 @@ class OrganizedGeenuffImporterGroup(object):
         for t, t_entries in entries['transcripts'].items():
             stats.total_transcripts += 1
             # masked whole without further checks, see GFFErrorHandling._find_errors
-            t_importers = {'masks': [], 'detected_error_types': set(),
-                           'mask_whole': types.FLOATING_CDS if t_entries['floating'] else None}
+            t_importers: TranscriptImporters = {'masks': [], 'detected_error_types': set(),
+                                                'mask_whole': types.FLOATING_CDS if t_entries['floating'] else None}
             t_id = t.get_ID()
             if t.start > t.end:
                 self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end, bool(t_entries['cds']))
@@ -523,7 +581,8 @@ class OrganizedGeenuffImporterGroup(object):
             stats.transcripts_with_exons_built += t_entries['exons_built']
         self._set_longest_transript()
 
-    def _build_introns(self, t, t_id, t_entries, tf_i, t_is_plus_strand, sl_i):
+    def _build_introns(self, t: GFFObject, t_id: str, t_entries: TranscriptEntries, tf_i: FeatureImporter,
+                       t_is_plus_strand: bool, sl_i: SuperLocusImporter) -> list[FeatureImporter]:
         """The introns of a coding transcript in 5' to 3' order: its transcript span less its exons,
         which handles literal sequence-edge cases more reliably than the gaps between exons, plus a
         backwards intron per overlap of two exons, turned into an overlapping_exons error later. A
@@ -592,7 +651,7 @@ class OrganizedGeenuffImporterGroup(object):
         introns = sorted(introns, key=lambda x: x.start)
         return introns if t_is_plus_strand else introns[::-1]
 
-    def _set_longest_transript(self):
+    def _set_longest_transript(self) -> None:
         """Looks for the transcript with the longest spliced CDS (coding_length, set in
         _parse_gff_entries, see _coding_length) and sets the 'longest' parameters in all the
         TranscriptImporters. In case of a tie, the first transcript found will be set as longest.
@@ -612,7 +671,7 @@ class OrganizedGeenuffImporterGroup(object):
                 t['transcript'].longest = False
 
     @staticmethod
-    def _coding_length(cds, introns):
+    def _coding_length(cds: FeatureImporter, introns: list[FeatureImporter]) -> int:
         """Spliced length of a CDS: its span less the parts of the transcript's introns within it.
         The backwards introns standing in for overlapping exons are no introns and are skipped."""
         c_lo, c_hi = sorted((cds.start, cds.end))
@@ -625,7 +684,7 @@ class OrganizedGeenuffImporterGroup(object):
         return length
 
     @staticmethod
-    def _protein_id(cds_entry_list):
+    def _protein_id(cds_entry_list: list[GFFObject]) -> str | None:
         """The protein ID of a transcript's CDS lines: their protein_id attribute, else their
         Parent, several joined by commas, so a CDS line shared by transcripts gives each the same;
         None without either. Only stored, never used to decide anything."""
@@ -658,12 +717,12 @@ class OrganizedGFFEntryGroup(object):
     }
     """
 
-    def __init__(self, entries, fasta_importer, controller):
+    def __init__(self, entries: EntryGroup, fasta_importer: FastaImporter, controller: ImportController) -> None:
         self.controller = controller
         self.entries = entries
         self.coord = fasta_importer.coords_by_seqid[entries['super_locus'].seqid]
 
-    def get_geenuff_importers(self):
+    def get_geenuff_importers(self) -> ImporterGroup:
         geenuff_importer_group = OrganizedGeenuffImporterGroup(self.entries, self.coord,
                                                                self.controller)
         return geenuff_importer_group.importers
@@ -685,9 +744,10 @@ class OrganizedGFFEntries(object):
     together with every line below them.
     """
 
-    def __init__(self, gff_file, stats=None, entry_class=gffhelper.GFFObject):
+    def __init__(self, gff_file: str, stats: ImportStatistics | None = None,
+                 entry_class: type[GFFObject] = GFFObject) -> None:
         self.gff_file = gff_file
-        self.organized_entries = {}
+        self.organized_entries: dict[str, list[EntryGroup]] = {}
         # only present when constructed as part of a full ImportController.add_gff() run;
         # standalone/test use (no controller) gets its own throwaway counter
         self.stats = stats if stats is not None else ImportStatistics()
@@ -695,7 +755,7 @@ class OrganizedGFFEntries(object):
         # i.e. LineIDs form filter_longest_transcript.py
         self.entry_class = entry_class
 
-    def load_organized_entries(self):
+    def load_organized_entries(self) -> None:
         genes, transcripts, pieces = [], [], []
         for entry in self._useful_gff_entries():
             if entry.type in GENE_TYPES:
@@ -710,7 +770,7 @@ class OrganizedGFFEntries(object):
 
         # {ID of a gene or transcript line left out: the reason the first line of its chain was left
         # out for}, so that the lines below it go too, and what they lose is put down to that reason
-        dropped_ids = {}
+        dropped_ids: DroppedIDs = {}
         genes_by_id = self._lines_by_unique_id(genes, transcripts, dropped_ids)
         transcripts_by_id = self._lines_by_unique_id(transcripts, genes, dropped_ids)
         groups = {gene_id: {'super_locus': gene, 'transcripts': {}}
@@ -731,19 +791,20 @@ class OrganizedGFFEntries(object):
             self.organized_entries.setdefault(group['super_locus'].seqid, []).append(group)
 
     @staticmethod
-    def _new_t_entries(floating=False):
+    def _new_t_entries(floating: bool = False) -> TranscriptEntries:
         """The lines of one transcript; floating is True for one made only to mask CDS lines
         without a transcript line, see _place_floating_cds."""
         return {'exons': [], 'cds': [], 'utrs': [], 'exons_built': False, 'floating': floating}
 
-    def _line(self, seqid, feature_type, start, end, strand, attributes):
+    def _line(self, seqid: str, feature_type: str, start: int, end: int, strand: str | None,
+              attributes: str) -> GFFObject:
         """A GFF line made by GeenuFF itself, for a gene, transcript or exon the file lacks."""
-        line = gffhelper.GFFObject(f'{seqid}\tGeenuFF\t{feature_type}\t{start}\t{end}\t.\t'
-                                   f'{strand or "."}\t.\t{attributes}')
+        line = GFFObject(f'{seqid}\tGeenuFF\t{feature_type}\t{start}\t{end}\t.\t'
+                         f'{strand or "."}\t.\t{attributes}')
         self._clean_entry(line)
         return line
 
-    def _built_exons(self, t, t_entries):
+    def _built_exons(self, t: GFFObject, t_entries: TranscriptEntries) -> list[GFFObject]:
         """Exons for a transcript with CDS lines but no exon lines, built from its CDS and UTR lines
         (see helpers.built_exon_spans), each on the sequence and strand of its first piece."""
         pieces = sorted(t_entries['cds'] + t_entries['utrs'], key=lambda e: e.start)
@@ -753,19 +814,20 @@ class OrganizedGFFEntries(object):
         return [self._line(first_at[start].seqid, 'exon', start, end, first_at[start].strand, f'Parent={t.get_ID()}')
                 for start, end in helpers.built_exon_spans((piece.start, piece.end) for piece in pieces)]
 
-    def _drop(self, entry, reason):
+    def _drop(self, entry: GFFObject, reason: str) -> None:
         self.stats.dropped_lines[reason][entry.type] += 1
         logger.debug(f'leaving out {entry.type} at {entry.seqid}:{entry.start}-{entry.end}: '
                      f'{DROPPED_LINE_REASONS[reason]}')
 
-    def _drop_below(self, entry, reason):
+    def _drop_below(self, entry: GFFObject, reason: str) -> None:
         """Leaves out a line whose parent was left out, counted under the reason the first line of
         its chain was left out for."""
         self.stats.dropped_lines_below[reason][entry.type] += 1
         logger.debug(f'leaving out {entry.type} at {entry.seqid}:{entry.start}-{entry.end}, its '
                      f'parent being left out: {DROPPED_LINE_REASONS[reason]}')
 
-    def _lines_by_unique_id(self, lines, other_parent_lines, dropped_ids):
+    def _lines_by_unique_id(self, lines: list[GFFObject], other_parent_lines: list[GFFObject],
+                            dropped_ids: DroppedIDs) -> dict[str, GFFObject]:
         """{ID: line} of the gene or transcript lines whose ID no other gene or transcript line
         uses. A line without an ID, which no line can name as its parent, or with an ID another
         line shares, which makes what a child names undecidable, is left out."""
@@ -782,7 +844,8 @@ class OrganizedGFFEntries(object):
                 by_id[line_id] = line
         return by_id
 
-    def _place_transcripts(self, transcripts_by_id, groups, dropped_ids, cds_parents):
+    def _place_transcripts(self, transcripts_by_id: dict[str, GFFObject], groups: dict[str, EntryGroup],
+                           dropped_ids: DroppedIDs, cds_parents: set[str]) -> None:
         """Puts every transcript under the one gene it names. The transcripts naming one Parent ID
         that matches no line share a gene inferred for them, spanning them all (see _inferred_gene),
         unless they lie on different sequences or strands, which leaves them all out. A transcript
@@ -843,13 +906,14 @@ class OrganizedGFFEntries(object):
                                  'transcripts': {t: self._new_t_entries() for t in members}}
             self.stats.genes_inferred_for_missing_parents += 1
 
-    def _inferred_gene(self, gene_id, transcripts):
+    def _inferred_gene(self, gene_id: str, transcripts: list[GFFObject]) -> GFFObject:
         """A gene line for transcripts on one sequence and strand that the file gives none,
         spanning them all."""
         return self._line(transcripts[0].seqid, 'gene', min(t.start for t in transcripts),
                           max(t.end for t in transcripts), transcripts[0].strand, f'ID={gene_id}')
 
-    def _place_pieces(self, pieces, groups, dropped_ids):
+    def _place_pieces(self, pieces: list[tuple[GFFObject, str]], groups: dict[str, EntryGroup],
+                      dropped_ids: DroppedIDs) -> None:
         """Puts every exon, CDS and UTR line under each transcript it names, several being allowed.
         An exon or UTR line naming a gene is left out, whether or not it duplicates a line of one
         of that gene's transcripts: it could equally belong to an isoform the file gives no
@@ -860,7 +924,7 @@ class OrganizedGFFEntries(object):
         gene_parented, floating = [], defaultdict(list)
         # {ID of a left out line that CDS lines name: (the reason its chain was left out for, the
         # gene ID the chain starts from, or None where it starts from a transcript line)}
-        coding_dropped = {}
+        coding_dropped: DroppedIDs = {}
         for piece, key in pieces:
             parents = piece.get_Parent() or []
             if not parents:
@@ -912,7 +976,8 @@ class OrganizedGFFEntries(object):
         self.stats.gene_parented_cds_genes |= genes_with_cds
         self._place_floating_cds(floating, groups)
 
-    def _place_floating_cds(self, floating, groups):
+    def _place_floating_cds(self, floating: dict[tuple[str, str], list[GFFObject]],
+                            groups: dict[str, EntryGroup]) -> None:
         """CDS lines without a transcript line: naming a gene without transcripts or a parent that
         matches no line, grouped by that parent's ID; or naming no parent, grouped only where they
         share an identical ID (e.g. NCBI), each on its own otherwise. What they code is unknown,
@@ -938,7 +1003,7 @@ class OrganizedGFFEntries(object):
             t_entries = groups[gene_id]['transcripts'][t] = self._new_t_entries(floating=True)
             t_entries['cds'] = lines
 
-    def _useful_gff_entries(self):
+    def _useful_gff_entries(self) -> Iterator[GFFObject]:
         reader = self._gff_gen()
         for entry in reader:
             if entry.type in IGNORABLE_TYPES:
@@ -946,7 +1011,7 @@ class OrganizedGFFEntries(object):
             else:
                 yield entry
 
-    def _gff_gen(self):
+    def _gff_gen(self) -> Iterator[GFFObject]:
         for line in gffhelper.GFFParser.feature_lines(self.gff_file):
             self.stats.gff_lines_read += 1
             entry = self.entry_class(gffline=line)  # GFFObject or LineIDs form filter_longest_transcript.py
@@ -963,7 +1028,7 @@ class OrganizedGFFEntries(object):
             yield entry
 
     @staticmethod
-    def _clean_entry(entry):
+    def _clean_entry(entry: GFFObject) -> None:
         # always present and integers
         entry.start = int(entry.start)
         entry.end = int(entry.end)
@@ -996,12 +1061,13 @@ class GFFErrorHandling(object):
     into its geenuff_mask features (see resolve_errors).
     """
 
-    def __init__(self, geenuff_importer_groups, controller):
+    def __init__(self, geenuff_importer_groups: list[ImporterGroup], controller: ImportController) -> None:
         self.groups = geenuff_importer_groups
         self.controller = controller
-        self._overlap_masks = []
-        self._extents = {}
-        self._starts, self._ends = [], []
+        self._overlap_masks: list[list[Span]] = []
+        self._extents: dict[int, Span] = {}
+        self._starts: list[int] = []
+        self._ends: list[int] = []
         if self.groups:
             self.is_plus_strand = self.groups[0]['super_locus'].is_plus_strand
             self.coord = self.groups[0]['super_locus'].coord
@@ -1015,13 +1081,13 @@ class GFFErrorHandling(object):
             self._compute_overlap_masks()
 
     @staticmethod
-    def _sort_start(group):
+    def _sort_start(group: ImporterGroup) -> int:
         transcript = GFFErrorHandling._selected_transcript(group)
         if transcript is None:
             return group['super_locus'].start
         return transcript['transcript_feature'].start
 
-    def _compute_overlap_masks(self):
+    def _compute_overlap_masks(self) -> None:
         """Settles what happens to every pair of super loci on this strand that share genomic
         range, in two records serving two different consumers.
 
@@ -1099,7 +1165,7 @@ class GFFErrorHandling(object):
                     resolved.append((keeper, dropped, pieces))
                     stats.overlap_pairs_resolved += 1
                     stats.overlap_loci_dropped += 1
-                    # given up although it would have given labels, i.e. what the overlap cost
+                    # given up, although it would have given labels, i.e. what the overlap cost
                     stats.overlap_loci_dropped_labeled += severity[dropped] != MASKED_OUTRIGHT
         stats.overlap_loci_in_chains += len(in_chains)
         for k in in_chains:
@@ -1127,7 +1193,7 @@ class GFFErrorHandling(object):
         # resolve_errors)
         self._overlap_masks = masks
 
-    def _buffered_span(self, i):
+    def _buffered_span(self, i: int) -> Span:
         """The span of locus i's selected transcript with the flank on both sides, sign-normalized.
 
         Each flank reaches into the gap toward the closest edge of another locus' selected
@@ -1146,7 +1212,7 @@ class GFFErrorHandling(object):
         return lo - self._flank_reach(lo - previous_end), hi + self._flank_reach(next_start - hi)
 
     @staticmethod
-    def _flank_reach(gap):
+    def _flank_reach(gap: int) -> int:
         """How far a flank reaches into a gap, min(gap // 2, int(sqrt(gap)) * 10). Nothing at all
         where there is no gap, as between touching loci."""
         if gap <= 0:
@@ -1154,7 +1220,7 @@ class GFFErrorHandling(object):
         return min(gap // 2, int(math.sqrt(gap)) * 10)
 
     @staticmethod
-    def _is_nested(span_a, span_b):
+    def _is_nested(span_a: Span, span_b: Span) -> bool:
         """Whether one span lies wholly inside the other, which on one strand is more often an
         annotation mistake than two real genes, so such a pair is never decided. Identical spans
         are not nested, there being no inner locus."""
@@ -1163,7 +1229,8 @@ class GFFErrorHandling(object):
             return False
         return a_lo <= b_lo and b_hi <= a_hi or b_lo <= a_lo and a_hi <= b_hi
 
-    def _decide_overlap_pair(self, i, j, extents, severity):
+    def _decide_overlap_pair(self, i: int, j: int, extents: dict[int, Span],
+                             severity: dict[int, int]) -> OverlapDecision:
         """Works out which locus of a crossing pair is kept, and what is masked in place of the
         other. Returns (keeper, dropped, pieces) or three Nones where neither is kept.
 
@@ -1180,7 +1247,8 @@ class GFFErrorHandling(object):
         options = [k for k in (i, j) if severity[k] != MASKED_OUTRIGHT]
         if not options:
             return None, None, None
-        def rank(k):
+
+        def rank(k: int) -> tuple[int, int, int]:
             # groups are ordered 5p to 3p, so the lower index is the 5'-most locus
             return severity[k], -self._selected_transcript(self.groups[k])['coding_length'], k
 
@@ -1195,7 +1263,7 @@ class GFFErrorHandling(object):
         return keeper, dropped, pieces
 
     @staticmethod
-    def _locus_severity(group):
+    def _locus_severity(group: ImporterGroup) -> int:
         """How much of a locus its own errors already take away, lower being better. Keeping a
         locus whose coding sequence is masked anyway recovers nothing, while one whose errors
         only mask a flank still has its coding sequence labeled (see _find_errors)."""
@@ -1207,7 +1275,7 @@ class GFFErrorHandling(object):
         return NOT_MASKED
 
     @staticmethod
-    def _coding_extent(group, sign):
+    def _coding_extent(group: ImporterGroup, sign: int) -> Span:
         """Everything a locus' coding transcripts reach over, as a sign-normalized ascending
         range. Taken from the transcripts rather than the gene line, which can be far wider or
         narrower than the transcripts hanging off it."""
@@ -1216,7 +1284,7 @@ class GFFErrorHandling(object):
                   if 'cds' in t and t.get('transcript_feature') is not None]
         return min(lo for lo, _ in bounds), max(hi for _, hi in bounds)
 
-    def _record_overlap_pairs(self, sign):
+    def _record_overlap_pairs(self, sign: int) -> None:
         """Queues one super_locus_overlap row per pair of coding super loci sharing genomic range.
         Measured over every coding transcript a locus has, not just the exported one, so this
         record covers every overlap the masking sweep below can find and more.
@@ -1241,7 +1309,7 @@ class GFFErrorHandling(object):
         self.controller.stats.super_loci_in_overlap_pairs += len(involved)
 
     @staticmethod
-    def _selected_transcript(group):
+    def _selected_transcript(group: ImporterGroup) -> TranscriptImporters | None:
         """The locus' longest coding transcript, whether or not the locus is exported, or None
         for a locus with no coding transcript at all."""
         for transcript in group['transcripts']:
@@ -1250,7 +1318,7 @@ class GFFErrorHandling(object):
         return None
 
     @staticmethod
-    def _exported_transcript(group):
+    def _exported_transcript(group: ImporterGroup) -> TranscriptImporters | None:
         """The transcript exported for this super locus, or None where it is not exported. A
         dropped locus still has a selected transcript, it just reaches no consumer."""
         if group['super_locus'].excluded_from_export is not None:
@@ -1258,7 +1326,7 @@ class GFFErrorHandling(object):
         return GFFErrorHandling._selected_transcript(group)
 
     @staticmethod
-    def _overlapping_pairs(spans):
+    def _overlapping_pairs(spans: Iterable[tuple[int, int, int]]) -> Iterator[tuple[int, int, int, int]]:
         """Sweeps (lo, hi, key) spans, yielding (key_a, key_b, lo, hi) for every pair sharing
         range, with (lo, hi) the shared range itself. Keeping every span that still reaches
         past the current start ('active') is what finds every partner: comparing each span only
@@ -1277,7 +1345,7 @@ class GFFErrorHandling(object):
                 yield a_key, key, lo, min(hi, a_hi)
             active.append((hi, key))
 
-    def _find_errors(self, transcript):
+    def _find_errors(self, transcript: TranscriptImporters) -> list[Finding]:
         """Every error of a coding transcript, as a list of Finding."""
         cds, tf, introns = transcript['cds'], transcript['transcript_feature'], transcript['introns']
         # made only to mask CDS lines without a transcript line, or cut off by its sequence's edge:
@@ -1342,14 +1410,14 @@ class GFFErrorHandling(object):
             found.append(Finding(types.WRONG_PHASE_5P, (cds.start, cds.start)))
         return found
 
-    def _is_backwards(self, feature):
+    def _is_backwards(self, feature: FeatureImporter) -> bool:
         """Whether a feature runs against the strand, as the stand-in for overlapping exons does."""
         if self.is_plus_strand:
             return feature.end < feature.start
         return feature.end > feature.start  # GeenuFF convention: - strand start > end
 
     @staticmethod
-    def _mark_unknown_ends(finding):
+    def _mark_unknown_ends(finding: Finding) -> None:
         """Sets the biological start or end flags of the features an error finding makes unknown to False."""
         for handler in finding.handlers:
             if finding.side in ('5p', 'both'):
@@ -1357,7 +1425,7 @@ class GFFErrorHandling(object):
             if finding.side in ('3p', 'both'):
                 handler.end_is_biological_end = False
 
-    def resolve_errors(self):
+    def resolve_errors(self) -> None:
         """For each coding transcript of an exported locus: marks the ends its errors make unknown,
         records which errors it has, and merges every range they mask, together with the ranges
         given up to overlapping loci, into its geenuff_mask features."""
@@ -1414,7 +1482,7 @@ class GFFErrorHandling(object):
                 transcript['introns'][:] = [x for x in transcript['introns'] if not self._is_backwards(x)]
 
     @staticmethod
-    def _finding_range(finding, buffered, sign):
+    def _finding_range(finding: Finding, buffered: Span | None, sign: int) -> Span:
         """The sign-normalized range a finding masks, given the buffered span of its locus. A '5p'
         or '3p' extent runs from the finding's first handler out into the flank on that side,
         'whole' covers the buffered span, and a (start, end) extent is its own range."""
@@ -1428,7 +1496,7 @@ class GFFErrorHandling(object):
             return sign * finding.handlers[0].end, hi
         return lo, hi
 
-    def _sequence_bounds(self):
+    def _sequence_bounds(self) -> Span:
         """The sequence as a sign-normalized, half open range. On the minus strand the bases
         length - 1 down to 0 become -(length - 1) up to 0, so the exclusive end is 1."""
         if self.is_plus_strand:
@@ -1438,7 +1506,7 @@ class GFFErrorHandling(object):
 
 ##### main flow control #####
 class ImportController(object):
-    def __init__(self, database_path, config={}, replace_db=False):
+    def __init__(self, database_path: str, config: dict[str, int] | None = None, replace_db: bool = False) -> None:
         self.database_path = database_path
         self.latest_genome = None
         self.stats = ImportStatistics()
@@ -1446,9 +1514,9 @@ class ImportController(object):
         # queues for adding to db
         self.insertion_queues = InsertionQueue(session=self.session, engine=self.engine)
         self.config = {'min_intron_length': 20, 'min_cds_length': 60}  # the default config
-        self.config.update(config)
+        self.config.update(config or {})
 
-    def _mk_session(self, replace_db):
+    def _mk_session(self, replace_db: bool) -> None:
         file_path = self.database_path.removeprefix('sqlite:///')
         if os.path.exists(file_path):
             if not replace_db:
@@ -1459,7 +1527,7 @@ class ImportController(object):
         orm.Base.metadata.create_all(self.engine)
         self.session = sessionmaker(bind=self.engine)()
 
-    def _remove_database(self):
+    def _remove_database(self) -> None:
         """Closes the database and deletes its file, so an import stopped by an error leaves no
         incomplete database behind (the error and the entries it arose in are in the log)."""
         self.session.close()
@@ -1470,7 +1538,7 @@ class ImportController(object):
             os.remove(file_path)
             logger.warning(f'Removed the incomplete database at {file_path}')
 
-    def make_genome(self, genome_args=None):
+    def make_genome(self, genome_args: dict[str, str | None] | None = None) -> None:
         if genome_args is None:
             genome_args = {}
         genome = orm.Genome(**genome_args)
@@ -1478,13 +1546,14 @@ class ImportController(object):
         self.session.add(genome)
         self.session.commit()
 
-    def run_analyze(self):
+    def run_analyze(self) -> None:
         # run ANALYZE; on the db for hopefully more performant queries
         logger.info('Running ANALYZE on the database')
         with self.engine.connect() as con:
             con.execute('ANALYZE;')
 
-    def add_genome(self, fasta_path, gff_path, genome_args=None, clean_gff=True):
+    def add_genome(self, fasta_path: str, gff_path: str, genome_args: dict[str, str | None] | None = None,
+                   clean_gff: bool = True) -> None:
         if genome_args is None:
             genome_args = {}
         species = genome_args.get('species', 'unnamed genome')
@@ -1545,7 +1614,7 @@ class ImportController(object):
                            f'{self.stats.no_training_data_reason()} (see the summary above). Scripts that can '
                            f'help (GeenuFF/docs/scripts.md): {"; ".join(PREPARING_SCRIPTS)}.')
 
-    def add_sequences(self, seq_path, genome_args=None):
+    def add_sequences(self, seq_path: str, genome_args: dict[str, str | None] | None = None) -> None:
         if genome_args is None:
             genome_args = {}
         if self.latest_genome is None:
@@ -1560,12 +1629,12 @@ class ImportController(object):
                     (f', the first {MAX_LOGGED_SEQUENCES} logged (all with --verbose)'
                      if n_sequences > MAX_LOGGED_SEQUENCES and logger.getEffectiveLevel() == logging.INFO else ''))
 
-    def clean_tmp_data(self):
+    def clean_tmp_data(self) -> None:
         self.latest_genome = None
         self.latest_super_loci = []
 
-    def add_gff(self, gff_file, clean=True):
-        def insert_importer_groups(self, groups):
+    def add_gff(self, gff_file: str, clean: bool = True) -> None:
+        def insert_importer_groups(self: ImportController, groups: list[ImporterGroup]) -> None:
             """Initiates the calling of the add_to_queue() function of the importers
             in the correct order. Also initiates the insert of the many2many rows.
             """
@@ -1601,7 +1670,8 @@ class ImportController(object):
                         self.insertion_queues.transcript_error.queue.append(
                             {'transcript_id': transcript['transcript'].id, 'type': error_type})
 
-        def clean_and_insert(self, groups, clean, is_final_coord):
+        def clean_and_insert(self: ImportController, groups: list[ImporterGroup], clean: bool,
+                             is_final_coord: bool) -> None:
             # a super locus whose own strand is neither '+' nor '-' is kept apart rather than
             # falling into the minus bucket, where it would otherwise be free to sort first and
             # give GFFErrorHandling a strand of None to work every neighbor comparison against
@@ -1673,7 +1743,7 @@ class ImportController(object):
         # if the logging level is not info (--verbose = debug) the old overprinting way is used like up top
         many = n_organized_gff_entries > MAX_LOGGED_SEQUENCES if logger.getEffectiveLevel() == logging.INFO else False
         tenth = math.ceil(n_organized_gff_entries / 10)
-        geenuff_importer_groups = []
+        geenuff_importer_groups: list[ImporterGroup] = []
         for i, seqid in enumerate(organized_gff_entries.keys()):
             for entry_group in organized_gff_entries[seqid]:
                 organized_entries = OrganizedGFFEntryGroup(entry_group, self.latest_fasta_importer,
@@ -1701,23 +1771,23 @@ class ImportController(object):
 
 class Insertable(ABC):
     @abstractmethod
-    def add_to_queue(self):
+    def add_to_queue(self) -> None:
         pass
 
 
 class FastaImporter(object):
-    def __init__(self, genome):
+    def __init__(self, genome: orm.Genome) -> None:
         self.genome = genome
-        self.coords_by_seqid = None
+        self.coords_by_seqid: dict[str, orm.Coordinate] | None = None
 
-    def check_gff_seqids(self, gff_file):
+    def check_gff_seqids(self, gff_file: str) -> None:
         """Maps each FASTA sequence ID to its Coordinate, raising helpers.NonMatchableIDs where a
         sequence ID of the GFF's feature lines is no FASTA ID (see helpers.require_identical_seqids)."""
         coords_by_seqid = {c.seqid: c for c in self.genome.coordinates}
         helpers.require_identical_seqids(coords_by_seqid, gffhelper.GFFParser.seqids(gff_file))
         self.coords_by_seqid = coords_by_seqid
 
-    def add_sequences(self, seq_file, session):
+    def add_sequences(self, seq_file: str, session: Session) -> None:
         """Adds a Coordinate per FASTA sequence, committing every SEQUENCE_COMMIT_BASES bases, so the
         sequences written are released from memory rather than the whole genome held until the end."""
         # todo, parallelize sequence & annotation format, then import directly from ~Slice
@@ -1737,7 +1807,7 @@ class FastaImporter(object):
         session.commit()
 
     @staticmethod
-    def parse_fasta(seq_file):
+    def parse_fasta(seq_file: str) -> Iterator[tuple[str, str]]:
         fp = fastahelper.FastaParser()
         for fasta_header, seq in fp.read_fasta(seq_file):
             seq = seq.upper()  # this may perform poorly
@@ -1747,14 +1817,14 @@ class FastaImporter(object):
 
 class SuperLocusImporter(Insertable):
     def __init__(self,
-                 entry_type,
-                 given_name,
-                 controller,
-                 coord=None,
-                 is_plus_strand=None,
-                 start=-1,
-                 end=-1,
-                 excluded_from_export=None):
+                 entry_type: str,
+                 given_name: str,
+                 controller: ImportController,
+                 coord: orm.Coordinate | None = None,
+                 is_plus_strand: bool | None = None,
+                 start: int = -1,
+                 end: int = -1,
+                 excluded_from_export: str | None = None) -> None:
         self.id = InsertCounterHolder.super_locus()
         self.entry_type = entry_type
         self.given_name = given_name
@@ -1770,38 +1840,38 @@ class SuperLocusImporter(Insertable):
         self.n_dropped_transcripts = 0
         self.n_dropped_coding_transcripts = 0
 
-    def add_to_queue(self):
+    def add_to_queue(self) -> None:
         to_add = {'type': self.entry_type, 'given_name': self.given_name, 'id': self.id,
                   'excluded_from_export': self.excluded_from_export,
                   'dropped_transcripts': self.n_dropped_transcripts,
                   'dropped_coding_transcripts': self.n_dropped_coding_transcripts}
         self.controller.insertion_queues.super_locus.queue.append(to_add)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         params = {'id': self.id, 'type': self.entry_type, 'given_name': self.given_name}
         return helpers.get_repr('SuperLocusImporter', params)
 
 
 class FeatureImporter(Insertable):
     def __init__(self,
-                 coord,
-                 is_plus_strand,
-                 feature_type,
-                 controller,
-                 start=-1,
-                 end=-1,
-                 given_name=None,
-                 phase_5p=0,
-                 phase=None,
-                 is_truncated=False,
-                 has_inframe_stop=False,
-                 has_start_codon=True,
-                 has_stop_codon=True,
-                 has_overlapping_pieces=False,
-                 is_outside_exons=False,
-                 spliced_length=None,
-                 score=None,
-                 source=None):
+                 coord: orm.Coordinate,
+                 is_plus_strand: bool,
+                 feature_type: str,
+                 controller: ImportController,
+                 start: int = -1,
+                 end: int = -1,
+                 given_name: str | None = None,
+                 phase_5p: int | None = 0,
+                 phase: int | None = None,
+                 is_truncated: bool = False,
+                 has_inframe_stop: bool = False,
+                 has_start_codon: bool = True,
+                 has_stop_codon: bool = True,
+                 has_overlapping_pieces: bool = False,
+                 is_outside_exons: bool = False,
+                 spliced_length: int | None = None,
+                 score: float | None = None,
+                 source: str | None = None) -> None:
         self.id = InsertCounterHolder.feature()
         self.coord = coord
         self.given_name = given_name
@@ -1828,7 +1898,7 @@ class FeatureImporter(Insertable):
         self.end_is_biological_end = True
         self.controller = controller
 
-    def add_to_queue(self):
+    def add_to_queue(self) -> None:
         feature = {
             'id': self.id,
             'type': self.feature_type,
@@ -1845,7 +1915,7 @@ class FeatureImporter(Insertable):
         }
         self.controller.insertion_queues.feature.queue.append(feature)
 
-    def insert_feature_piece_association(self, transcript_piece_id):
+    def insert_feature_piece_association(self, transcript_piece_id: int) -> None:
         features2pieces = {
             'feature_id': self.id,
             'transcript_piece_id': transcript_piece_id,
@@ -1853,7 +1923,7 @@ class FeatureImporter(Insertable):
         self.controller.insertion_queues.association_transcript_piece_to_feature.\
             queue.append(features2pieces)
 
-    def insert_feature_protein_association(self, protein_id):
+    def insert_feature_protein_association(self, protein_id: int) -> None:
         features2protein = {
             'feature_id': self.id,
             'protein_id': protein_id,
@@ -1861,10 +1931,10 @@ class FeatureImporter(Insertable):
         self.controller.insertion_queues.association_protein_to_feature.\
             queue.append(features2protein)
 
-    def set_start_end_from_gff(self, gff_start, gff_end):
+    def set_start_end_from_gff(self, gff_start: int, gff_end: int) -> None:
         self.start, self.end = get_geenuff_start_end(gff_start, gff_end, self.is_plus_strand)
 
-    def pos_cmp_key(self):
+    def pos_cmp_key(self) -> tuple[str, bool, int, int, str]:
         sortable_start = self.start
         sortable_end = self.end
         if not self.is_plus_strand:
@@ -1872,7 +1942,7 @@ class FeatureImporter(Insertable):
             sortable_end *= -1
         return self.coord.seqid, self.is_plus_strand, sortable_start, sortable_end, self.feature_type
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         params = {
             'id': self.id,
             'coord_id': self.coord.id,
@@ -1886,7 +1956,8 @@ class FeatureImporter(Insertable):
 
 
 class TranscriptImporter(Insertable):
-    def __init__(self, entry_type, given_name, super_locus_id, controller, longest=False):
+    def __init__(self, entry_type: str, given_name: str, super_locus_id: int, controller: ImportController,
+                 longest: bool = False) -> None:
         self.id = InsertCounterHolder.transcript()
         self.entry_type = entry_type
         self.given_name = given_name
@@ -1894,11 +1965,11 @@ class TranscriptImporter(Insertable):
         self.controller = controller
         self.longest = longest
 
-    def add_to_queue(self):
+    def add_to_queue(self) -> None:
         transcript = self._get_params_dict()
         self.controller.insertion_queues.transcript.queue.append(transcript)
 
-    def _get_params_dict(self):
+    def _get_params_dict(self) -> dict[str, int | str | bool]:
         d = {
             'id': self.id,
             'type': self.entry_type,
@@ -1908,23 +1979,23 @@ class TranscriptImporter(Insertable):
         }
         return d
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return helpers.get_repr('TranscriptImporter', self._get_params_dict())
 
 
 class TranscriptPieceImporter(Insertable):
-    def __init__(self, given_name, transcript_id, position, controller):
+    def __init__(self, given_name: str, transcript_id: int, position: int, controller: ImportController) -> None:
         self.id = InsertCounterHolder.transcript_piece()
         self.given_name = given_name
         self.transcript_id = transcript_id
         self.position = position
         self.controller = controller
 
-    def add_to_queue(self):
+    def add_to_queue(self) -> None:
         transcript_piece = self._get_params_dict()
         self.controller.insertion_queues.transcript_piece.queue.append(transcript_piece)
 
-    def _get_params_dict(self):
+    def _get_params_dict(self) -> dict[str, int | str]:
         d = {
             'id': self.id,
             'given_name': self.given_name,
@@ -1933,22 +2004,22 @@ class TranscriptPieceImporter(Insertable):
         }
         return d
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return helpers.get_repr('TranscriptPieceImporter', self._get_params_dict())
 
 
 class ProteinImporter(Insertable):
-    def __init__(self, given_name, super_locus_id, controller):
+    def __init__(self, given_name: str, super_locus_id: int, controller: ImportController) -> None:
         self.id = InsertCounterHolder.protein()
         self.given_name = given_name
         self.super_locus_id = super_locus_id
         self.controller = controller
 
-    def add_to_queue(self):
+    def add_to_queue(self) -> None:
         protein = self._get_params_dict()
         self.controller.insertion_queues.protein.queue.append(protein)
 
-    def _get_params_dict(self):
+    def _get_params_dict(self) -> dict[str, int | str]:
         d = {
             'id': self.id,
             'given_name': self.given_name,
@@ -1956,7 +2027,7 @@ class ProteinImporter(Insertable):
         }
         return d
 
-    def insert_transcript_protein_association(self, transcript_id):
+    def insert_transcript_protein_association(self, transcript_id: int) -> None:
         transcript2protein = {
             'transcript_id': transcript_id,
             'protein_id': self.id,
@@ -1965,5 +2036,5 @@ class ProteinImporter(Insertable):
         self.controller.insertion_queues.association_transcript_to_protein.\
             queue.append(transcript2protein)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return helpers.get_repr('ProteinImporter', self._get_params_dict())

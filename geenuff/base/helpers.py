@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import copy
 import hashlib
@@ -6,11 +8,11 @@ import logging
 import enum
 import os
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from types import GeneratorType
-from typing import TYPE_CHECKING, BinaryIO, TextIO
+from typing import TYPE_CHECKING, BinaryIO, Protocol, TextIO, TypeVar
 
 from zlib_ng import gzip_ng_threaded
 
@@ -18,9 +20,21 @@ from geenuff.parsing.fastahelper import DamagedFile, FastaFormatError, FastaPars
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.sql.expression import Insert
+
     from geenuff.base.orm import Coordinate
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar('T')
+
+
+class StartEnd(Protocol):
+    """Anything with a GeenuFF start and end, e.g. an orm.Feature, a QueriedFeature or a FeatureImporter."""
+    start: int
+    end: int
 
 
 # Types related
@@ -28,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 # Enum makers
-def join_to_enum(name, *args):
+def join_to_enum(name: str, *args: type[enum.Enum]) -> type[enum.Enum]:
     """joins enums from args into returned enum"""
     enum_bits = []
     for cls in args:
@@ -37,7 +51,7 @@ def join_to_enum(name, *args):
     return out
 
 
-def make_enum(name, *args):
+def make_enum(name: str, *args: str) -> type[enum.Enum]:
     """makes enum from list of strings"""
     return enum.Enum(name, [(x, x) for x in args])
 
@@ -58,11 +72,11 @@ def sequence_hash(sequence: str) -> str:
     return sha1.hexdigest()
 
 
-def in_enum_values(x, enum):
+def in_enum_values(x: object, enum: type[enum.Enum]) -> bool:
     return x in [item.value for item in enum]
 
 
-def none_to_list(x):
+def none_to_list(x: list[T] | None) -> list[T]:
     if x is None:
         return []
     else:
@@ -70,7 +84,7 @@ def none_to_list(x):
         return x
 
 
-def convert2list(obj):
+def convert2list(obj: object) -> list:
     if isinstance(obj, list):
         out = obj
     elif isinstance(obj, set) or isinstance(obj, GeneratorType) or isinstance(obj, tuple):
@@ -80,14 +94,14 @@ def convert2list(obj):
     return out
 
 
-def full_db_path(path):
+def full_db_path(path: str) -> str:
     sqlite_prefix = 'sqlite:///'
     if not path.startswith(sqlite_prefix):
         return sqlite_prefix + path
     return path
 
 
-def db_attr_as_dict(orm_obj):
+def db_attr_as_dict(orm_obj: object) -> dict[str, object]:
     """removes known, shared non-db entry attributes from a copy of orm_obj.__dict__
     can be used, e.g. to set up new db entry matching the here-by filtered one
     """
@@ -99,12 +113,12 @@ def db_attr_as_dict(orm_obj):
     return out
 
 
-def chunk_str(string, length):
+def chunk_str(string: str, length: int) -> Iterator[str]:
     for i in range(0, len(string), length):
         yield string[i:(i + length)]
 
 
-def get_repr(class_name, params, addition=''):
+def get_repr(class_name: str, params: dict[str, object], addition: str = '') -> str:
     param_str = ', '.join(f'{k}:{v}' for k, v in params.items())
     if addition:
         return class_name + '[' + param_str + ', ' + addition + ']'
@@ -139,7 +153,7 @@ def setup_logging(log_file: str | None = None) -> None:
 class NonMatchableIDs(Exception):
     """GFF sequence IDs that are no FASTA ID; missing lists them, sorted."""
 
-    def __init__(self, message: str, missing: list[str]):
+    def __init__(self, message: str, missing: list[str]) -> None:
         super().__init__(message)
         self.missing = missing
 
@@ -426,7 +440,7 @@ def write_gff_without(gff_path: str, out_path: str, removed: set[str], compressi
 
 # GFF start/end to GeenuFF
 # ----------------------------------
-def strand_as_bool(strand):
+def strand_as_bool(strand: str | None) -> bool:
     # anything but '+' or '-' raises; use strand_or_none below where that is not fatal
     if strand == '+':
         return True
@@ -436,11 +450,11 @@ def strand_as_bool(strand):
         raise ValueError(f'cannot interpret strand "{strand}"')
 
 
-def get_strand_direction(gffentry):
+def get_strand_direction(gffentry: GFFObject) -> bool:
     return strand_as_bool(gffentry.strand)
 
 
-def strand_or_none(gffentry):
+def strand_or_none(gffentry: GFFObject) -> bool | None:
     """The entry's strand, or None where the GFF gives neither '+' nor '-', e.g. NCBI's '?' for
     a trans-spliced feature."""
     try:
@@ -450,7 +464,7 @@ def strand_or_none(gffentry):
 
 
 # todo: could this be simpler?
-def get_geenuff_start_end(gff_start, gff_end, is_plus_strand):
+def get_geenuff_start_end(gff_start: int, gff_end: int, is_plus_strand: bool) -> tuple[int, int]:
     gff_start, gff_end = to_count_from_0(gff_start), to_count_from_0(gff_end)
 
     if is_plus_strand:
@@ -462,11 +476,11 @@ def get_geenuff_start_end(gff_start, gff_end, is_plus_strand):
     return start, end
 
 
-def to_count_from_0(coord):
+def to_count_from_0(coord: int) -> int:
     return coord - 1
 
 
-def to_exclusive_end(end, is_plus_strand):
+def to_exclusive_end(end: int, is_plus_strand: bool) -> int:
     if is_plus_strand:
         return end + 1
     else:
@@ -482,7 +496,7 @@ def geenuff_to_gff_start_end(start: int, end: int, is_plus_strand: bool) -> tupl
         return end + 2, start + 1
 
 
-def is_masked_whole(transcript_feature, masks) -> bool:
+def is_masked_whole(transcript_feature: StartEnd, masks: Iterable[StartEnd]) -> bool:
     """Whether one of the masks covers the whole transcript feature, leaving no labels from it.
     The masks of a transcript are merged, so one covering it suffices, and any other lies beside
     it. Takes anything with a GeenuFF start and end, on either strand."""
@@ -499,7 +513,7 @@ GFF_PHASE_FROM_NORMAL: dict[int, int] = {0: 0, 1: 2, 2: 1}
 # Reverse complement
 # ----------------------------------
 
-def mk_rc_key():
+def mk_rc_key() -> dict[str, str]:
     fw = 'ACGTMRWSYKVHDBN'
     rv = 'TGCAKYWSRMBDHVN'
     key = {}
@@ -512,7 +526,7 @@ def mk_rc_key():
 REV_COMPLEMENT_KEY = mk_rc_key()
 
 
-def reverse_complement(seq):
+def reverse_complement(seq: Sequence[str]) -> list[str]:
     key = REV_COMPLEMENT_KEY
     rc_seq = []
     for base in reversed(seq):
@@ -637,25 +651,25 @@ def plural(n: int, noun: str) -> str:
 # SQL alchemy core queue control
 # ----------------------------------
 class Counter(object):
-    def __init__(self, cl=None, at=0):
+    def __init__(self, cl: type | None = None, at: int = 0) -> None:
         self.cl = cl
         self._at = at
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: object, **kwargs: object) -> int:
         self._at += 1
         return self._at
 
 
 class QueueController(object):
-    def __init__(self, session, engine):
+    def __init__(self, session: Session, engine: Engine) -> None:
         self.session = session
         self.engine = engine
-        self.ordered_queues = []
+        self.ordered_queues: list[CoreQueue] = []
 
-    def total_size(self):
+    def total_size(self) -> int:
         return sum([len(q.queue) for q in self.ordered_queues])
 
-    def execute_so_far(self):
+    def execute_so_far(self) -> None:
         conn = self.engine.connect()
         n_elements = self.total_size()
         for queue in self.ordered_queues:
@@ -667,6 +681,6 @@ class QueueController(object):
 
 
 class CoreQueue(object):
-    def __init__(self, action):
-        self.queue = []
+    def __init__(self, action: Insert) -> None:
+        self.queue: list[dict[str, object]] = []
         self.action = action
