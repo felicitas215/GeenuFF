@@ -13,10 +13,9 @@ Feature types differ from a GFF's; the "geenuff_" prefix marks where the meaning
 
 ##### error types:
 Errors mark what is ambiguous or unknown about a gene model; only coding transcripts are checked.
-Each error type found is recorded once per transcript in the `transcript_error` table, without a
-range; what the errors mask is worked out once per transcript and stored as its geenuff_mask
-features (see the table below). Annotation stored directly in GeenuFF rather than via GFF could
-give errors more precise ranges.
+Each error type found is recorded once per transcript in the `transcript_error` table;
+what the errors mask in sum is worked out once per transcript and stored as its geenuff_mask
+features (see the table below).
 
 An error leaving a gene's end unknown is extended into the unclaimed sequence beside the gene, the
 *flank*, reaching `min(gap // 2, int(sqrt(gap)) * 10)` bp into the gap toward the closest edge of
@@ -63,11 +62,11 @@ intergenic bp masked by gap size; a possible remedy is a share below half the ga
 | super_loci_overlap_error | two coding genes share sequence                      | see below and `overlap_masking.md`      |
 
 A missing UTR leaves only the transcript's end unknown; the CDS stays labeled. Every other error
-that masks means the CDS boundaries is not trusted, so the gene is masked whole with both
+that masks means the CDS boundaries are not trusted, so the gene is masked whole with both
 flanks: masking only part would leave a hole whose edges read as transitions that are not there
 (see `overlap_masking.md`). Notes on single error types:
 - too_short_intron: typically stands in for an assembly frameshift an annotation pipeline bridged.
-- truncated_intron: an intron the transcript starts or ends in, its length not checked; the
+- truncated_intron: the transcript starts or ends with an intron, its length not checked; the
   transcript's start or end counts as not biological.
 - too_short_cds: a CDS below 60 bp, the stop codon included and counted after one left out of the
   CDS is added, is more likely a fragment or an artifact than a gene; Helixer also drops predicted
@@ -75,17 +74,18 @@ flanks: masking only part would leave a hole whose edges read as transitions tha
   rather than left out, a real micropeptide gene is not taught as intergenic either.
 - overlapping_exons, overlapping_cds: such lines cannot exist, so both ends of the transcript and
   CDS count as not biological and nothing else is checked, the spliced CDS repeating the shared
-  bases. The same holds for cds_outside_exons, the CDS lying in an intron.
+  bases. The same holds for cds_outside_exons, the CDS lying in an intron according to GFF3 file
+  conventions. Duplicate CDS lines in an input GFF3 file can make GeenuFF flag the affected genes
+  as erroneous (mostly as `overlapping_cds`) and mask them in full, so remove exact duplicates
+  before the import (e.g. `awk '/^#/ || !seen[$0]++' in.gff3 > out.gff3`).
 - wrong_starting_phase: changes no label, the importer setting every phase itself, so it masks
   nothing; the phases of later CDS pieces are not checked, a CDS leaving its frame being caught as
   truncated_cds.
 
 Both minimums, `min_cds_length` and `min_intron_length`, can be changed with a config file given
 to `import2geenuff.py --config-file` (see `config/import.yml`). Above 5% of the coding transcripts
-with overlapping exons or a CDS outside the exons, the import warns: for a CDS outside the exons,
-the file may list exon lines for the UTRs only (see `rebuild_exons.py`); for overlapping exon
-lines, these may be written wrongly throughout, e.g. nested, and where the CDS lines are intact,
-dropping the exon lines lets the import build the exons from the CDS and UTR lines.
+with overlapping exons or a CDS outside the exons, the import warns and lists files from GeenuFF
+that might help.
 
 ###### super_loci_overlap_error is positioned differently:
 It marks sequence two exported coding genes both claim, every shared base carrying two
@@ -109,10 +109,10 @@ of a feature correspond to a meaningful biological transition.
 * start: start of a region, inclusive
   * geenuff_transcript --> transcription start site (1st transcribed bp)
   * geenuff_cds --> start codon, the A of the ATG
-  * geenuf_intron --> donor splice site, first bp of intron
+  * geenuff_intron --> donor splice site, first bp of intron
 * end: end of a region, exclusive (i.e. start of one there after)
   * geenuff_transcript --> 1 after transcription termination site (1st non-transcribed bp)
-  * geenuf_cds --> 1 after stop codon, first non-coding bp, e.g. the N in TGAN
+  * geenuff_cds --> 1 after stop codon, first non-coding bp, e.g. the N in TGAN
   * geenuff_intron --> 1 after acceptor splice site (1st bp that is part of final transcript)
 
 When `False`, the start or end is not, or not known to be, a biological transition, though the
@@ -129,11 +129,10 @@ stop codon.
 
 ##### matching sequence IDs
 
-Each GFF sequence ID is paired with the identical FASTA ID (the header up to its first
-whitespace), else with the only FASTA ID containing it (`Chr1` with `Chr1.v2`), which the import
-logs as a warning. A GFF ID matching no FASTA ID or several stops the import with an error listing
-them. Two GFF IDs contained in the same FASTA ID are an error as well, and reading the GFF stops at
-a `##FASTA` line or a line starting with `>`.
+Each GFF sequence ID must be identical to a FASTA ID (the header up to its first whitespace). A GFF
+ID that is no FASTA ID, e.g. `Chr1` beside `Chr1.v2`, stops the import with an error listing them;
+`rename_gff_seqids.py` pairs sequences renamed after annotation by their sequence and renames them.
+Reading the GFF stops at a `##FASTA` line or a line starting with `>`.
 
 ##### lines outside their sequence
 
@@ -144,8 +143,9 @@ a line starting before the sequence could not even be stored.
 
 A coding transcript with such an mRNA, exon or CDS line is clipped to the part on the sequence, its
 exon and CDS lines wholly beyond being left out, and masked whole with both flanks
-(`beyond_sequence_edge`): where it ends is unknown, and its CDS cannot be checked. A transcript with
-no CDS line on the sequence is left out entirely, and its gene is kept out of exports
+(`beyond_sequence_edge`): where it ends is unknown, and its CDS cannot be checked. Its exons are
+not read, so it gets no introns, nothing under the mask being labeled. A transcript with no CDS
+line on the sequence is left out entirely, and its gene is kept out of exports
 (`excluded_from_export = 'outside_sequence'`), counted in the import summary. Trans-spliced genes,
 written with a start past their end or on no definite strand, stay out of exports unmasked (see
 docs/trans_splicing.md): whether and where the intron between their parts lies is unknown.
@@ -154,8 +154,9 @@ docs/trans_splicing.md): whether and where the intron between their parts lies i
 
 GTF writes the stop codon as a line of its own and leaves it out of the CDS, and GFF3 converted from
 GTF can keep it that way. Where a CDS is whole (no inframe stop, truncation, ...) but for its stop
-codon, and the next 3 bases are one, the CDS is extended by them, as translation ends there
-whatever the file says:
+codon, its lines not overlapping and lying within the exons (different from
+`filter_longest_transcripts.py`), and the next 3 bases are one, the CDS is extended by them, as
+translation ends there whatever the file says:
 - along the transcript's exons, across an intron if need be
 - where the exons end first (CDS lines only, or exons ending with the CDS), the 3 bases after the
   last exon, the last exon and the transcript being extended to hold them
@@ -196,6 +197,7 @@ and the coding transcripts, i.e. potential training data, each reason cost.
   - non-coding genes give no labels and are not masked, so their bases are labeled intergenic;
     genes with CDS lines directly parented to them BUT with an mRNA line with non-CDS features
     (rare) would be judged as non-coding since their only legitimate transcript appears to be
+    non-coding
   - where over 2.5 % of the genes are this way the import warns to leave the genome out of
     training, as it is difficult for a general script to tell whether those CDS lines belong to
     one isoform
@@ -244,12 +246,13 @@ add up; counts of 0 are left out, transcript counts are given in brackets.
   general are counted apart, being no part of the gene itself.
 
 The summary ends with:
-- the total number of overlapping masked (overlaps only counted on the same strand +/-)
+- the total number of overlapping genes masked (overlaps only counted on the same strand +/-)
 - the bases masked as a share of both strands
 - the bases masked as a share of the bases of the exported genes (both strands combined, for
   overlapping genes the union of their spans is used). Missing UTRs have no known length and are
   not counted, so where most genes lack their UTRs this share can look very good however much
-  flank sequence is masked; the share of both strands above counts those flanks, but also all bases
+  flank sequence is masked; the share of both strands above counts those flanks, but also all
+  other masked bases
 
 The complete lists of the GFF types skipped are logged with `--verbose`. Where no gene, or fewer
 than one in ten of the coding transcripts read, gives labels, a warning after the summary names
@@ -297,7 +300,7 @@ Plus strand (+)
 
 Minus strand (-)
 
-| Common Name                         | GFF               | GFF start | GFF end | genuff type        | bearing | position |
+| Common Name                         | GFF               | GFF start | GFF end | geenuff type       | bearing | position |
 |-------------------------------------|:------------------|----------:|--------:|:-------------------|:--------|---------:|
 | TSS, Transcription start site       | end last exon     |           |       x | geenuff_transcript | start   |    x - 1 |
 | TTS, Transcription termination site | start 1st exon    |         x |         | geenuff_transcript | end     |    x - 2 |

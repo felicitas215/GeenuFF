@@ -1,9 +1,7 @@
 # Command line scripts
 
 Six scripts in `scripts/` read a GeenuFF database and write something out of it. None of them
-modifies the database. All take `--db-path-in`. The four `dump_*` scripts write to the file given
-with `-o`, which they require; `list_transcripts.py` writes to stdout or, given `-o`, to a file,
-and `summarize_geenuff_db.py` to stdout.
+modifies the database.
 
 Importing a genome is a separate script, `import2geenuff.py` in the repository root, and
 `check_seqids.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
@@ -15,17 +13,25 @@ Installing GeenuFF, directly or as a dependency of Helixer, puts all of them ont
 (see `pyproject.toml`), so they are called by name, e.g.
 `check_seqids.py --fasta genome.fa --gff genome.gff3`.
 
+Detailed explanations per file:
+- [dump_filtered_gff3.py](#dump_filtered_gff3py)
+- [filter_longest_transcripts.py](#filter_longest_transcriptspy)
+- [dump_to_fasta.py](#dump_to_fastapy)
+- [dump_lengthinfo.py](#dump_lengthinfopy)
+- [dump_json.py](#dump_jsonpy)
+- [summarize_geenuff_db.py](#summarize_geenuff_dbpy)
+- [list_transcripts.py](#list_transcriptspy)
+- [check_seqids.py](#check_seqidspy)
+- [rename_gff_seqids.py](#rename_gff_seqidspy)
+- [add_gene_lines.py](#add_gene_linespy)
+- [add_transcript_lines.py](#add_transcript_linespy)
+- [rebuild_exons.py](#rebuild_exonspy)
+- [filter_sequence_lengths.py](#filter_sequence_lengthspy)
+
 `dump_filtered_gff3.py`, `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`,
 `rebuild_exons.py`, `filter_sequence_lengths.py` and `filter_longest_transcripts.py` log what they
 leave out or change; `--log-file` writes that log to a file as well as the terminal, to keep it
 beside the output.
-
-No script writes over its input files or database. Each stops before anything is written where:
-- an output path names an input file or database
-- an input file or database, or the directory of an output path, does not exist
-- (scripts reading a FASTA or GFF3 file, like `import2geenuff.py`) the two look swapped by their
-  names, the FASTA file does not start with `>`, or the GFF3 file's first feature line does not
-  have 9 tab-separated columns (e.g. 10 from a sequence ID holding a tab)
 
 The preparation scripts read plain, gzipped and zipped files (a zip holding a single file). Each
 file they write is compressed as follows:
@@ -73,7 +79,7 @@ reason, `geenuff_excluded=overlap_dropped`.
 
 Keeps one transcript per gene of a GFF3 file, the one with the longest spliced CDS (the first in the
 file on ties), with its gene line and its exon, CDS and UTR lines; `--no-utrs` leaves out the exon
-and UTR lines too, so every transcript keeps only its CDS lines, which gffcompare then takes as
+and UTR lines too, so every transcript keeps only its CDS lines, which GffCompare then takes as
 exons. Unlike `dump_filtered_gff3.py`, it needs no database and writes the kept lines as they are,
 in file order, with their IDs and attributes.
 
@@ -90,20 +96,22 @@ one the import picks the longest transcript by. Left out:
 
 A line shared by several transcripts names only the kept one as `Parent`.
 
+`--exclude-impossible` leaves out coding transcripts that cannot exist as written before the
+longest is picked, and genes with no other coding transcript with them: a line running backwards,
+on no definite strand or another one than the gene, overlapping CDS lines and, with `--fasta`, a
+line past the sequence edge. Overlapping exon lines and CDS lines outside the exons are kept: they
+matter little to a comparison of the CDS lines, e.g. with GffCompare after `--no-utrs`.
+
 ### adding stop codons
 `--add-stop-codons` (with `--fasta`) adds a stop codon missing from a CDS as the import adds it,
 before the longest transcript is picked: where the CDS is whole codons without any stop codon and
-the codon after it, along the exons, is one, as in GFF3 converted from GTF. The 3' CDS line is
-extended, or added as an individual line with its phase if the stop codon is past and intron; where
-the codon lies past the exons, the 3' exon line, the transcript line and, if need be, the gene line
-are extended as well.  
+the codon after it is a stop, it adds it. The stop gets added if it is inside an exon feature or
+outside, also across introns. If the stop is outside, the gene and mRNA get extended alongside the
+CDS and exon lines to cover it.  
 A UTR line holding the codon is shortened to start after it, or left out where
-the codon covers it completely; the log warns with their number and examples, as a UTR annotated to
-start with a stop codon likely comes from a conversion that put the stop codon into the UTR instead
-of the CDS. The FASTA file is read one sequence at a time. Without the option, no FASTA file is read
-and such a CDS counts without its stop codon, so on a tie another transcript than the import's may be
-picked. Since GeenuFF repairs stop codons, this is then also a more honest comparison between reference
-and what Helixer saw. It stays optional, so changing the reference the predictions get compared to is
+the codon covers it completely; the log warns with their number and examples. Since GeenuFF
+repairs stop codons, the stop codon extension is a more honest comparison between reference and
+what Helixer saw. It stays optional, so changing the reference the predictions get compared to is
 not the default.
 
 ## dump_to_fasta.py
@@ -193,11 +201,10 @@ full although exported: `--masked-in-full --exported --output gene_ids`.
 ## check_seqids.py
 
 Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first
-whitespace). A GFF3 ID contained in exactly one FASTA ID, e.g. `Chr1` in `Chr1.v2`, is paired with
-it by GeenuFF's import; the warning lists these pairs to look at, as they are no exact match. Where
-IDs cannot be paired like so, GeenuFF's import and many other tools fail or leave out the genes
-on them; the warning names them and points to `rename_gff_seqids.py` for sequences renamed after
-annotation. It exits with 1 then, else 0, so it can gate a pipeline.
+whitespace), as GeenuFF's import requires. Where one is not, e.g. `Chr1` beside `Chr1.v2`,
+GeenuFF's import and many other tools fail or leave out the genes on it; the warning names them and
+points to `rename_gff_seqids.py` for sequences renamed after annotation. It exits with 1 then, else
+0, so it can gate a pipeline.
 
 ## rename_gff_seqids.py
 
@@ -208,7 +215,8 @@ uploaded to NCBI, which renames and may trim sequences, beside the GFF3 file mad
 It also serves as a filter where the IDs match already: the lines of GFF3 sequence IDs that are in
 no FASTA sequence, e.g. sequences removed from the FASTA file after annotation, are left out, up
 to 15% of the coding transcripts lost (`--max-missing-percent`); above that, nothing is written.
-
+<br><br>
+### How matching works
 Each GFF3 sequence ID is paired with the first FASTA sequence found by:
 
 | by        | FASTA sequence                                                                                                         |
@@ -245,7 +253,7 @@ A pair by ID or full name does not fit, its FASTA sequence changed after annotat
 - or, with fewer genes but 20 checks or more, under 25% of the checks pass: a changed sequence
   passes about 3%, the right one with a poor annotation of partial genes 35-45% (wheat survey
   contigs, Phytozome *Triticum aestivum* v2.2)
----
+
 ### Details on these rules
 Genes reaching past the end by less than the sequence's length are read as crossing the origin of
 a circular sequence, as GFF3 writes such features (their end plus the sequence's length), and
@@ -267,7 +275,7 @@ or full name and length alone; the log counts these pairs, with the coding trans
 In very fragmented assemblies most sequences are this small, so most pairs can only be checked by
 ID or full name (e.g. 8,094 of 10,335 sequences, with 53% of the coding transcripts, in *Catagonium
 nitens*, NCBI GCA_050002935.1).
----
+<br><br>
 
 | case                                                                                                | result                                                                                                                                                                                              |
 |-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
