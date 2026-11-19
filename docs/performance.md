@@ -117,6 +117,12 @@ GeenuFF 0.4.0 changes two things, both keeping wrong labels out of Helixer's tra
 | *H. vulgare*            | 676.5 Mb (8.1%)   | 31.9 Mb (0.4%)  | 345 of 516                                       | 0     |
 
 Bases masked on both strands, as a share of the genome's; genes counted are the exported ones.
+Genes with own errors are counted by each version's own checks, so 0.3.2's count differs from the
+genes 0.4.0 masks in full, e.g. 1,440 against 1,428 in *O. lucimarinus*: 0.3.2 counts an overlap
+with another gene as an error of the gene's own (10 genes, 4 of them left out of 0.4.0's export
+for that overlap), flags 5 more genes 0.4.0 leaves out for overlapping a better gene, and flags 2
+start or stop codons split by an intron as missing; 0.4.0 adds 5 genes with in-frame stop codons,
+which 0.3.2 does not check for.
 Nearly all masked bases lie beside the genes, sequence data Helixer learns neither as gene nor as
 intergenic: GeenuFF 0.4.0 masks 3 to 24 times fewer of them, except in TAIR12 (see below).
 

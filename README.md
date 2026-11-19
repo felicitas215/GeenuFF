@@ -16,6 +16,39 @@ at your own risk.
 
 A more extensive description can be found [here](https://usadellab.github.io/GeenuFF/).
 
+## What's new in 0.4.0
+
+GeenuFF 0.4.0 is a major rework of the import, focused on reliable training data for Helixer. It
+is released together with Helixer 0.3.8, which requires it.
+
+> [!WARNING]
+> Databases created before 0.4.0 fail to import into Helixer 0.3.8, and many GeenuFF scripts do
+> not work with them either. **Please reimport** your genomes.
+
+- **Masking:** a gene with an error in its structure (e.g. missing start/stop codon, in-frame stop
+  codon) is masked in full instead of only its flank. A missing UTR masks only a flank of a
+  reasonable size, so far less intergenic sequence is masked. A bug placing the 5' flank mask from
+  the upstream gene's end was fixed. New checks: too short or truncated CDS, in-frame stop codons,
+  overlapping CDS, CDS outside exons, CDS without transcript, transcripts past their sequence.
+- **Overlapping genes:** of two overlapping coding genes, the better one is kept and its partner
+  left out of the export, or both are masked (see [docs/overlap_masking.md](docs/overlap_masking.md)).
+- **Stricter reading:** lines are grouped into genes by `ID`/`Parent` instead of line order; GFF3
+  sequence IDs must be identical to the FASTA IDs; duplicate FASTA IDs or invalid sequence
+  characters stop the import, as do GTF files and damaged gzipped or zipped files; unknown feature
+  types are skipped. A stop codon left out of the CDS, as in GFF3 converted from GTF, is added.
+- **No chromosome size limit:** chromosomes longer than 2,147,483,647 bp can be imported.
+- **Faster:** imports are 2 to 3.7 times faster and need up to 2.7 times less memory (see
+  [docs/performance.md](docs/performance.md)).
+- **Import summary:** the import ends with a summary of what was left out or masked and why;
+  `summarize_geenuff_db.py` recreates it from a database.
+- **New scripts** to fix common GFF3/FASTA problems before import (`check_seqids.py`,
+  `rename_gff_seqids.py`, `add_gene_lines.py`, `add_transcript_lines.py`, `rebuild_exons.py`,
+  `filter_sequence_lengths.py`) and to read a database or compare against a reference
+  (`dump_filtered_gff3.py`, `filter_longest_transcripts.py`, `list_transcripts.py`), all installed
+  onto the PATH (see [docs/scripts.md](docs/scripts.md)).
+- `import2geenuff.py`: `--db-path` must end in `.sqlite3`, and the log is written beside the
+  database by default. Python 3.10.12 or newer is required; `dustdas` is no longer a dependency.
+
 ## Details on the relation to Helixer
 
 GeenuFF is the annotation store [Helixer](https://github.com/usadellab/Helixer) trains from.
