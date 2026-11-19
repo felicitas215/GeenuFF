@@ -2,12 +2,7 @@
 """Lists the transcripts of a GeenuFF database, or their gene or transcript IDs, filtered by error
 types, error severity, masked in full or not, exported or not and why not. By default, every coding
 transcript is listed, every isoform; filters combine with AND.
-
-Table columns: gene_id, transcript_id, seqid, strand, start, end (GFF3, 1-based), coding,
-selected_for_export (the one transcript per gene an export takes), exported (selected and its gene
-not excluded), excluded_from_export (why not), errors, error_severity, masked_in_full and masks
-(GFF3 ranges). Non-coding transcripts and those of genes left out before the error checks have
-"not checked" as errors and match no error filter.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import logging

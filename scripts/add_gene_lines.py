@@ -2,16 +2,9 @@
 """Adds a gene line for the transcripts of a GFF3 file without a Parent, which GeenuFF does not
 import. A transcript naming itself as Parent (e.g. ID=g7-mRNA-1;Parent=g7-mRNA-1) counts as having
 none; transcripts no CDS line names, e.g. tRNAs, are left as they are (GeenuFF leaves them out).
-
-A transcript's gene ID is the first of:
-- the first of the given attributes it has (by default geneID, gene_id, gene)
-- its ID up to the last occurrence of the split text (by default ".", g653.t1 -> g653)
-- its ID with _gene appended, a gene of its own, as for every transcript with
-  --one-gene-per-transcript
-
 The gene line spans the transcripts of its ID, which each get it as Parent; a gene ID naming an
-existing gene line is only set as Parent. The log shows example splits and warns where transcripts
-put into one gene do not overlap, a sign of the wrong split text.
+existing gene line is only set as Parent.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import logging

@@ -1,7 +1,8 @@
 #! /usr/bin/env python3
 """Keeps one transcript per gene of a GFF3 file, the one with the longest spliced CDS (the first in the
 file on ties), with its gene line and its exon, CDS and UTR lines, e.g. as the reference for comparing a
-gene prediction with gffcompare.
+gene prediction with GffCompare.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import logging

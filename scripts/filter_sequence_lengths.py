@@ -4,11 +4,7 @@ before import or (FASTA file alone) before prediction:
 - a statistically distinct cluster of small sequences, e.g. organelle genomes or unplaced scaffolds
   beside the chromosomes
 - every sequence below a hard floor (--min-seq-len, by default 1000 bp)
-See docs/scripts.md for more.
-
-Outputs default to the input names with _length_filtered before the extension (genome.fna.gz ->
-genome_length_filtered.fna.gz), each gzipped where its input is (see --gzip). The FASTA file is
-read in fixed-size chunks, so a sequence on a single line is never held in memory whole.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import logging

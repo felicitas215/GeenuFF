@@ -3,10 +3,9 @@
 in rare files listing exon lines for the UTRs only. The new exons, the union of a transcript's exon,
 CDS and UTR lines (touching or overlapping lines forming one), replace its exon lines, written after
 its transcript line. Other transcripts are left as they are.
-
 Only for files where this is systematic: elsewhere, a CDS outside its exons means the CDS or the
-exons are wrong, which GeenuFF masks (cds_outside_exons) and rebuilding would hide. The log gives the
-share of coding transcripts rebuilt; check a few rebuilt genes against the source.
+exons are wrong, which GeenuFF masks (cds_outside_exons) and rebuilding would hide.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import logging

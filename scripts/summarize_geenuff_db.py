@@ -3,6 +3,7 @@
 log is gone. Queries through plain sqlite rather than the ORM and fills geenuff's own
 ImportStatistics, so the sections and wording match what the importer logs. Counts that only
 existed while reading the GFF3 file cannot be recovered; the script lists them at the end.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import logging

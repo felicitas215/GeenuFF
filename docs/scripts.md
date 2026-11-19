@@ -198,6 +198,11 @@ severity, masks), `gene_ids` or `transcript_ids` (one per line, e.g. for `grep -
 out before the error checks show "not checked" and match no error filter. E.g. the genes masked in
 full although exported: `--masked-in-full --exported --output gene_ids`.
 
+Table columns in detail: gene_id, transcript_id, seqid, strand, start, end (GFF3, 1-based), coding,
+selected_for_export (the one transcript per gene an export takes), exported (selected and its gene
+not excluded), excluded_from_export (why it was excluded), errors, error_severity, masked_in_full
+and masks (GFF3 ranges).
+
 ## check_seqids.py
 
 Checks whether every sequence ID of a GFF3 file is a FASTA ID (the header up to the first

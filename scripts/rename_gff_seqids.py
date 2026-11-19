@@ -1,10 +1,8 @@
 #! /usr/bin/env python3
 """Rewrites the sequence IDs of a GFF3 file to those of its FASTA file, for sequences renamed after
-annotation, e.g. on upload to NCBI. A GFF3 sequence ID is paired with the FASTA sequence of the
-same ID (header up to the first whitespace), else whose whole header holds it as a word, else that
-its genes fit. Every pair is checked at the start and stop codons and introns the GFF3 file places
-on the sequence. Lines on sequence IDs without a FASTA sequence are left out; sequences changed
+annotation. Lines on sequence IDs without a FASTA sequence are left out; sequences changed
 after annotation are left out of both files, the FASTA file being copied without them.
+See https://github.com/usadellab/GeenuFF/blob/main/docs/scripts.md for more.
 """
 import argparse
 import bisect
