@@ -1,14 +1,15 @@
 import bisect
 
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (Table, Column, Integer, ForeignKey, String, Enum, CheckConstraint, UniqueConstraint, Boolean,
                         Float)
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 
 from geenuff.base import types
 
 # setup classes for data holding
 Base = declarative_base()
+# Enum and Boolean columns are given create_constraint=True: SQLAlchemy 1.4 writes their CHECK constraints
+# only when asked, and they are the only check of the values the importer's bulk inserts write as plain strings
 
 # bases per row of the sequence_chunk table, well below SQLite's limit of 1,000,000,000 bytes per value
 SEQUENCE_CHUNK_SIZE = 100_000_000
@@ -112,7 +113,7 @@ class SuperLocus(Base):
     id = Column(Integer, primary_key=True)
     given_name = Column(String)
     aliases = Column(String)
-    type = Column(Enum(types.SuperLocusAll), index=True)
+    type = Column(Enum(types.SuperLocusAll, create_constraint=True), index=True)
     # why this locus is left out of exports, NULL where it is exported normally. Its features are
     # kept either way: the annotation is recorded as given, and only what a consumer is handed
     # depends on this. Set where there is no honest way to export the locus at all, rather than
@@ -160,7 +161,7 @@ super_locus_overlap = Table(
     Column('partner_id', Integer, ForeignKey('super_locus.id'), nullable=False, index=True),
     Column('start', Integer, nullable=False),
     Column('end', Integer, nullable=False),
-    Column('is_plus_strand', Boolean, nullable=False),
+    Column('is_plus_strand', Boolean(create_constraint=True), nullable=False),
     Column('coordinate_id', Integer, ForeignKey('coordinate.id'), nullable=False, index=True)
 )
 
@@ -177,8 +178,8 @@ class Transcript(Base):
     id = Column(Integer, primary_key=True)
     given_name = Column(String)
 
-    type = Column(Enum(types.TranscriptLevel), index=True)
-    longest = Column(Boolean, index=True)
+    type = Column(Enum(types.TranscriptLevel, create_constraint=True), index=True)
+    longest = Column(Boolean(create_constraint=True), index=True)
 
     super_locus_id = Column(Integer, ForeignKey('super_locus.id'), nullable=False, index=True)
     super_locus = relationship('SuperLocus', back_populates='transcripts')
@@ -203,7 +204,7 @@ class TranscriptError(Base):
     id = Column(Integer, primary_key=True)
     transcript_id = Column(Integer, ForeignKey('transcript.id'), nullable=False, index=True)
     transcript = relationship('Transcript', back_populates='errors')
-    type = Column(Enum(types.Errors), nullable=False, index=True)
+    type = Column(Enum(types.Errors, create_constraint=True), nullable=False, index=True)
 
     __table_args__ = (
         UniqueConstraint('transcript_id', 'type', name='unique_error_per_transcript'),
@@ -260,14 +261,14 @@ class Feature(Base):
     # basic attributes
     id = Column(Integer, primary_key=True)
     given_name = Column(String)
-    type = Column(Enum(types.GeenuffFeature), index=True)
+    type = Column(Enum(types.GeenuffFeature, create_constraint=True), index=True)
 
     start = Column(Integer, nullable=False)
-    start_is_biological_start = Column(Boolean, nullable=False)
+    start_is_biological_start = Column(Boolean(create_constraint=True), nullable=False)
     end = Column(Integer, nullable=False)
-    end_is_biological_end = Column(Boolean, nullable=False)
+    end_is_biological_end = Column(Boolean(create_constraint=True), nullable=False)
 
-    is_plus_strand = Column(Boolean, nullable=False)
+    is_plus_strand = Column(Boolean(create_constraint=True), nullable=False)
     score = Column(Float)
     source = Column(String)
     phase = Column(Integer)

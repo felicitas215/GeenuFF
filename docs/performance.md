@@ -1,26 +1,27 @@
 # Import speed, memory and masking: GeenuFF 0.4.0 against 0.3.2
 
-GeenuFF 0.4.0 imports a genome 1.8 to 3.7 times faster than GeenuFF 0.3.2 and needs 1.7 to 4.2
+GeenuFF 0.4.0 imports a genome 1.7 to 3.7 times faster than GeenuFF 0.3.2 and needs 1.7 to 4.0
 times less memory. It masks genes with errors of their own on the gene, where 0.3.2 mostly masked
 only beside them, and masks far fewer intergenic bases.
 
 ## Setup
 
-|             |                                                                |
-|-------------|----------------------------------------------------------------|
-| CPU         | AMD EPYC 9124, 16 cores, 32 threads                            |
-| memory      | 377 GB                                                         |
-| storage     | NVMe SSD (Micron 7450)                                         |
-| system      | Ubuntu 24.04.4 LTS, Linux 7.0.0                                |
-| software    | Python 3.10.20, SQLite 3.45.1, SQLAlchemy 1.3.22, NumPy 1.26.4 |
-| old version | GeenuFF 0.3.2, as installed with Helixer 0.3.7                 |
-| new version | GeenuFF 0.4.0, as installed with Helixer 0.3.8                 |
+|             |                                                                   |
+|-------------|-------------------------------------------------------------------|
+| CPU         | AMD EPYC 9124, 16 cores, 32 threads                               |
+| memory      | 377 GB                                                            |
+| storage     | NVMe SSD (Micron 7450)                                            |
+| system      | Ubuntu 24.04.4 LTS, Linux 7.0.0                                   |
+| software    | Python 3.10.22, SQLite 3.45.1, NumPy 1.26.4                       |
+| old version | GeenuFF 0.3.2, as installed with Helixer 0.3.7, SQLAlchemy 1.3.22 |
+| new version | GeenuFF 0.4.0, as installed with Helixer 0.3.8, SQLAlchemy 1.4.54 |
 
 Each genome was prepared once with the 0.4.0 preparation scripts (`rename_gff_seqids.py`,
 `filter_sequence_lengths.py`, `add_gene_lines.py`, `add_transcript_lines.py`, `rebuild_exons.py`,
 see [scripts.md](scripts.md)), and both versions imported the same decompressed files, one import
 at a time, measured with `/usr/bin/time -v` (wall time and peak resident memory). The input was read
-once beforehand, so both versions found it in the page cache. GeenuFF 0.3.2 stops on files 0.4.0
+once beforehand, so both versions found it in the page cache. Each import ran twice, the tables and
+figures giving the mean of both runs. GeenuFF 0.3.2 stops on files 0.4.0
 reads, so two of them were adapted for both versions alike:
 
 * Phytozome's `*.gene.gff3` files sometimes have no exon lines; 0.4.0 builds them itself
@@ -59,12 +60,12 @@ organelle genomes and unplaced scaffolds; renaming found nothing to change in an
 
 | species                 | 0.3.2: s, GB | 0.4.0: s, GB | faster | less memory |
 |-------------------------|--------------|--------------|--------|-------------|
-| *O. lucimarinus*        | 6.9, 0.22    | 3.9, 0.09    | 1.8x   | 2.4x        |
-| *A. thaliana* Araport11 | 98.5, 1.53   | 41.6, 0.91   | 2.4x   | 1.7x        |
-| *A. thaliana* TAIR12    | 131.6, 3.32  | 35.9, 0.97   | 3.7x   | 3.4x        |
-| *V. vinifera*           | 112.1, 3.15  | 42.2, 0.83   | 2.7x   | 3.8x        |
-| *Z. mays*               | 195.6, 5.90  | 76.1, 1.42   | 2.6x   | 4.2x        |
-| *H. vulgare*            | 152.5, 6.47  | 71.8, 2.37   | 2.1x   | 2.7x        |
+| *O. lucimarinus*        | 6.9, 0.21    | 4.0, 0.09    | 1.7x   | 2.3x        |
+| *A. thaliana* Araport11 | 100.9, 1.53  | 41.8, 0.92   | 2.4x   | 1.7x        |
+| *A. thaliana* TAIR12    | 131.1, 3.32  | 35.2, 1.00   | 3.7x   | 3.3x        |
+| *V. vinifera*           | 112.8, 3.17  | 42.5, 0.83   | 2.7x   | 3.8x        |
+| *Z. mays*               | 189.1, 5.90  | 73.3, 1.46   | 2.6x   | 4.0x        |
+| *H. vulgare*            | 151.8, 6.47  | 73.3, 2.44   | 2.1x   | 2.7x        |
 
 Import time follows the number of GFF3 lines more than the genome size. Memory grows much less with
 the genome than before, as 0.4.0 writes the sequences to the database piece by piece instead of
@@ -73,7 +74,7 @@ peak follows the GFF3 lines, unless the largest sequence is larger, as in *H. vu
 to 666 Mb).
 
 Very large chromosomes: *Pinus massoniana* (21.9 Gb, largest chromosome 2.4 Gb) imports with 0.4.0
-in 251 s at 8.0 GB. GeenuFF 0.3.2 cannot import it: it stops on any chromosome over 2.1 Gb
+in 254 s at 8.0 GB. GeenuFF 0.3.2 cannot import it: it stops on any chromosome over 2.1 Gb
 (`OverflowError: string longer than INT_MAX bytes`), as it stores each sequence as one piece
 (Python's SQLite interface only works on up to 2^31 - 1 bytes).
 

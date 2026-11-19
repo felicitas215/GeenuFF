@@ -1666,7 +1666,8 @@ class ImportController(object):
                     for mask in transcript['masks']:
                         mask.add_to_queue()
                         mask.insert_feature_piece_association(tp.id)
-                    for error_type in transcript['detected_error_types']:
+                    # sorted, the set's order changing between runs with Python's string hashing
+                    for error_type in sorted(transcript['detected_error_types']):
                         self.insertion_queues.transcript_error.queue.append(
                             {'transcript_id': transcript['transcript'].id, 'type': error_type})
 

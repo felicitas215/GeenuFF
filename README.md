@@ -37,7 +37,7 @@ is released together with Helixer 0.3.8, which requires it.
   characters stop the import, as do GTF files and damaged gzipped or zipped files; unknown feature
   types are skipped. A stop codon left out of the CDS, as in GFF3 converted from GTF, is added.
 - **No chromosome size limit:** chromosomes longer than 2,147,483,647 bp can be imported.
-- **Faster:** imports are 2 to 3.7 times faster and need up to 2.7 times less memory (see
+- **Faster:** imports are 1.7 to 3.7 times faster and need up to 4 times less memory (see
   [docs/performance.md](docs/performance.md)).
 - **Import summary:** the import ends with a summary of what was left out or masked and why;
   `summarize_geenuff_db.py` recreates it from a database.

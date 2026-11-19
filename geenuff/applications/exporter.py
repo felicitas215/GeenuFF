@@ -244,7 +244,8 @@ class GeenuffExportController(object):
                      .join(TranscriptPiece, TranscriptPiece.transcript_id == Transcript.id)
                      .join(asso_tp_2_f, asso_tp_2_f.c.transcript_piece_id == TranscriptPiece.id)
                      .join(Feature, asso_tp_2_f.c.feature_id == Feature.id)
-                     .join(Coordinate, Feature.coordinate_id == Coordinate.id))
+                     .join(Coordinate, Feature.coordinate_id == Coordinate.id)
+                     .join(Genome, Coordinate.genome_id == Genome.id))
         # the longest transcripts are the coding ones selected for export, whatever their types,
         # as in the h5 export, and coding ones are selected by their CDS (see SuperLocusRanger);
         # otherwise all isoforms are those of plain genes, mRNAs and transcripts, unless all types
