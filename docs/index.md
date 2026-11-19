@@ -47,7 +47,7 @@ to handle cases like:
 ### Specific advantages over alternatives
 GeenuFF is not the first attempt to encode gene structures; if you know e.g. GFF and wonder
 whether this is one more standard on the [pile](https://xkcd.com/927/), this section explains
-_why_ we thought it is worth it.
+_why_ we thought it was worth it.
 
 Today GeenuFF is mainly the store of eukaryotic annotation that
 [Helixer](https://github.com/usadellab/Helixer) trains from: it imports GFF3, checks the gene

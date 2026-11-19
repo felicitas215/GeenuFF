@@ -24,6 +24,13 @@ what stays ambiguous as errors of the transcript, merged into its geenuff_mask f
 reads one transcript per gene through `GeenuffExportController.genome_query`, the masks keeping
 unreliable annotation out of training.
 
+Only the standard genetic code is checked against: ATG = start codon and TAA, TAG and
+TGA = stop codons. Genes with an alternative start codon, and species using one or two of
+the stop codons as regular codons, are masked as erroneous for now; organelle genomes are
+out of scope. The exported transcript of a gene is its longest coding one, whatever its
+errors, so in this release a gene whose longest isoform is masked gives no labels even where
+a shorter one is error-free.
+
 The database holds the annotation as given; what a consumer is handed, and what is masked, is
 decided on export. Worth reading before relying on the output:
 
@@ -40,13 +47,12 @@ decided on export. Worth reading before relying on the output:
 ## Install
 
 GeenuFF needs Python 3.10.12 or newer. Install it preferably in a
-[virtual environment](https://docs.python-guide.org/dev/virtualenvs/), using `pip install -e .`
-for an editable installation:
+[virtual environment](https://docs.python-guide.org/dev/virtualenvs/).
 
 ```bash
 git clone https://github.com/usadellab/GeenuFF.git
 cd GeenuFF
-pip install .
+pip install .  # pip install -e . for editable installs
 cd ..
 ```
 
