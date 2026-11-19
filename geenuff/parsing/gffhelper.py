@@ -12,7 +12,11 @@ class GFFParser:
     @staticmethod
     def lines(gff_file: str) -> Iterator[str]:
         """Yields every line of a (gzipped) GFF3 file, comments included, up to an embedded FASTA
-        section (a ##FASTA line or a line starting with '>')."""
+        section (a ##FASTA line or a line starting with '>').
+
+        Raises:
+            DamagedFile: for a damaged gzipped or zipped file (see text_or_gzip_open)
+        """
         with text_or_gzip_open(gff_file) as f:
             for line in f:
                 if line.startswith(('##FASTA', '>')):

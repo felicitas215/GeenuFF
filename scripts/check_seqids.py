@@ -8,7 +8,8 @@ import argparse
 import logging
 import os
 
-from geenuff.base.helpers import add_version_arg, listed, require_fasta_and_gff, require_input_files, setup_logging
+from geenuff.base.helpers import (add_version_arg, listed, require_fasta_and_gff, require_input_files, run_main,
+                                  setup_logging)
 from geenuff.parsing.fastahelper import FastaParser
 from geenuff.parsing.gffhelper import GFFParser
 
@@ -41,4 +42,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     require_input_files(parser, [args.fasta, args.gff])
     require_fasta_and_gff(parser, args.fasta, args.gff)
-    main(args)
+    run_main(main, args)

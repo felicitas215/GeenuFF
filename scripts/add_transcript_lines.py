@@ -16,7 +16,7 @@ from collections import defaultdict
 from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (Compression, add_output_compression_args, add_version_arg, check_output_paths,
                                   insert_before_extension, open_out, output_compression, output_path, plural,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+                                  require_fasta_and_gff, require_input_files, run_main, setup_logging)
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
@@ -149,4 +149,4 @@ if __name__ == '__main__':
     default_out = insert_before_extension(args.gff, OUT_SUFFIX)
     args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.log_file], [args.gff])
-    main(args)
+    run_main(main, args)

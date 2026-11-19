@@ -17,8 +17,8 @@ from geenuff.applications.importer import (GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TY
 from geenuff.base.helpers import (Compression, NonMatchableIDs, add_output_compression_args, add_version_arg,
                                   check_output_paths, gff_spans_overlap, insert_before_extension, merge_gff_spans,
                                   open_out, output_compression, output_path, outside_sequence, require_fasta_and_gff,
-                                  require_identical_seqids, require_input_files, setup_logging, spliced_cds_sequence,
-                                  strand_or_none)
+                                  require_identical_seqids, require_input_files, run_main, setup_logging,
+                                  spliced_cds_sequence, strand_or_none)
 from geenuff.parsing.fastahelper import FastaParser
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
@@ -384,4 +384,4 @@ if __name__ == '__main__':
     default_out = insert_before_extension(args.gff, NO_UTRS_SUFFIX if args.no_utrs else OUT_SUFFIX)
     args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.log_file], [args.gff, args.fasta])
-    main(args)
+    run_main(main, args)

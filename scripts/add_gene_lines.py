@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from geenuff.applications.importer import GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.base.helpers import (Compression, add_output_compression_args, add_version_arg, check_output_paths,
                                   insert_before_extension, open_out, output_compression, output_path,
-                                  require_fasta_and_gff, require_input_files, setup_logging)
+                                  require_fasta_and_gff, require_input_files, run_main, setup_logging)
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
@@ -229,4 +229,4 @@ if __name__ == '__main__':
         parser.error('--one-gene-per-transcript uses neither --gene-id-attributes nor --split-at')
     args.gene_id_attributes = DEFAULT_ATTRIBUTES if args.gene_id_attributes is None else args.gene_id_attributes
     args.split_at = DEFAULT_SPLIT if args.split_at is None else args.split_at
-    main(args)
+    run_main(main, args)

@@ -45,8 +45,10 @@ import2geenuff.py --basedir <BASEDIR> --species <SPECIES_NAME>
 
 `<BASEDIR>/input` must exist and hold one FASTA file (`.fa`, `.fasta`, `.fna` or `.fas`) and one
 GFF3 file (`.gff` or `.gff3`), each possibly gzipped or zipped (`.gz`, `.zip`); `<BASEDIR>/output`
-is created. Explicit paths override those from `--basedir`. Import one species into one database
-once; to redo it, delete the database, give it a different name via `--db-path`,
+is created. A GTF file is refused, by its name or its attributes; convert it to GFF3 first, e.g.
+with AGAT (`agat_convert_sp_gxf2gxf.pl`). A damaged or incomplete gzipped or zipped file stops the
+import with an error naming it. Explicit paths override those from `--basedir`. Import one species
+into one database once; to redo it, delete the database, give it a different name via `--db-path`,
 or pass `--replace-db`.
 
 ## extract fasta sequences from a database

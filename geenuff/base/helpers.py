@@ -6,7 +6,7 @@ import logging
 import enum
 import os
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from types import GeneratorType
@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, BinaryIO, TextIO
 
 from zlib_ng import gzip_ng_threaded
 
-from geenuff.parsing.fastahelper import FastaParser, detect_format, text_or_gzip_open
+from geenuff.parsing.fastahelper import DamagedFile, FastaFormatError, FastaParser, detect_format, text_or_gzip_open
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 if TYPE_CHECKING:
@@ -202,6 +202,16 @@ def log_version() -> None:
     logger.info(version_text())
 
 
+def run_main(main: Callable[[argparse.Namespace], None], args: argparse.Namespace) -> None:
+    """Runs a script's main function; an input file that cannot be read (DamagedFile,
+    FastaFormatError) stops it with exit code 1 and its error logged as one line, without a traceback."""
+    try:
+        main(args)
+    except (DamagedFile, FastaFormatError) as e:
+        logger.error(e)
+        raise SystemExit(1)
+
+
 @dataclass(frozen=True)
 class Compression:
     """How a gzipped output file is written: its gzip level and the threads compressing it."""
@@ -269,24 +279,38 @@ def require_input_files(parser: argparse.ArgumentParser, paths: Iterable[str | N
             parser.error(f'the input file "{path}" does not exist')
 
 
-# the endings of FASTA and GFF3 file names, each possibly followed by .gz or .zip
+# the endings of FASTA, GFF3 and GTF file names, each possibly followed by .gz or .zip
 FASTA_EXTENSIONS = ('.fa', '.fasta', '.fna', '.fas')
 GFF_EXTENSIONS = ('.gff', '.gff3')
+GTF_EXTENSIONS = ('.gtf',)
+# GTF attribute columns start with gene_id or transcript_id, a space and the value
+GTF_ATTRIBUTE_STARTS = (b'gene_id ', b'transcript_id ')
+GTF_HINT = 'GeenuFF reads GFF3 only; convert it to GFF3 first, e.g. with AGAT (agat_convert_sp_gxf2gxf.pl)'
+
+
+def name_ending(path: str) -> str:
+    """The file name in lowercase without a final .gz or .zip."""
+    return path.lower().removesuffix('.gz').removesuffix('.zip')
 
 
 def is_fasta_name(path: str) -> bool:
-    return path.lower().removesuffix('.gz').removesuffix('.zip').endswith(FASTA_EXTENSIONS)
+    return name_ending(path).endswith(FASTA_EXTENSIONS)
 
 
 def is_gff_name(path: str) -> bool:
-    return path.lower().removesuffix('.gz').removesuffix('.zip').endswith(GFF_EXTENSIONS)
+    return name_ending(path).endswith(GFF_EXTENSIONS)
+
+
+def is_gtf_name(path: str) -> bool:
+    return name_ending(path).endswith(GTF_EXTENSIONS)
 
 
 def require_fasta_and_gff(parser: argparse.ArgumentParser, fasta: str | None, gff: str | None) -> None:
     """Stops with a usage error where the FASTA or GFF3 file name ends like the other kind's, as when
-    the two are swapped, where the FASTA file does not start with '>', or where the GFF3 file's first
-    line that is no comment does not have the 9 tab-separated columns of a feature line, e.g. 10 from
-    a sequence ID holding a tab. Either file may be None, for a script reading only the other."""
+    the two are swapped, where the GFF3 file is a GTF file by its name or attributes, where the FASTA
+    file does not start with '>', or where the GFF3 file's first line that is no comment does not
+    have the 9 tab-separated columns of a feature line, e.g. 10 from a sequence ID holding a tab.
+    Either file may be None, for a script reading only the other."""
     fasta_named_gff = fasta and is_gff_name(fasta)
     gff_named_fasta = gff and is_fasta_name(gff)
     if fasta_named_gff and gff_named_fasta:
@@ -295,6 +319,8 @@ def require_fasta_and_gff(parser: argparse.ArgumentParser, fasta: str | None, gf
         parser.error(f'"{fasta}", given as the FASTA file, is named like a GFF3 file')
     if gff_named_fasta:
         parser.error(f'"{gff}", given as the GFF3 file, is named like a FASTA file')
+    if gff and is_gtf_name(gff):
+        parser.error(f'"{gff}", given as the GFF3 file, is named like a GTF file. {GTF_HINT}')
     if fasta:
         with text_or_gzip_open(fasta, 'rb') as f:
             if f.read(1) != b'>':
@@ -302,10 +328,13 @@ def require_fasta_and_gff(parser: argparse.ArgumentParser, fasta: str | None, gf
     if gff:
         with text_or_gzip_open(gff, 'rb') as f:
             line = next((line for line in f if line.strip() and not line.startswith(b'#')), b'')
-        n_columns = len(line.rstrip(b'\r\n').split(b'\t'))
-        if n_columns != 9:
-            parser.error(f'"{gff}" is no valid GFF3 file: its first feature line has {n_columns} tab-separated '
+        columns = line.rstrip(b'\r\n').split(b'\t')
+        if len(columns) != 9:
+            parser.error(f'"{gff}" is no valid GFF3 file: its first feature line has {len(columns)} tab-separated '
                          f'columns instead of 9: {line.decode(errors="replace").strip()[:200]}')
+        if columns[8].lstrip().startswith(GTF_ATTRIBUTE_STARTS):
+            parser.error(f'"{gff}" is a GTF file by the attributes of its first feature line '
+                         f'({columns[8].decode(errors="replace").strip()[:200]}). {GTF_HINT}')
 
 
 def open_out(path: str, compression: Compression | None, binary: bool = False) -> TextIO | BinaryIO:

@@ -33,8 +33,9 @@ Detailed explanations per file:
 leave out or change; `--log-file` writes that log to a file as well as the terminal, to keep it
 beside the output.
 
-The preparation scripts read plain, gzipped and zipped files (a zip holding a single file). Each
-file they write is compressed as follows:
+The preparation scripts read plain, gzipped and zipped files (a zip holding a single file). A GTF
+file, a damaged or incomplete compressed file and a FASTA file breaking the rules of the import
+stop a script with a one-line error. Each file they write is compressed as follows:
 
 | option                 | default                                                                                                  |
 |------------------------|----------------------------------------------------------------------------------------------------------|
@@ -372,7 +373,8 @@ exon, CDS and UTR lines, touching lines forming one exon. Use it only where this
 i.e. GeenuFF's import warns about `cds_outside_exons` for more than 5% of the coding transcripts:
 elsewhere the CDS or the exons are wrong, which GeenuFF masks and rebuilding would hide. The log
 gives the share rebuilt and warns at 5% or below, as those are likely a few wrong genes only and
-not a pattern of a wrongly formatted file. Without such transcripts, no file is written.
+not a pattern of a wrongly formatted file. Without such transcripts, no file is written. At 5% or
+below, no file is written either, unless `--force` is given.
 
 ## filter_sequence_lengths.py
 

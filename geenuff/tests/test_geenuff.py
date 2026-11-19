@@ -2263,6 +2263,10 @@ def test_seqid_check_raises_for_gff_ids_that_are_no_fasta_id():
     # a sequence ID holding a tab, giving the first feature line 10 columns
     (('genome.fa', 'genes.gff3'), '>Chr1\nACGT\n', '##gff-version 3\nChr\t1\tt\tgene\t1\t4\t.\t+\t.\tID=g1\n',
      'has 10 tab-separated columns instead of 9'),
+    # a GTF file, by its name or by its attributes
+    (('genome.fa', 'genes.gtf.gz'), '>Chr1\nACGT\n', 'Chr1\tt\tgene\t1\t4\t.\t+\t.\tID=g1\n', 'named like a GTF file'),
+    (('genome.fa', 'genes.gff3'), '>Chr1\nACGT\n', 'Chr1\tt\tCDS\t1\t4\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n',
+     'is a GTF file'),
 ])
 def test_require_fasta_and_gff_stops_on_files_not_of_their_kind(tmp_path, capsys, names, fasta_text, gff_text, message):
     fasta, gff = tmp_path / names[0], tmp_path / names[1]

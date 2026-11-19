@@ -1,4 +1,5 @@
 import gzip
+import random
 import zipfile
 
 import pytest
@@ -17,7 +18,7 @@ def write_as(path, data: bytes, file_format: str) -> str:
             f.write(data)
     elif file_format == 'zip':
         path = f'{path}.zip'
-        with zipfile.ZipFile(path, 'w') as archive:
+        with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
             archive.writestr('inner', data)
     else:
         with open(path, 'wb') as f:
@@ -56,6 +57,25 @@ def test_gff_feature_lines_plain_gzipped_and_zipped(tmp_path, file_format):
     gff = b'##gff-version 3\nchr1\t.\tgene\t1\t9\t.\t+\t.\tID=g1\n\n##FASTA\n>chr1\nACGT\n'
     path = write_as(tmp_path / 'genes.gff3', gff, file_format)
     assert list(GFFParser.feature_lines(path)) == ['chr1\t.\tgene\t1\t9\t.\t+\t.\tID=g1\n']
+
+
+@pytest.mark.parametrize('file_format', ['gzip', 'zip'])
+@pytest.mark.parametrize('damage', ['cut_short', 'changed_byte'])
+@pytest.mark.parametrize('read, first_line', [(FastaParser.read_fasta, b'>s1\n'),
+                                              (GFFParser.lines, b'##gff-version 3\n')])
+def test_damaged_compressed_files_raise_damaged_file(tmp_path, file_format, damage, read, first_line):
+    # random bytes, hardly compressible, so the compressed data is long enough to cut and change
+    data = first_line + random.Random(0).randbytes(100_000).hex().encode() + b'\n'
+    path = write_as(tmp_path / 'input', data, file_format)
+    with open(path, 'rb') as f:
+        data = f.read()
+    middle = len(data) // 2
+    data = data[:middle] if damage == 'cut_short' else data[:middle] + bytes([data[middle] ^ 0xff]) + data[middle + 1:]
+    with open(path, 'wb') as f:
+        f.write(data)
+    with pytest.raises(fastahelper.DamagedFile) as error:
+        list(read(path))
+    assert error.value.path == path
 
 
 def test_fasta_pieces_rebuild_file_across_chunk_borders(tmp_path, monkeypatch):

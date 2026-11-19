@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 from geenuff.base.helpers import (DEFAULT_COMPRESSION_LEVEL, DEFAULT_THREADS, add_output_compression_args,
                                   add_version_arg, built_exon_spans, check_output_paths, codon_after_cds,
                                   compression_for, insert_before_extension, listed, output_compression, output_path,
-                                  require_fasta_and_gff, require_input_files, setup_logging, write_fasta_without,
-                                  write_gff_without)
+                                  require_fasta_and_gff, require_input_files, run_main, setup_logging,
+                                  write_fasta_without, write_gff_without)
 from geenuff.base.types import PIECE_KEYS, TRANSCRIPT_TYPES
 from geenuff.parsing.fastahelper import FastaParser, text_or_gzip_open
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
@@ -747,4 +747,4 @@ if __name__ == '__main__':
     default_out = insert_before_extension(args.gff, OUT_SUFFIX)
     args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.pairs_out, args.log_file], [args.gff, args.fasta])
-    main(args)
+    run_main(main, args)

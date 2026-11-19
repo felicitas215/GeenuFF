@@ -14,7 +14,7 @@ from collections import OrderedDict, defaultdict
 
 from geenuff.base.helpers import (add_output_compression_args, add_version_arg, check_output_paths,
                                   insert_before_extension, output_compression, output_path, require_fasta_and_gff,
-                                  require_input_files, setup_logging, write_fasta_without, write_gff_without)
+                                  require_input_files, run_main, setup_logging, write_fasta_without, write_gff_without)
 from geenuff.base.types import PIECE_KEYS
 from geenuff.parsing.fastahelper import SEQUENCE_WHITESPACE, FastaParser
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
@@ -223,4 +223,4 @@ if __name__ == '__main__':
                                    output_compression(args, args.gff))
     check_output_paths(parser, [args.fasta_out, args.gff_out, args.removed_out, args.log_file],
                        [args.fasta, args.gff])
-    main(args)
+    run_main(main, args)

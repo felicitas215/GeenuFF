@@ -3,12 +3,15 @@
 text_or_gzip_open and FastaParser are adapted from https://github.com/janinamass/dustdas; credit for
 the original code: Janina Mass.
 """
+import gzip
 import io
 import zipfile
+import zlib
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import BinaryIO, TextIO
 
-from zlib_ng import gzip_ng_threaded
+from zlib_ng import gzip_ng_threaded, zlib_ng
 
 # bytes read at a time; from 64 KiB to 1 MiB reading is about equally fast, smaller chunks adding
 # Python overhead per byte and larger ones getting slower again; 256 KiB was fastest for plain and
@@ -18,6 +21,17 @@ FASTA_CHUNK_SIZE = 1 << 18
 SEQUENCE_WHITESPACE = b' \t\n\r\v\f'
 # the IUPAC bases a sequence may hold, in either case, as Helixer encodes them
 BASES = b'ACGTMRWSYKVHDBN'
+# what reading a damaged gzipped or zipped file raises: a file cut short (EOFError, BadZipFile), a
+# checksum not matching (BadGzipFile, BadZipFile) or invalid compressed data (zlib errors)
+DECOMPRESSION_ERRORS = (gzip.BadGzipFile, zipfile.BadZipFile, EOFError, zlib.error, zlib_ng.error)
+
+
+class DamagedFile(ValueError):
+    """A gzipped or zipped file that cannot be decompressed, e.g. cut short or changed in a download."""
+
+    def __init__(self, message: str, path: str):
+        super().__init__(message)
+        self.path = path
 
 
 class FastaFormatError(ValueError):
@@ -55,16 +69,27 @@ def detect_format(path: str) -> str:
     return 'text'
 
 
-def text_or_gzip_open(path: str, mode: str = 'r') -> TextIO | BinaryIO:
-    """Opens a plain, gzipped or zipped file for reading, as text ('r') or bytes ('rb'); a gzipped
-    one is decompressed by zlib-ng in a thread of its own.
+@contextmanager
+def text_or_gzip_open(path: str, mode: str = 'r') -> Iterator[TextIO | BinaryIO]:
+    """Context manager opening a plain, gzipped or zipped file for reading, as text ('r') or bytes
+    ('rb'); a gzipped one is decompressed by zlib-ng in a thread of its own.
 
     Raises:
         ValueError: for a mode other than 'r' or 'rb', or a zip file not holding exactly one file
+        DamagedFile: for a file failing to decompress, on opening or while read within the context
     """
     if mode not in ('r', 'rb'):
         raise ValueError(f'mode must be "r" or "rb", not "{mode}"')
-    binary = mode == 'rb'
+    try:
+        with _open_any(path, mode == 'rb') as f:
+            yield f
+    except DECOMPRESSION_ERRORS as e:
+        raise DamagedFile(f'"{path}" is damaged or incomplete and cannot be decompressed ({type(e).__name__}: '
+                          f'{e}); download or compress it again', path) from e
+
+
+def _open_any(path: str, binary: bool) -> TextIO | BinaryIO:
+    """Opens a plain, gzipped or zipped file for reading (see text_or_gzip_open)."""
     file_format = detect_format(path)
     if file_format == 'gzip':
         return gzip_ng_threaded.open(path, 'rb' if binary else 'rt', threads=1)
@@ -75,7 +100,7 @@ def text_or_gzip_open(path: str, mode: str = 'r') -> TextIO | BinaryIO:
                 raise ValueError(f'"{path}" holds {len(names)} files; a zip file must hold exactly one')
             f = archive.open(names[0])
         return f if binary else io.TextIOWrapper(f)
-    return open(path, mode)
+    return open(path, 'rb' if binary else 'r')
 
 
 class FastaParser:
@@ -90,6 +115,7 @@ class FastaParser:
             NoFastaHeader: for a file not starting with '>'
             DuplicateSequenceID: for an ID given twice
             FastaFormatError: for a header holding no ID (see header_id)
+            DamagedFile: for a damaged gzipped or zipped file (see text_or_gzip_open)
         """
         seen = set()
 

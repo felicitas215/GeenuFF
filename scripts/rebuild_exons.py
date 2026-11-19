@@ -16,7 +16,7 @@ from geenuff.applications.importer import CDS_OUTSIDE_EXONS_WARN_SHARE, PIECE_KE
 from geenuff.base.helpers import (Compression, add_output_compression_args, add_version_arg, cds_outside_exons,
                                   check_output_paths, insert_before_extension, merge_gff_spans, open_out,
                                   output_compression, output_path, require_fasta_and_gff, require_input_files,
-                                  setup_logging)
+                                  run_main, setup_logging)
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,9 @@ def main(args: argparse.Namespace) -> None:
         logger.warning(f'Only {share:.1%} of the coding transcripts have CDS lines outside their exons, which '
                        f'looks like a few wrong genes rather than exon lines for the UTRs only; GeenuFF masks '
                        f'those on its own, so the original file is likely the better choice')
+        if not args.force:
+            logger.warning('No file written; --force writes it anyway')
+            return
     write_rebuilt(args.gff, args.out, rebuilt, output_compression(args, args.gff))
     logger.info(f'Wrote "{args.out}"')
 
@@ -104,7 +107,12 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--out', type=str,
                         help=(f'output GFF3 file, gzipped where the input is (see --gzip) (default: the GFF3 file\'s '
                               f'name with {OUT_SUFFIX} before the extension, e.g. genes{OUT_SUFFIX}.gff3); not '
-                              f'written when nothing is to be rebuilt'))
+                              f'written when nothing is to be rebuilt or, without --force, when '
+                              f'{100 * CDS_OUTSIDE_EXONS_WARN_SHARE:g}%% or fewer of the coding transcripts are'))
+    parser.add_argument('--force', action='store_true',
+                        help=(f'write the output also when {100 * CDS_OUTSIDE_EXONS_WARN_SHARE:g}%% or fewer of the '
+                              f'coding transcripts are to be rebuilt, likely a few wrong genes, which GeenuFF masks on '
+                              f'its own'))
     add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()
@@ -113,4 +121,4 @@ if __name__ == '__main__':
     default_out = insert_before_extension(args.gff, OUT_SUFFIX)
     args.out = output_path(args.out or default_out, output_compression(args, args.gff))
     check_output_paths(parser, [args.out, args.log_file], [args.gff])
-    main(args)
+    run_main(main, args)
