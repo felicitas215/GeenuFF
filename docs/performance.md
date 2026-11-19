@@ -21,8 +21,8 @@ Each genome was prepared once with the 0.4.0 preparation scripts (`rename_gff_se
 see [scripts.md](scripts.md)), and both versions imported the same decompressed files, one import
 at a time, measured with `/usr/bin/time -v` (wall time and peak resident memory). The input was read
 once beforehand, so both versions found it in the page cache. Each import ran twice, the tables and
-figures giving the mean of both runs. GeenuFF 0.3.2 stops on files 0.4.0
-reads, so two of them were adapted for both versions alike:
+figures giving the mean of both runs. GeenuFF 0.3.2 stops on files 0.4.0 reads, so two of them were
+adapted for both versions alike:
 
 * Phytozome's `*.gene.gff3` files sometimes have no exon lines; 0.4.0 builds them itself
   from the CDS and UTR lines. They were added to the file beforehand for both versions.
