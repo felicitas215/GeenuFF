@@ -70,7 +70,13 @@ class Finding:
 
 
 class MissingGeneLines(Exception):
-    """Coding transcript lines name no Parent, as gene predictors write them without gene lines."""
+    """Coding transcript lines name no Parent, as gene predictors write them without gene lines;
+    transcript_ids lists them in file order, n_coding counts all coding transcript lines."""
+
+    def __init__(self, message: str, transcript_ids: list[str], n_coding: int):
+        super().__init__(message)
+        self.transcript_ids = transcript_ids
+        self.n_coding = n_coding
 
 
 def error_severity(errors) -> str:
@@ -806,7 +812,7 @@ class OrganizedGFFEntries(object):
                 f'{len(by_seqid)} sequence{"s" if len(by_seqid) > 1 else ""} ({on}), e.g. '
                 f'{", ".join(parentless[:3])}, as gene predictors such as '
                 f'AUGUSTUS, BRAKER and Tiberius write them without gene lines. Add the gene lines with '
-                f'add_gene_lines.py and import the GFF3 file it writes.')
+                f'add_gene_lines.py and import the GFF3 file it writes.', parentless, n_coding)
         named_missing_parent = defaultdict(list)
         for t_id, t in transcripts_by_id.items():
             parents = t.get_Parent() or []
@@ -1509,8 +1515,8 @@ class ImportController(object):
             share = self.stats.cds_outside_exons_transcripts / n_total
             logger.warning(f'{self.stats.cds_outside_exons_transcripts} of {n_total} coding transcripts '
                            f'({share:.1%}) have CDS lines outside their exon lines and are masked in full '
-                           f'(cds_outside_exons). The file may list exon lines for the UTRs only; check it against '
-                           f'its source, and see rebuild_exons.py in docs/scripts.md.')
+                           f'({types.CDS_OUTSIDE_EXONS}). The file may list exon lines for the UTRs only; check it '
+                           f'against its source, and see rebuild_exons.py in docs/scripts.md.')
         if self.stats.overlapping_exons_transcripts > OVERLAPPING_EXONS_WARN_SHARE * n_total:
             share = self.stats.overlapping_exons_transcripts / n_total
             logger.warning(f'{self.stats.overlapping_exons_transcripts} of {n_total} coding transcripts '

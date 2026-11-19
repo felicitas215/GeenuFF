@@ -134,7 +134,11 @@ def setup_logging(log_file: str | None = None) -> None:
 # Mapper
 # ----------------------------------
 class NonMatchableIDs(Exception):
-    pass
+    """GFF sequence IDs that are no FASTA ID; missing lists them, sorted."""
+
+    def __init__(self, message: str, missing: list[str]):
+        super().__init__(message)
+        self.missing = missing
 
 
 def listed(items: list[str], separator: str = ', ', n_shown: int = 5) -> str:
@@ -158,7 +162,7 @@ def require_identical_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -
         raise NonMatchableIDs(f'GFF sequence IDs that are not in the FASTA ({len(missing)}): {listed(missing)} '
                               f'(FASTA IDs e.g. {listed(sorted(fasta_ids))}); rename_gff_seqids.py pairs '
                               f'sequences renamed after annotation by their sequence and renames them or removes '
-                              f'GFF IDS (and their genes) not in the FASTA file')
+                              f'GFF IDS (and their genes) not in the FASTA file', missing)
 
 
 # Script options and file checks

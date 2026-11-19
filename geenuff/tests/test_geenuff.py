@@ -1,6 +1,5 @@
 import argparse
 import os
-import logging
 import subprocess
 import sys
 from collections import defaultdict
@@ -415,7 +414,8 @@ def test_a_cds_outside_its_exons_is_masked_whole(caplog):
     for transcript in ('rnaOneExon', 'rnaControl'):
         assert errors_of(session, transcript) == set()
         assert masks_of(session, transcript) == []
-    assert any('1 of 3 coding transcripts' in r.message and r.levelname == 'WARNING' for r in caplog.records)
+    assert (controller.stats.cds_outside_exons_transcripts, controller.stats.total_coding_transcripts) == (1, 3)
+    assert any(types.CDS_OUTSIDE_EXONS in r.message and r.levelname == 'WARNING' for r in caplog.records)
 
 
 def test_rebuild_exons_covers_the_cds_of_utr_only_exon_lines(tmp_path):
@@ -950,40 +950,40 @@ def test_filtered_gff3_export_writes_only_longest_labelled_transcripts(tmp_path)
     assert (cols[3], cols[4]) == ('1000', '1200')
 
 
-def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path, caplog):
+def test_filtered_gff3_export_with_include_erroneous_writes_all_it_can(tmp_path):
     """include_erroneous writes one transcript per gene whatever is wrong with it, so a
     prediction can be compared gene by gene rather than only against sound ones. The line it
     draws is representability, not correctness: a gene dropped from the h5 export for
     overlapping another is written, nothing being wrong with it beyond sharing sequence, which a
     GFF3 holds without trouble, while a gene whose features cannot be placed on one strand is
-    not. Genes left out are logged with the reason, per types.unrepresentable_reasons."""
+    not. Genes left out are counted with the reason, per types.unrepresentable_reasons."""
     def genes_written(fasta, gff3, include_erroneous):
+        """The gene IDs written and the genes left out per reason."""
         stem = f'{gff3}_{include_erroneous}'
         db_path = str(tmp_path / f'{stem}.sqlite3')
         out_path = str(tmp_path / f'{stem}.gff3')
         controller = ImportController(database_path=db_path)
         controller.add_genome(f'testdata/{fasta}.fa', f'testdata/{gff3}.gff3', clean_gff=True)
-        FilteredGff3ExportController(db_path).write_filtered_gff3(
+        left_out = FilteredGff3ExportController(db_path).write_filtered_gff3(
             out_path, include_erroneous=include_erroneous)
         with open(out_path) as handle:
             return {line.split('ID=')[1].strip() for line in handle
-                    if line.split('\t')[2:3] == ['gene']}
+                    if line.split('\t')[2:3] == ['gene']}, left_out
 
     # the default export writes the genes the h5 export gives labels from: geneCrossCoder and
     # geneCleanNoCds, kept in their overlaps and with only the flanks of missing UTRs and the
     # overhang of the gene dropped in their favor masked; the others are masked whole or dropped.
     # With include_erroneous all eight come through, geneCrossGivesWay and geneTruncatedCoder among
     # them although both were dropped from the h5 export for overlapping a gene that was kept
-    assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', False) == {
+    assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', False)[0] == {
         'geneCrossCoder', 'geneCleanNoCds'}
-    assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', True) == {
+    assert genes_written('overlapping_loci_pairs', 'overlapping_loci_pairs', True)[0] == {
         'geneCrossCoder', 'geneCrossGivesWay', 'geneOuter', 'geneInner', 'geneBothTruncatedLeft',
         'geneBothTruncatedRight', 'geneCleanNoCds', 'geneTruncatedCoder'}
 
-    # a gene that cannot be placed on one strand stays out even so, and is reported as left out
-    caplog.set_level(logging.INFO)
-    assert genes_written('unplaceable_strand', 'unplaceable_strand', True) == {'geneOK'}
-    assert '2 genes left out, their features are not all on one definite strand' in caplog.text
+    # a gene that cannot be placed on one strand stays out even so, and is counted as left out
+    assert genes_written('unplaceable_strand', 'unplaceable_strand', True) == (
+        {'geneOK'}, {types.UNPLACEABLE_STRAND: 2})
 
 
 def test_exon_lines_naming_a_gene_are_left_out_wherever_they_stand():
@@ -1490,9 +1490,10 @@ def test_coding_transcripts_naming_no_parent_stop_the_import(tmp_path):
                         'CHR\tT\ttranscript\t21\t53\t.\t+\t.\tID=g1.t1;geneID=g1\n'
                         'CHR\tT\tCDS\t21\t53\t.\t+\t0\tParent=g1.t1\n')
     organizer = OrganizedGFFEntries(str(gff_path))
-    with pytest.raises(MissingGeneLines, match=r'1 of 1 coding transcript lines \(100\.0%\) name no Parent gene.*'
-                                               r'on 1 sequence \(\w+: 1\).*e\.g\. g1\.t1.*add_gene_lines\.py'):
+    with pytest.raises(MissingGeneLines) as error:
         organizer.load_organized_entries()
+    assert (error.value.transcript_ids, error.value.n_coding) == (['g1.t1'], 1)
+    assert 'add_gene_lines.py' in str(error.value)
 
 
 def test_non_coding_transcripts_naming_no_parent_are_left_out(tmp_path):
@@ -2244,11 +2245,13 @@ def test_seqid_check_accepts_gff_ids_that_are_fasta_ids():
 
 def test_seqid_check_raises_for_gff_ids_that_are_no_fasta_id():
     # a GFF ID with no FASTA sequence
-    with pytest.raises(helpers.NonMatchableIDs, match=r'not in the FASTA \(1\): d'):
+    with pytest.raises(helpers.NonMatchableIDs) as error:
         helpers.require_identical_seqids({'a', 'b', 'c'}, {'a', 'b', 'c', 'd'})
+    assert error.value.missing == ['d']
     # a GFF ID contained in a FASTA ID only, never paired with it
-    with pytest.raises(helpers.NonMatchableIDs, match=r'not in the FASTA \(1\): Chr1'):
+    with pytest.raises(helpers.NonMatchableIDs) as error:
         helpers.require_identical_seqids({'Chr1.v2', 'Chr2'}, {'Chr1', 'Chr2'})
+    assert error.value.missing == ['Chr1']
 
 
 @pytest.mark.parametrize('names, fasta_text, gff_text, message', [

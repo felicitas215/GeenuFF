@@ -20,6 +20,30 @@ SEQUENCE_WHITESPACE = b' \t\n\r\v\f'
 BASES = b'ACGTMRWSYKVHDBN'
 
 
+class FastaFormatError(ValueError):
+    """A file not readable as FASTA; seq_id names the sequence concerned, where there is one."""
+
+    def __init__(self, message: str, seq_id: str | None = None):
+        super().__init__(message)
+        self.seq_id = seq_id
+
+
+class NoFastaHeader(FastaFormatError):
+    """A file not starting with '>'."""
+
+
+class DuplicateSequenceID(FastaFormatError):
+    """A sequence ID given twice."""
+
+
+class InvalidBase(FastaFormatError):
+    """A sequence holding a character other than BASES and whitespace, the first one as character."""
+
+    def __init__(self, message: str, seq_id: str, character: str):
+        super().__init__(message, seq_id)
+        self.character = character
+
+
 def detect_format(path: str) -> str:
     """'gzip', 'zip' or 'text', by a file's first bytes rather than its name."""
     with open(path, 'rb') as f:
@@ -63,16 +87,17 @@ class FastaParser:
         sequence is never held in memory whole.
 
         Raises:
-            ValueError: for a file not starting with '>', a header holding no ID (see header_id) or an
-                ID given twice
+            NoFastaHeader: for a file not starting with '>'
+            DuplicateSequenceID: for an ID given twice
+            FastaFormatError: for a header holding no ID (see header_id)
         """
         seen = set()
 
         def checked(header: bytes) -> bytes:
             seq_id = FastaParser.header_id(header[1:].decode())
             if seq_id in seen:
-                raise ValueError(f'"{path}" holds the sequence ID "{seq_id}" more than once; FASTA sequence IDs '
-                                 f'must be unique')
+                raise DuplicateSequenceID(f'"{path}" holds the sequence ID "{seq_id}" more than once; FASTA '
+                                          f'sequence IDs must be unique', seq_id)
             seen.add(seq_id)
             return header
 
@@ -80,7 +105,7 @@ class FastaParser:
         with text_or_gzip_open(path, 'rb') as f:
             chunk = f.read(FASTA_CHUNK_SIZE)
             if chunk and not chunk.startswith(b'>'):
-                raise ValueError(f'"{path}" is no FASTA file: it does not start with ">"')
+                raise NoFastaHeader(f'"{path}" is no FASTA file: it does not start with ">"')
             while chunk:
                 block, position, rest = rest + chunk, 0, b''
                 # past the block's start, each piece starts a line
@@ -106,11 +131,11 @@ class FastaParser:
         """The sequence ID of a FASTA header line without its '>': the text up to the first whitespace.
 
         Raises:
-            ValueError: for a header holding no ID
+            FastaFormatError: for a header holding no ID
         """
         words = header.split(maxsplit=1)
         if not words:
-            raise ValueError(f'FASTA header without a sequence ID: ">{header.rstrip()}"')
+            raise FastaFormatError(f'FASTA header without a sequence ID: ">{header.rstrip()}"')
         return words[0]
 
     @staticmethod
@@ -125,8 +150,9 @@ class FastaParser:
         each sequence of a (gzipped) FASTA file.
 
         Raises:
-            ValueError: see pieces, or for a sequence holding a character other than BASES and
-                whitespace, e.g. from text between its lines
+            FastaFormatError: see pieces
+            InvalidBase: for a sequence holding a character other than BASES and whitespace, e.g. from
+                text between its lines
         """
         header, parts = None, []
         for is_header, piece in FastaParser.pieces(path):
@@ -134,9 +160,9 @@ class FastaParser:
                 sequence = piece.translate(None, SEQUENCE_WHITESPACE)
                 unknown = sequence.translate(None, BASES + BASES.lower())
                 if unknown:
-                    raise ValueError(f'"{path}": the sequence "{FastaParser.header_id(header)}" holds '
-                                     f'"{unknown[:1].decode(errors="replace")}", which is no base (one of '
-                                     f'{BASES.decode()}, in either upper- or lowercase)')
+                    seq_id, character = FastaParser.header_id(header), unknown[:1].decode(errors='replace')
+                    raise InvalidBase(f'"{path}": the sequence "{seq_id}" holds "{character}", which is no base '
+                                      f'(one of {BASES.decode()}, in either upper- or lowercase)', seq_id, character)
                 parts.append(sequence)
                 continue
             if header is not None:

@@ -34,7 +34,12 @@ class FilteredGff3ExportController(GeenuffExportController):
     The mRNA line of an erroneous transcript names its error types in a geenuff_errors attribute,
     and that of a gene kept out of the h5 export the reason in a geenuff_excluded attribute."""
 
-    def write_filtered_gff3(self, file_out: str | None, include_erroneous: bool = False) -> None:
+    def write_filtered_gff3(self, file_out: str | None, include_erroneous: bool = False) -> dict[str, int]:
+        """Writes the transcripts (see the class) to file_out, stdout where None, and logs a summary.
+
+        Returns:
+            the number of genes left out per SuperLocus.excluded_from_export reason
+        """
         handle_out = self._as_file_handle(file_out)
         handle_out.write('##gff-version 3\n')
 
@@ -67,6 +72,7 @@ class FilteredGff3ExportController(GeenuffExportController):
         if file_out is not None:
             handle_out.close()
         self._log_summary(n_written, n_masked_whole, n_overlap_dropped, skipped, include_erroneous)
+        return dict(skipped)
 
     @staticmethod
     def _log_summary(n_written: int, n_masked_whole: int, n_overlap_dropped: int,

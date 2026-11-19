@@ -4,7 +4,7 @@ import zipfile
 import pytest
 
 from geenuff.parsing import fastahelper
-from geenuff.parsing.fastahelper import FastaParser
+from geenuff.parsing.fastahelper import DuplicateSequenceID, FastaParser, InvalidBase, NoFastaHeader
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
 FASTA = b'>s1 first sequence\nAC GT\nnn\n>s2\nA\tC\n'
@@ -33,20 +33,22 @@ def test_read_fasta_plain_gzipped_and_zipped(tmp_path, file_format):
 
 def test_read_fasta_rejects_text_before_the_first_header(tmp_path):
     path = write_as(tmp_path / 'genome.fa', b'text\n' + FASTA, 'text')
-    with pytest.raises(ValueError, match='does not start with ">"'):
+    with pytest.raises(NoFastaHeader):
         list(FastaParser.read_fasta(path))
 
 
 def test_read_fasta_rejects_an_id_given_twice(tmp_path):
     path = write_as(tmp_path / 'genome.fa', FASTA + b'>s1 again\nACGT\n', 'text')
-    with pytest.raises(ValueError, match='sequence ID "s1" more than once'):
+    with pytest.raises(DuplicateSequenceID) as error:
         list(FastaParser.read_fasta(path))
+    assert error.value.seq_id == 's1'
 
 
 def test_read_fasta_rejects_text_between_sequence_lines(tmp_path):
     path = write_as(tmp_path / 'genome.fa', b'>s1\nACGT\n; a comment\nACGT\n', 'text')
-    with pytest.raises(ValueError, match='sequence "s1" holds ";", which is no base'):
+    with pytest.raises(InvalidBase) as error:
         list(FastaParser.read_fasta(path))
+    assert (error.value.seq_id, error.value.character) == ('s1', ';')
 
 
 @pytest.mark.parametrize('file_format', ['text', 'gzip', 'zip'])
