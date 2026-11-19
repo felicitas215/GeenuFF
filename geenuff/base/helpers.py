@@ -6,7 +6,6 @@ import logging
 import enum
 import os
 import sys
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from types import GeneratorType
@@ -143,50 +142,23 @@ def listed(items: list[str], separator: str = ', ', n_shown: int = 5) -> str:
     return separator.join(items[:n_shown]) + (f'{separator}...' if len(items) > n_shown else '')
 
 
-def match_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> dict[str, str]:
-    """Pairs each GFF sequence ID with a FASTA sequence ID: the identical one if there is one, else
-    the only one of the remaining FASTA IDs containing it (e.g. 'Chr1.v2' for 'Chr1').
+def require_identical_seqids(fasta_ids: Iterable[str], gff_ids: Iterable[str]) -> None:
+    """Checks that every GFF sequence ID is a FASTA sequence ID.
 
     Args:
         fasta_ids: the FASTA sequence IDs, i.e. the headers up to their first whitespace
         gff_ids: the sequence IDs of the GFF feature lines
 
-    Returns:
-        {GFF ID: FASTA ID}
-
     Raises:
-        NonMatchableIDs: if a GFF ID matches no FASTA ID or several, or two GFF IDs the same one.
+        NonMatchableIDs: if a GFF ID is no FASTA ID.
     """
-    gff_ids = set(gff_ids)
-    matched = {gff_id: gff_id for gff_id in gff_ids & set(fasta_ids)}
-    unclaimed = set(fasta_ids) - matched.keys()
-    substring_matched, unmatched, ambiguous = {}, [], []
-    for gff_id in sorted(gff_ids - matched.keys()):
-        candidates = sorted(fa_id for fa_id in unclaimed if gff_id in fa_id)
-        if len(candidates) == 1:
-            substring_matched[gff_id] = candidates[0]
-        elif candidates:
-            ambiguous.append(f'{gff_id} (in {listed(candidates)})')
-        else:
-            unmatched.append(gff_id)
-    gff_ids_by_fasta_id = defaultdict(list)
-    for gff_id, fa_id in substring_matched.items():
-        gff_ids_by_fasta_id[fa_id].append(gff_id)
-    claimed_twice = [f'{fa_id} ({", ".join(ids)})' for fa_id, ids in sorted(gff_ids_by_fasta_id.items())
-                     if len(ids) > 1]
-
-    problems = [f'{label} ({len(ids)}): {listed(ids)}'
-                for label, ids in (('GFF sequence IDs matching no FASTA header', unmatched),
-                                   ('GFF sequence IDs contained in several FASTA headers', ambiguous),
-                                   ('FASTA headers containing several GFF sequence IDs', claimed_twice))
-                if ids]
-    if problems:
-        raise NonMatchableIDs('; '.join(problems))
-    if substring_matched:
-        pairs = [f'{gff_id} -> {fa_id}' for gff_id, fa_id in substring_matched.items()]
-        logger.warning(f'GFF sequence IDs paired with the one FASTA header containing them, for lack of an '
-                       f'identical one ({len(pairs)}); check that these pairs are right: {listed(pairs)}')
-    return matched | substring_matched
+    fasta_ids = set(fasta_ids)
+    missing = sorted(set(gff_ids) - fasta_ids)
+    if missing:
+        raise NonMatchableIDs(f'GFF sequence IDs that are not in the FASTA ({len(missing)}): {listed(missing)} '
+                              f'(FASTA IDs e.g. {listed(sorted(fasta_ids))}); rename_gff_seqids.py pairs '
+                              f'sequences renamed after annotation by their sequence and renames them or removes '
+                              f'GFF IDS (and their genes) not in the FASTA file')
 
 
 # Script options and file checks
@@ -581,6 +553,17 @@ def cds_outside_exons(cds: Iterable[tuple[int, int]], exons: Iterable[tuple[int,
     overlapping exons counting as one."""
     covered = merge_gff_spans(exons)
     return any(not any(lo <= start and end <= hi for lo, hi in covered) for start, end in cds)
+
+
+def gff_spans_overlap(spans: Sequence[tuple[int, int]]) -> bool:
+    """Whether any two GFF spans (1-based, inclusive), sorted by start, share a base; any overlap
+    shows between neighbors."""
+    return any(b_start <= a_end for (_, a_end), (b_start, _) in zip(spans, spans[1:]))
+
+
+def outside_sequence(lines: Iterable[GFFObject], length: int) -> list[GFFObject]:
+    """The GFF lines starting before position 1 or ending past a sequence of the given length."""
+    return [line for line in lines if line.start < 1 or line.end > length]
 
 
 # String/import summary formatting

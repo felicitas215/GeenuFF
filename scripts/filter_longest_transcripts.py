@@ -1,18 +1,7 @@
 #! /usr/bin/env python3
 """Keeps one transcript per gene of a GFF3 file, the one with the longest spliced CDS (the first in the
 file on ties), with its gene line and its exon, CDS and UTR lines, e.g. as the reference for comparing a
-gene prediction with gffcompare. With --no-utrs, the exon and UTR lines are left out as well, so every
-transcript keeps only its CDS lines.
-
-The lines are grouped into genes and transcripts as GeenuFF's import groups them; lines it leaves out
-(see the import summary) are left out here too, as are non-coding genes and every line of other types.
-The kept lines are written as they are, in file order.
-
-With --add-stop-codons, a stop codon missing from a CDS is added as the import adds it, before the
-longest transcript is picked (same rules as the importer). The last CDS line is extended, or a CDS
-line added past an intron after it; where the codon lies past the exons, the last exon line, the
-transcript line and, if need be, the gene line are extended too. A UTR line holding the codon is
-shortened to start after it, or left out where the codon covers it fully, and counted.
+gene prediction with gffcompare.
 """
 import argparse
 import logging
@@ -25,9 +14,10 @@ from geenuff.applications.import_summary import DROPPED_LINE_REASONS
 from geenuff.applications.importer import (GENE_TYPES, PIECE_KEYS, TRANSCRIPT_TYPES, FastaImporter,
                                            MissingGeneLines, OrganizedGeenuffImporterGroup, OrganizedGFFEntries)
 from geenuff.base.helpers import (Compression, NonMatchableIDs, add_output_compression_args, check_output_paths,
-                                  insert_before_extension, match_seqids, merge_gff_spans, open_out, output_compression,
-                                  output_path, require_fasta_and_gff, require_input_files, setup_logging,
-                                  spliced_cds_sequence, strand_or_none)
+                                  gff_spans_overlap, insert_before_extension, merge_gff_spans, open_out,
+                                  output_compression, output_path, outside_sequence, require_fasta_and_gff,
+                                  require_identical_seqids, require_input_files, setup_logging, spliced_cds_sequence,
+                                  strand_or_none)
 from geenuff.parsing.fastahelper import FastaParser
 from geenuff.parsing.gffhelper import GFFObject, GFFParser
 
@@ -53,8 +43,9 @@ class Selection:
         transcripts: {ID: sequence ID} of their longest coding transcripts
         respans: new spans of the lines changed by adding stop codons
         added: CDS lines added past an intron by adding stop codons
-        outcomes: genes per outcome, written, non_coding or no_strand (see the module docstring), and
-            written transcripts with a stop codon added (stop_codon, stop_codon_past_exons)
+        outcomes: genes per outcome, written, non_coding, impossible or no_strand (see the module docstring),
+            coding transcripts left out as impossible (impossible_transcripts), and written transcripts with a
+            stop codon added (stop_codon, stop_codon_past_exons)
         utr_lines_left_out: UTR lines of written transcripts left out for being covered by the stop codon
         stop_codon_in_utr: IDs of the written transcripts with a UTR line holding the stop codon added
     """
@@ -108,8 +99,14 @@ def add_stop_codon(t: GFFObject, entries: dict, is_plus_strand: bool, coord: Seq
         how many of the 3 bases lie past the exons, None where no stop codon was added
     """
     # a transcript reaching past its sequence is masked whole by the import, without further checks
-    # so it is ignored here as well (also if it's past the 3' end, nothing could be added)
-    if any(line.start < 1 or line.end > coord.length for line in [t] + entries['exons'] + entries['cds']):
+    # so it is ignored here as well (also if it's past the 3' end, no stop could be added)
+    if outside_sequence([t] + entries['exons'] + entries['cds'], coord.length):
+        return None
+    # the checks the import runs BEFORE the same call (see OrganizedGeenuffImporterGroup._parse_gff_entries):
+    # add_missing_stop_codon expects CDS lines that do not overlap and lie within the exons; keep the order
+    # in both, or the script and the import add different stop codons
+    _, overlapping_cds, cds_outside_exons = OrganizedGeenuffImporterGroup.cds_line_checks(entries)
+    if overlapping_cds or cds_outside_exons:
         return None
     cds_seq = spliced_cds_sequence(coord, entries['cds'], is_plus_strand)
     added = OrganizedGeenuffImporterGroup.add_missing_stop_codon(t, entries, is_plus_strand, coord, cds_seq)
@@ -153,25 +150,49 @@ def record_stop_codon(t_id: str, old_cds: list[GFFObject], old_exons: list[GFFOb
                                              for i, line in enumerate(in_reading_order)]
 
 
+def off_strand(gene: GFFObject, lines: list[GFFObject]) -> bool:
+    """Whether a gene line has no definite strand ('.' or '?'), or any of the lines another one than it."""
+    return strand_or_none(gene) is None or any(line.strand != gene.strand for line in lines)
+
+
+def impossible(gene: GFFObject, t: GFFObject, entries: dict, coord: Sequence | None) -> bool:
+    """Whether a coding transcript cannot exist as written: a line of it running backwards, its gene or a
+    line of it on no definite strand or another one than its gene, overlapping CDS lines or, where its
+    sequence is given, a line starting before or ending past it."""
+    lines = [t] + entries['exons'] + entries['cds'] + entries['utrs']
+    return (any(line.start > line.end for line in lines) or off_strand(gene, lines)
+            or gff_spans_overlap([(c.start, c.end) for c in entries['cds']])
+            or (coord is not None and bool(outside_sequence(lines, coord.length))))
+
+
 def sequences(fasta_path: str, gff_path: str, seqids: set[str]) -> Iterator[tuple[str, Sequence]]:
-    """Yields (GFF sequence ID, its sequence) for the given GFF sequence IDs, one FASTA sequence at a
-    time, paired with the FASTA IDs as the import pairs them (see helpers.match_seqids).
+    """Yields (sequence ID, its sequence) for the given GFF sequence IDs, one FASTA sequence at a time,
+    each GFF sequence ID being required to be a FASTA ID as the import requires it (see
+    helpers.require_identical_seqids).
 
     Raises:
-        SystemExit: where a GFF sequence ID matches no FASTA sequence or several
+        SystemExit: where a GFF sequence ID is no FASTA ID
     """
     try:
-        pairs = match_seqids(FastaParser.ids(fasta_path), GFFParser.seqids(gff_path))
+        require_identical_seqids(FastaParser.ids(fasta_path), GFFParser.seqids(gff_path))
     except NonMatchableIDs as e:
         raise SystemExit(f'{e}; no file written')
-    gff_ids = {fasta_id: gff_id for gff_id, fasta_id in pairs.items() if gff_id in seqids}
-    for fasta_id, sequence in FastaImporter.parse_fasta(fasta_path):
-        if fasta_id in gff_ids:
-            yield gff_ids[fasta_id], Sequence(sequence)
+    for seqid, sequence in FastaImporter.parse_fasta(fasta_path):
+        if seqid in seqids:
+            yield seqid, Sequence(sequence)
 
 
-def longest_transcripts(gff_path: str, fasta_path: str | None) -> Selection:
-    """The longest coding transcript of each gene, with stop codons added where fasta_path is given.
+def longest_transcripts(gff_path: str, fasta_path: str | None, add_stop_codons: bool = False,
+                        exclude_impossible: bool = False) -> Selection:
+    """The longest coding transcript of each gene.
+
+    Args:
+        gff_path: the GFF3 file
+        fasta_path: its FASTA file, read for add_stop_codons and for the sequence edges with
+            exclude_impossible
+        add_stop_codons: add stop codons missing from a CDS first, as the import does (needs fasta_path)
+        exclude_impossible: leave out the coding transcripts that are not considered in Helixer's training
+            (see impossible) before picking
 
     Raises:
         SystemExit: where coding transcripts name no Parent gene (see importer.MissingGeneLines)
@@ -206,10 +227,17 @@ def longest_transcripts(gff_path: str, fasta_path: str | None) -> Selection:
             if not coding:
                 outcomes['non_coding'] += 1
                 continue
+            if exclude_impossible:
+                possible = [(t, t_entries) for t, t_entries in coding if not impossible(gene, t, t_entries, coord)]
+                outcomes['impossible_transcripts'] += len(coding) - len(possible)
+                if not possible:
+                    outcomes['impossible'] += 1
+                    continue
+                coding = possible
             # stop codons are added to every coding transcript before the longest is picked, as the
             # import does; the changes are recorded per transcript and kept only for the one written
             t_respans, t_added, n_past = {}, {}, {}
-            if coord is not None and gene.strand is not None:
+            if add_stop_codons and strand_or_none(gene) is not None:
                 for t, t_entries in coding:
                     # a transcript on neither strand is taken to be on its gene's, as the import does
                     is_plus_strand = strand_or_none(t if t.strand is not None else gene)
@@ -224,8 +252,7 @@ def longest_transcripts(gff_path: str, fasta_path: str | None) -> Selection:
             # max keeps the first of equal ones, as the import does
             t, t_entries = max(coding, key=lambda pair: coding_length(pair[1]['cds'], pair[1]['exons']))
             # a gene not on one definite strand, e.g. trans-spliced, is excluded from exports by the import
-            lines = [gene, t] + t_entries['exons'] + t_entries['cds'] + t_entries['utrs']
-            if gene.strand is None or any(line.strand != gene.strand for line in lines):
+            if off_strand(gene, [t] + t_entries['exons'] + t_entries['cds'] + t_entries['utrs']):
                 outcomes['no_strand'] += 1
                 continue
             selection.genes.add(gene.get_ID())
@@ -300,10 +327,16 @@ def main(args: argparse.Namespace) -> None:
     logger.info(f'Keeping the longest coding transcript per gene of "{os.path.basename(args.gff)}"'
                 f'{", without exon and UTR lines" if args.no_utrs else ""}'
                 f'{", stop codons added from " + os.path.basename(args.fasta) if args.add_stop_codons else ""}')
-    selection = longest_transcripts(args.gff, args.fasta if args.add_stop_codons else None)
+    # the FASTA file is read only where needed
+    fasta = args.fasta if args.add_stop_codons or args.exclude_impossible else None
+    selection = longest_transcripts(args.gff, fasta, args.add_stop_codons, args.exclude_impossible)
     outcomes = selection.outcomes
     if outcomes['non_coding']:
         logger.info(f'Left out {outcomes["non_coding"]} genes without a coding transcript')
+    if args.exclude_impossible:
+        logger.info(f'Left out {outcomes["impossible_transcripts"]} coding transcripts that are not considered in '
+                    f'Helixer\'s training, and {outcomes["impossible"]} genes with all of theirs'
+                    f'{"" if fasta else "; lines past the sequence edges are not checked without --fasta"}')
     if outcomes['no_strand']:
         logger.info(f'Left out {outcomes["no_strand"]} coding genes whose lines are not all on one definite strand')
     if args.add_stop_codons:
@@ -322,17 +355,23 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gff', type=str, required=True, help='GFF3 file (may be gzipped)')
-    parser.add_argument('--fasta', type=str, help='FASTA file of the genome (may be gzipped), for --add-stop-codons')
+    parser.add_argument('--fasta', type=str,
+                        help=('FASTA file of the genome (may be gzipped), for --add-stop-codons and excluding '
+                              'transcripts past the sequence edges with --exclude-impossible'))
     parser.add_argument('-o', '--out', type=str,
                         help=(f'output GFF3 file, gzipped where the input is (see --gzip) (default: the GFF3 file\'s '
                               f'name with {OUT_SUFFIX}, or {NO_UTRS_SUFFIX} with --no-utrs, before the extension, '
                               f'e.g. genes{OUT_SUFFIX}.gff3)'))
     parser.add_argument('--no-utrs', action='store_true',
                         help=('leave out the exon and UTR lines too, keeping only the CDS lines of each transcript '
-                              '(gffcompare then takes the CDS lines as exons)'))
+                              '(GffCompare then takes the CDS lines as exons)'))
     parser.add_argument('--add-stop-codons', action='store_true',
                         help=('add a stop codon missing from a CDS as GeenuFF\'s import adds it, before picking the '
                               'longest transcript (needs --fasta)'))
+    parser.add_argument('--exclude-impossible', action='store_true',
+                        help=('leave out coding transcripts that are not considered in Helixer\'s training before '
+                              'picking the longest: a line running backwards, on no definite strand or another one '
+                              'than the gene, overlapping CDS lines and, with --fasta, a line past the sequence edge'))
     add_output_compression_args(parser)
     parser.add_argument('--log-file', type=str, help='file to write the log to, in addition to the terminal')
     args = parser.parse_args()

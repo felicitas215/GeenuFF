@@ -2237,25 +2237,18 @@ def test_enums_name_val_match():
 
 
 # section: helpers
-def test_seqid_matching_pairs_gff_ids_with_fasta_ids():
+def test_seqid_check_accepts_gff_ids_that_are_fasta_ids():
     # the GFF covering only some of the FASTA sequences
-    assert helpers.match_seqids({'a', 'b', 'c'}, {'a', 'c'}) == {'a': 'a', 'c': 'c'}
-    # GFF IDs abbreviated from the FASTA IDs
-    assert helpers.match_seqids({'a.seq', 'b.seq', 'c.seq'}, {'a', 'b'}) == {'a': 'a.seq', 'b': 'b.seq'}
-    # an identical FASTA ID is taken over others containing the GFF ID
-    assert helpers.match_seqids({'1', '10', '2.seq'}, {'1', '2'}) == {'1': '1', '2': '2.seq'}
+    helpers.require_identical_seqids({'a', 'b', 'c'}, {'a', 'c'})
 
 
-def test_seqid_matching_raises_for_gff_ids_without_one_fasta_id():
+def test_seqid_check_raises_for_gff_ids_that_are_no_fasta_id():
     # a GFF ID with no FASTA sequence
-    with pytest.raises(helpers.NonMatchableIDs, match=r'matching no FASTA header \(1\): d'):
-        helpers.match_seqids({'a', 'b', 'c'}, {'a', 'b', 'c', 'd'})
-    # GFF IDs contained in several FASTA IDs
-    with pytest.raises(helpers.NonMatchableIDs, match=r'contained in several FASTA headers \(2\)'):
-        helpers.match_seqids({'ab.seq', 'ba.seq', 'c.seq', 'a.seq', 'b.seq'}, {'a', 'b', 'c'})
-    # two GFF IDs contained in the same FASTA ID
-    with pytest.raises(helpers.NonMatchableIDs, match=r'containing several GFF sequence IDs \(1\): ab \(a, b\)'):
-        helpers.match_seqids({'ab'}, {'a', 'b'})
+    with pytest.raises(helpers.NonMatchableIDs, match=r'not in the FASTA \(1\): d'):
+        helpers.require_identical_seqids({'a', 'b', 'c'}, {'a', 'b', 'c', 'd'})
+    # a GFF ID contained in a FASTA ID only, never paired with it
+    with pytest.raises(helpers.NonMatchableIDs, match=r'not in the FASTA \(1\): Chr1'):
+        helpers.require_identical_seqids({'Chr1.v2', 'Chr2'}, {'Chr1', 'Chr2'})
 
 
 @pytest.mark.parametrize('names, fasta_text, gff_text, message', [

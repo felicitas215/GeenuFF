@@ -148,7 +148,7 @@ class OrganizedGeenuffImporterGroup(object):
                 'transcript_feature': transcript_importer,
                 'protein': protein_importer,
                 'cds': cds_importer,
-                'introns': [intron_importer1, intron_importer2, ...],
+                'introns': [intron_importer1, intron_importer2, ...],  # none where masked whole
                 'masks': [],  # geenuff_mask importers, filled in by GFFErrorHandling.resolve_errors
                 'detected_error_types': set(),  # every error type found, stored as orm.TranscriptError
                 'mask_whole': None,  # or the error type it is masked whole for, nothing else checked
@@ -185,6 +185,20 @@ class OrganizedGeenuffImporterGroup(object):
                      f"'{sl_i.given_name}' will not be exported")
 
     @staticmethod
+    def cds_line_checks(t_entries):
+        """The spans of a transcript's CDS lines (GFF, 1-based, inclusive), whether they overlap and
+        whether they reach outside its exons (see helpers.cds_outside_exons). Every caller of
+        add_missing_stop_codon runs these first and adds no stop codon where either holds.
+
+        Returns:
+            (CDS spans, overlapping, outside the exons)
+        """
+        # the lines are sorted by start, so any overlap shows between neighbors
+        cds_spans = [(c.start, c.end) for c in t_entries['cds']]
+        return (cds_spans, helpers.gff_spans_overlap(cds_spans),
+                helpers.cds_outside_exons(cds_spans, [(e.start, e.end) for e in t_entries['exons']]))
+
+    @staticmethod
     def add_missing_stop_codon(t, t_entries, is_plus_strand, coord, cds_seq):
         """Adds the stop codon to a transcript's CDS lines where it alone is missing: the CDS, given
         as its spliced sequence cds_seq, being whole codons without any stop codon, and the next
@@ -193,6 +207,9 @@ class OrganizedGeenuffImporterGroup(object):
         translation ends there whatever the file says. Where the exons end before it, the last exon
         and the transcript are extended to hold it (see extend_to_cds). Changes t and t_entries in
         place.
+
+        Expects CDS lines that do not overlap and lie within the exons, which the callers check
+        before with cds_line_checks; the extension is not defined for any others.
 
         Returns:
             the spliced sequence of the extended CDS and how many of the 3 bases added lie past the
@@ -344,10 +361,7 @@ class OrganizedGeenuffImporterGroup(object):
             if t.start > t.end:
                 self._drop_unstorable_transcript(sl_i, t_id, 'transcript', t.start, t.end, bool(t_entries['cds']))
                 continue
-            # GFF coordinates are 1-based and inclusive, so a line lies within its sequence from
-            # 1 up to the sequence length
-            outside = [line for line in [t] + t_entries['exons'] + t_entries['cds']
-                       if line.start < 1 or line.end > self.coord.length]
+            outside = helpers.outside_sequence([t] + t_entries['exons'] + t_entries['cds'], self.coord.length)
             if outside:
                 if not self._clip_to_sequence(t, t_entries):
                     self._drop_transcript_outside_sequence(sl_i, t_id, outside[0], bool(t_entries['cds']))
@@ -420,9 +434,20 @@ class OrganizedGeenuffImporterGroup(object):
                 is_truncated = len(cds_seq) % 3 != 0
                 has_inframe_stop = has_inframe_stop_codon(cds_seq)
                 has_stop_codon = cds_seq[-3:] in STOP_CODONS
+                # checked on the lines as given, BEFORE a stop codon is added: add_missing_stop_codon
+                # expects CDS lines that do not overlap and lie within the exons, and adding the codon
+                # keeps them so, which makes these results hold for the extended lines as well.
+                # filter_longest_transcripts.add_stop_codon runs the same checks before the same call;
+                # keep the order in both, or the script and the import add different stop codons
+                cds_spans, overlapping_cds, cds_outside_exons = self.cds_line_checks(t_entries)
+                # a transcript masked whole gets nothing from its exons, which can be cut off by the
+                # sequence edge, see _build_introns
+                mask_whole = t_importers['mask_whole']  # i.e. floating CDS or tx beyond sequence edge, no other errors
+                cds_outside_exons = cds_outside_exons and not mask_whole
+                stats.cds_outside_exons_transcripts += cds_outside_exons
                 # a stop codon missing alone is added; the other checks above hold for the extended
                 # CDS as well
-                if not t_importers['mask_whole']:
+                if not (mask_whole or overlapping_cds or cds_outside_exons):
                     added = self.add_missing_stop_codon(t, t_entries, t_is_plus_strand, self.coord, cds_seq)
                     if added is not None:
                         cds_seq, n_past_exons = added
@@ -431,12 +456,6 @@ class OrganizedGeenuffImporterGroup(object):
                         if n_past_exons:
                             tf_i.set_start_end_from_gff(t.start, t.end)
                             stats.stop_codons_recovered_past_exons += 1
-                # the lines are sorted by start, so any overlap shows between neighbors
-                cds_lines = t_entries['cds']
-                overlapping_cds = any(b.start <= a.end for a, b in zip(cds_lines, cds_lines[1:]))
-                cds_outside_exons = helpers.cds_outside_exons([(c.start, c.end) for c in cds_lines],
-                                                              [(e.start, e.end) for e in t_entries['exons']])
-                stats.cds_outside_exons_transcripts += cds_outside_exons
                 cds_i = FeatureImporter(self.coord,
                                         t_is_plus_strand,
                                         types.GEENUFF_CDS,
@@ -461,17 +480,18 @@ class OrganizedGeenuffImporterGroup(object):
                 gff_cds_end = t_entries['cds'][-1].end
                 # however, we have to handle partial gene models that can end in / have hanging introns
                 # for a hanging intron the 'exon start' doesn't line up with the transcript start (same for ends)
-                gff_exon_start = t_entries['exons'][0].start
-                gff_exon_end = t_entries['exons'][-1].end
-                if gff_exon_start == gff_cds_start != t.start:
-                    # hanging intron at start, CDS feature will be extended to end of transcript
-                    # this will be wrong if the start codon exactly aligned w/ exon start and the final exon is
-                    # non-coding, but that is rare, and this implementation is more cautious / conservative
-                    # (AKA: will create more error masks to reflect the ambiguity)
-                    gff_cds_start = t.start
-                if gff_exon_end == gff_cds_end != t.end:
-                    # hanging intron at end
-                    gff_cds_end = t.end
+                if not mask_whole:  # i.e. floating CDS or tx beyond sequence edge, no other errors
+                    gff_exon_start = t_entries['exons'][0].start
+                    gff_exon_end = t_entries['exons'][-1].end
+                    if gff_exon_start == gff_cds_start != t.start:
+                        # hanging intron at start, CDS feature will be extended to end of transcript
+                        # this will be wrong if the start codon exactly aligned w/ exon start and the final exon is
+                        # non-coding, but that is rare, and this implementation is more cautious / conservative
+                        # (AKA: will create more error masks to reflect the ambiguity)
+                        gff_cds_start = t.start
+                    if gff_exon_end == gff_cds_end != t.end:
+                        # hanging intron at end
+                        gff_cds_end = t.end
 
                 if gff_cds_start > gff_cds_end:
                     self._drop_unstorable_transcript(sl_i, t_id, 'CDS', gff_cds_start, gff_cds_end, True)
@@ -482,91 +502,102 @@ class OrganizedGeenuffImporterGroup(object):
                 t_importers['protein'] = p_i
                 t_importers['cds'] = cds_i
 
-                # create all the introns by taking the transcript, and subtracting the exons
-                # (this handles literal sequence-edge cases more reliably than the gaps between exons)
-                # what remains is introns and gets FeatureImport setup and inserted into the previously created list
-                introns = []
-                itree = intervaltree.IntervalTree()
-                etree = intervaltree.IntervalTree()
-                # bc interval tree only operates w/ start < end
-                inv_t_start, inv_t_end = sorted([tf_i.start, tf_i.end])
-                itree[inv_t_start:inv_t_end] = t_is_plus_strand
-                exons = t_entries['exons']
-                has_overlapping_exons = False
-                for exon in exons:
-                    # an exon on another strand than its transcript, or on none at all, cannot be
-                    # chopped out of the span below; without its exons that span is not intronic
-                    # either, so the whole locus is given up on rather than left with what would
-                    # look like one intron covering the entire transcript
-                    e_is_plus_strand = strand_or_none(exon)
-                    if e_is_plus_strand != t_is_plus_strand:
-                        sl_i.excluded_from_export = types.UNPLACEABLE_STRAND
-                        itree.clear()
-                        break
-                    e_start, e_end = get_geenuff_start_end(exon.start, exon.end, e_is_plus_strand)
-                    inv_e_start, inv_e_end = sorted([e_start, e_end])
-                    itree.chop(inv_e_start, inv_e_end)
-                    # also check for and mark overlapping exons (for now with a backward 'intron' # todo refactor)
-                    overlapping = etree[inv_e_start:inv_e_end]
-                    if overlapping:
-                        has_overlapping_exons = True
-                        logger.debug(f'{t_id} on {exon.seqid}: exon {exon.start}-{exon.end} overlaps '
-                                     f'{plural(len(overlapping), "other exon")} of its transcript')
-                        overlapper_begin = min([o.begin for o in overlapping])
-                        overlapper_end = max([o.end for o in overlapping])
-                        ovlp_end = max(overlapper_begin, inv_e_start)
-                        ovlp_start = min(overlapper_end, inv_e_end)
-                        if not e_is_plus_strand:
-                            ovlp_start, ovlp_end = ovlp_end, ovlp_start
-                        # insert a dummy 'backwards' intron, which will later be turned into an overlap error
-                        intron_err = FeatureImporter(self.coord,
-                                                     is_plus_strand=e_is_plus_strand,
-                                                     feature_type=types.GEENUFF_INTRON,
-                                                     start=ovlp_start,
-                                                     end=ovlp_end,
-                                                     score=t.score,
-                                                     source=t.source,
-                                                     controller=self.controller)
-                        introns.append(intron_err)
-                    etree[inv_e_start:inv_e_end] = e_is_plus_strand
-                stats.overlapping_exons_transcripts += has_overlapping_exons
-
-                for interval in itree:
-                    i_start, i_end = interval.begin, interval.end
-                    if not interval.data:  # if minus strand (data = is_plus_strand)
-                        i_start, i_end = i_end, i_start
-                    intron_i = FeatureImporter(self.coord,
-                                               is_plus_strand=interval.data,
-                                               feature_type=types.GEENUFF_INTRON,
-                                               start=i_start,
-                                               end=i_end,
-                                               score=t.score,
-                                               source=t.source,
-                                               controller=self.controller)
-                    introns.append(intron_i)
-
-                introns = sorted(introns, key=lambda x: x.start)
-                if t_is_plus_strand:
-                    t_importers['introns'] = introns
+                # the measure the longest transcript is picked by (see _set_longest_transript): the
+                # spliced length of the CDS feature or, for a transcript masked whole, which gets no
+                # introns, the bases its CDS lines cover
+                if mask_whole:  # i.e. floating CDS or tx beyond sequence edge, no other errors
+                    # cds_spans are the lines as given, a transcript masked whole getting no stop codon
+                    t_importers['introns'] = []
+                    t_importers['coding_length'] = sum(end - start + 1
+                                                       for start, end in helpers.merge_gff_spans(cds_spans))
                 else:
-                    t_importers['introns'] = introns[::-1]
+                    t_importers['introns'] = self._build_introns(t, t_id, t_entries, tf_i, t_is_plus_strand, sl_i)
+                    t_importers['coding_length'] = self._coding_length(cds_i, t_importers['introns'])
             self.importers['transcripts'].append(t_importers)
             stats.imported_transcripts += 1
             stats.floating_cds_transcripts += t_entries['floating']
             stats.transcripts_with_exons_built += t_entries['exons_built']
         self._set_longest_transript()
 
+    def _build_introns(self, t, t_id, t_entries, tf_i, t_is_plus_strand, sl_i):
+        """The introns of a coding transcript in 5' to 3' order: its transcript span less its exons,
+        which handles literal sequence-edge cases more reliably than the gaps between exons, plus a
+        backwards intron per overlap of two exons, turned into an overlapping_exons error later. A
+        transcript masked whole gets none: nothing under it is labeled. An exon on another strand
+        than the transcript, or on none, keeps the locus out of exports and gives no introns."""
+        stats = self.controller.stats
+        introns = []
+        itree = intervaltree.IntervalTree()
+        etree = intervaltree.IntervalTree()
+        # bc interval tree only operates w/ start < end
+        inv_t_start, inv_t_end = sorted([tf_i.start, tf_i.end])
+        itree[inv_t_start:inv_t_end] = t_is_plus_strand
+        has_overlapping_exons = False
+        for exon in t_entries['exons']:
+            # an exon on another strand than its transcript, or on none at all, cannot be
+            # chopped out of the span below; without its exons that span is not intronic
+            # either, so the whole locus is given up on rather than left with what would
+            # look like one intron covering the entire transcript
+            e_is_plus_strand = strand_or_none(exon)
+            if e_is_plus_strand != t_is_plus_strand:
+                sl_i.excluded_from_export = types.UNPLACEABLE_STRAND
+                itree.clear()
+                break
+            e_start, e_end = get_geenuff_start_end(exon.start, exon.end, e_is_plus_strand)
+            inv_e_start, inv_e_end = sorted([e_start, e_end])
+            itree.chop(inv_e_start, inv_e_end)
+            # also check for and mark overlapping exons (for now with a backward 'intron' # todo refactor)
+            overlapping = etree[inv_e_start:inv_e_end]
+            if overlapping:
+                has_overlapping_exons = True
+                logger.debug(f'{t_id} on {exon.seqid}: exon {exon.start}-{exon.end} overlaps '
+                             f'{plural(len(overlapping), "other exon")} of its transcript')
+                overlapper_begin = min([o.begin for o in overlapping])
+                overlapper_end = max([o.end for o in overlapping])
+                ovlp_end = max(overlapper_begin, inv_e_start)
+                ovlp_start = min(overlapper_end, inv_e_end)
+                if not e_is_plus_strand:
+                    ovlp_start, ovlp_end = ovlp_end, ovlp_start
+                # insert a dummy 'backwards' intron, which will later be turned into an overlap error
+                intron_err = FeatureImporter(self.coord,
+                                             is_plus_strand=e_is_plus_strand,
+                                             feature_type=types.GEENUFF_INTRON,
+                                             start=ovlp_start,
+                                             end=ovlp_end,
+                                             score=t.score,
+                                             source=t.source,
+                                             controller=self.controller)
+                introns.append(intron_err)
+            etree[inv_e_start:inv_e_end] = e_is_plus_strand
+        stats.overlapping_exons_transcripts += has_overlapping_exons
+
+        for interval in itree:
+            i_start, i_end = interval.begin, interval.end
+            if not interval.data:  # if minus strand (data = is_plus_strand)
+                i_start, i_end = i_end, i_start
+            intron_i = FeatureImporter(self.coord,
+                                       is_plus_strand=interval.data,
+                                       feature_type=types.GEENUFF_INTRON,
+                                       start=i_start,
+                                       end=i_end,
+                                       score=t.score,
+                                       source=t.source,
+                                       controller=self.controller)
+            introns.append(intron_i)
+
+        introns = sorted(introns, key=lambda x: x.start)
+        return introns if t_is_plus_strand else introns[::-1]
+
     def _set_longest_transript(self):
-        """Looks for the transcript with the longest spliced CDS (see _coding_length) and sets the
-        'longest' parameters in all the TranscriptImporters. In case of a tie, the first
-        transcript found will be set as longest."""
+        """Looks for the transcript with the longest spliced CDS (coding_length, set in
+        _parse_gff_entries, see _coding_length) and sets the 'longest' parameters in all the
+        TranscriptImporters. In case of a tie, the first transcript found will be set as longest.
+        coding_length also ranks the locus against an overlapping one (see
+        GFFErrorHandling._decide_overlap_pair)."""
         max_exon_len = -1
         longest_importer = None
         for t in self.importers['transcripts']:
             if 'cds' in t:
-                # kept to rank the locus against an overlapping one by the same measure (see
-                # GFFErrorHandling._decide_overlap_pair)
-                t['coding_length'] = self._coding_length(t['cds'], t['introns'])
                 if t['coding_length'] > max_exon_len:
                     max_exon_len = t['coding_length']
                     longest_importer = t['transcript']
@@ -626,7 +657,7 @@ class OrganizedGFFEntryGroup(object):
     def __init__(self, entries, fasta_importer, controller):
         self.controller = controller
         self.entries = entries
-        self.coord = fasta_importer.gffid_to_coords[entries['super_locus'].seqid]
+        self.coord = fasta_importer.coords_by_seqid[entries['super_locus'].seqid]
 
     def get_geenuff_importers(self):
         geenuff_importer_group = OrganizedGeenuffImporterGroup(self.entries, self.coord,
@@ -1630,7 +1661,7 @@ class ImportController(object):
 
         assert self.latest_fasta_importer is not None, 'No recent genome found'
         logger.info('Starting to parse the GFF file')
-        self.latest_fasta_importer.match_gff_seqids(gff_file)
+        self.latest_fasta_importer.check_gff_seqids(gff_file)
         gff_organizer = OrganizedGFFEntries(gff_file, self.stats)
         gff_organizer.load_organized_entries()
 
@@ -1675,14 +1706,14 @@ class Insertable(ABC):
 class FastaImporter(object):
     def __init__(self, genome):
         self.genome = genome
-        self.gffid_to_coords = None
+        self.coords_by_seqid = None
 
-    def match_gff_seqids(self, gff_file):
-        """Maps each sequence ID of the GFF's feature lines to its FASTA sequence's Coordinate,
-        raising helpers.NonMatchableIDs for IDs without exactly one (see helpers.match_seqids)."""
+    def check_gff_seqids(self, gff_file):
+        """Maps each FASTA sequence ID to its Coordinate, raising helpers.NonMatchableIDs where a
+        sequence ID of the GFF's feature lines is no FASTA ID (see helpers.require_identical_seqids)."""
         coords_by_seqid = {c.seqid: c for c in self.genome.coordinates}
-        seqid_pairs = helpers.match_seqids(coords_by_seqid, gffhelper.GFFParser.seqids(gff_file))
-        self.gffid_to_coords = {gff_id: coords_by_seqid[fa_id] for gff_id, fa_id in seqid_pairs.items()}
+        helpers.require_identical_seqids(coords_by_seqid, gffhelper.GFFParser.seqids(gff_file))
+        self.coords_by_seqid = coords_by_seqid
 
     def add_sequences(self, seq_file, session):
         """Adds a Coordinate per FASTA sequence, committing every SEQUENCE_COMMIT_BASES bases, so the
